@@ -1,0 +1,10 @@
+.sa-gallery { min-height: 100vh; padding: 28px clamp(16px, 4vw, 56px) 60px; color: #20292e; background: #e8e4d8; }
+.sa-header { display: flex; align-items: end; justify-content: space-between; gap: 20px; max-width: 1440px; margin: 0 auto 24px; }
+.sa-kicker { color: #a0523b; font-size: 10px; font-weight: 800; letter-spacing: .15em; }
+.sa-header h1 { margin: 5px 0 0; font: 600 36px/1.05 "Fraunces", Georgia, serif; }
+.sa-header p { margin: 0; color: #65716f; font-size: 13px; }
+.sa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 12px; max-width: 1440px; margin: 0 auto; }
+.sa-item { overflow: hidden; min-width: 0; background: rgba(255,255,255,.64); border: 1px solid rgba(48,63,65,.13); border-radius: 7px; }
+.sa-item .st-motif { display: block; width: 100%; aspect-ratio: 9 / 13; background: #24364b; }
+.sa-item span { display: block; padding: 9px 11px 10px; color: #3f4c4b; font-size: 11px; font-weight: 700; text-transform: capitalize; }
+@media (max-width: 560px) { .sa-header { align-items: start; flex-direction: column; gap: 8px; } .sa-header h1 { font-size: 29px; } .sa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .sa-item span { padding: 7px 8px; font-size: 10px; } }

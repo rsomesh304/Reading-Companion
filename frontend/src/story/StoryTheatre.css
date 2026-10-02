@@ -1,0 +1,56 @@
+.st-root {
+  position: fixed; inset: 0; z-index: 10000; overflow: hidden; isolation: isolate;
+  color: #f5f0e4; background: #10171d; font-family: "Inter", sans-serif; pointer-events: auto;
+  touch-action: manipulation;
+}
+.st-film-stage, .st-grain { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
+.st-film-stage { z-index: 0; background: #101b35; }
+.st-film-stage::before, .st-film-stage::after { position: absolute; z-index: 4; inset: 0; content: ""; pointer-events: none; }
+.st-film-stage.transition-light-wipe::before { background: linear-gradient(108deg, transparent 32%, rgba(255,245,212,.94) 49%, rgba(141,223,221,.72) 53%, transparent 68%); transform: translateX(-115%); animation: stLightWipe .9s cubic-bezier(.2,.8,.2,1) both; }
+.st-film-stage.transition-dip-to-black::after { background: #05070d; animation: stDipBlack .75s ease-in-out both; }
+@keyframes stLightWipe { to { transform: translateX(115%); } }
+@keyframes stDipBlack { 0% { opacity: 0; } 45% { opacity: .9; } 100% { opacity: 0; } }
+.st-film-frame { position: absolute; inset: 0; width: 100%; height: 100%; will-change: opacity, transform, filter; }
+.st-motif { display: block; width: 100%; height: 100%; }
+.st-grain { z-index: 1; opacity: .035; background-image: repeating-linear-gradient(0deg, transparent 0, rgba(255,255,255,.12) 1px, transparent 2px, transparent 4px); mix-blend-mode: screen; }
+.st-opening, .st-message { position: absolute; z-index: 5; inset: 0; display: grid; place-content: center; justify-items: center; padding: 28px; text-align: center; background: rgba(5,8,14,.98); pointer-events: none; }
+.st-opening p { margin: 24px 0 0; color: rgba(248,242,226,.82); font-size: 14px; }
+.st-opening h1 { max-width: min(82vw, 720px); margin: 0; color: #f7edda; font: 500 clamp(30px, 7vw, 62px)/1.1 "Fraunces", Georgia, serif; text-wrap: balance; text-shadow: 0 3px 32px rgba(0,0,0,.4); }
+.st-ink { width: 44px; height: 44px; border: 1px solid rgba(232,196,135,.28); border-right-color: #e8c487; border-radius: 50%; animation: stInk 1.7s ease-in-out infinite; }
+@keyframes stInk { 50% { transform: rotate(180deg) scale(.84); border-right-color: #c96f54; } to { transform: rotate(360deg); } }
+.st-message { gap: 20px; background: rgba(14,21,26,.9); }
+.st-message p { max-width: 520px; margin: 0; color: #f2ead9; font: 500 clamp(19px, 4vw, 29px)/1.5 "Fraunces", Georgia, serif; }
+.st-top, .st-controls { position: absolute; z-index: 10; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; padding-left: max(18px, env(safe-area-inset-left)); padding-right: max(18px, env(safe-area-inset-right)); transition: opacity .25s ease, transform .25s ease; pointer-events: none; }
+.st-top { top: 0; padding-top: max(14px, env(safe-area-inset-top)); }
+.st-book-title { display: flex; flex-direction: column; gap: 3px; color: rgba(249,245,234,.9); font-size: 12px; font-weight: 700; text-shadow: 0 1px 10px #111; }
+.st-book-title small { color: rgba(239,231,213,.7); font-size: 10px; font-weight: 500; }
+.st-control { display: inline-grid; place-items: center; flex: 0 0 46px; width: 46px; height: 46px; min-width: 44px; min-height: 44px; padding: 0; color: #f8f2e6; background: rgba(20,27,31,.5); border: 1px solid rgba(246,238,218,.28); border-radius: 50%; backdrop-filter: blur(8px); cursor: pointer; pointer-events: auto; }
+.st-close { position: relative; z-index: 12; }
+.st-control:hover { background: rgba(37,48,51,.85); }
+.st-controls { bottom: max(22px, env(safe-area-inset-bottom)); display: block; padding-top: 18px; padding-bottom: 5px; background: linear-gradient(0deg, rgba(6,11,14,.52), rgba(6,11,14,0)); }
+.st-control-row { display: flex; align-items: center; gap: 11px; pointer-events: none; }
+.st-control-row .st-control { pointer-events: auto; }
+.st-control-spacer { flex: 1; }
+.st-motif-label { position: absolute; z-index: 4; top: 29%; left: 50%; max-width: min(72vw, 380px); overflow: hidden; padding: 9px 18px; color: #fff3d6; background: rgba(243,248,255,.08); border: 1px solid rgba(246,236,207,.24); border-radius: 999px; backdrop-filter: blur(14px); font: 600 12px/1.2 "Inter", sans-serif; text-align: center; text-overflow: ellipsis; white-space: nowrap; transform: translateX(-50%); pointer-events: none; }
+.st-subtitle { position: absolute; z-index: 6; right: 28px; bottom: max(106px, calc(env(safe-area-inset-bottom) + 98px)); left: 28px; max-width: 740px; max-height: 3.1em; overflow: hidden; margin: 0 auto; color: rgba(255,250,237,.93); font: 500 16px/1.5 "Fraunces", Georgia, serif; text-align: center; text-wrap: pretty; text-shadow: 0 2px 13px rgba(0,0,0,.9); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; pointer-events: none; }
+.st-finish { position: absolute; z-index: 4; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: end; gap: 18px; padding: 24px 18px max(108px, calc(env(safe-area-inset-bottom) + 96px)); background: linear-gradient(0deg, rgba(11,16,19,.9), transparent 65%); text-align: center; }
+.st-finish p { max-width: 620px; margin: 0; color: #f5eedf; font: 500 20px/1.4 "Fraunces", Georgia, serif; }
+.st-finish div { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; }
+.st-primary, .st-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 17px; color: #f8f2e7; background: rgba(28,40,45,.88); border: 1px solid rgba(246,238,218,.3); border-radius: 5px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.st-primary { color: #192326; background: #e5bd76; border-color: #e5bd76; }
+.st-root button:focus-visible { outline: 2px solid #f1cd84; outline-offset: 3px; }
+.st-root .hidden { opacity: 0; pointer-events: none; transform: translateY(7px); }
+.st-root .visible { opacity: 1; pointer-events: auto; }
+.st-root .hidden button { pointer-events: none; }
+.st-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; clip-path: inset(50%); }
+@media (max-width: 520px) {
+  .st-controls { padding-right: 14px; padding-left: 14px; }
+  .st-control-row { gap: 6px; }
+  .st-control { flex-basis: 44px; width: 44px; height: 44px; }
+  .st-subtitle { right: 18px; left: 18px; bottom: max(106px, calc(env(safe-area-inset-bottom) + 100px)); }
+  .st-finish p { font-size: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .st-ink { animation-duration: 5s; }
+  .st-top, .st-controls { transition: none; }
+}

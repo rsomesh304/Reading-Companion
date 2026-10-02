@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800">
+      <defs>
+        <linearGradient id="bg" x1="0" x2="1">
+          <stop offset="0%" stop-color="#2A1B3D"/>
+          <stop offset="100%" stop-color="#7C3AED"/>
+        </linearGradient>
+      </defs>
+      <rect width="800" height="800" fill="url(#bg)"/>
+      <circle cx="620" cy="180" r="130" fill="rgba(255,255,255,0.08)"/>
+      <path d="M120 620 C 220 420, 340 520, 440 360 S 670 220, 720 480" stroke="#F8E7A1" stroke-width="8" fill="none" stroke-linecap="round"/>
+      <path d="M140 500 C 260 420, 300 550, 420 460 S 620 350, 680 520" stroke="#FBBF24" stroke-width="6" fill="none"/>
+      <text x="80" y="120" fill="#F9FAFB" font-size="28" font-family="Georgia">Quote</text>
+      <text x="80" y="640" fill="#F9FAFB" font-size="26" font-family="Georgia" font-style="italic">
+        "${lines}..."
+      </text>
+    </svg>

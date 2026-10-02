@@ -1,0 +1,20 @@
+{
+  "name": "reading-companion",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c yellow,cyan \"npm run dev -w backend\" \"npm run dev -w frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/playfair-display": "^5.3.0",
+    "html-to-image": "^1.11.13",
+    "react-force-graph-2d": "^1.29.2"
+  }
+}

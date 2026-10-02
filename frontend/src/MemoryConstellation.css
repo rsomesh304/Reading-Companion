@@ -1,0 +1,158 @@
+/* ================= Memory tab shell (slider) ================= */
+.mem-tab {
+  position: fixed; left: 0; right: 0; top: 0; bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  z-index: 20; display: flex; flex-direction: column;
+  background: linear-gradient(160deg, var(--bg-1), var(--bg-2) 55%, var(--bg-3));
+}
+.mem-switch {
+  flex-shrink: 0; margin: 12px 16px 12px; padding: 4px; border-radius: 16px;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.mem-switch-in { position: relative; display: grid; grid-template-columns: 1fr 1fr; }
+.mem-pill {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 50%; border-radius: 12px; z-index: 0;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  box-shadow: 0 6px 18px rgba(139,92,246,.4);
+}
+.mem-tab-btn {
+  position: relative; z-index: 1; border: none; background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 11px 0; font-size: 13px; font-weight: 700; color: var(--muted); transition: color .25s ease;
+}
+.mem-tab-btn.on { color: #fff; }
+.mem-viewport { flex: 1; min-height: 0; overflow: hidden; position: relative; }
+.mem-track { display: flex; width: 200%; height: 100%; }
+.mem-pane { width: 50%; height: 100%; position: relative; overflow: hidden; }
+.mem-pane.scroll { overflow-y: auto; }
+
+/* ================= Constellation ================= */
+.cc-root {
+  position: absolute; inset: 0; overflow: hidden; touch-action: none;
+  background: var(--cc-bg); color: var(--cc-text);
+}
+.cc-root.dark {
+  --cc-bg: #050508; --cc-text: #f1eefb; --cc-dim: rgba(255,255,255,.58);
+  --cc-glass: rgba(255,255,255,.06); --cc-line: rgba(255,255,255,.12);
+  --cc-sheet: rgba(10,10,18,.68); --cc-shadow: rgba(0,0,0,.5); --cc-soft: rgba(255,255,255,.05);
+}
+.cc-root.light {
+  --cc-bg: #f5f2fc; --cc-text: #201A35; --cc-dim: rgba(32,26,53,.62);
+  --cc-glass: rgba(255,255,255,.72); --cc-line: rgba(99,102,241,.2);
+  --cc-sheet: rgba(255,255,255,.82); --cc-shadow: rgba(76,47,143,.2); --cc-soft: rgba(99,102,241,.07);
+}
+.cc-bgfx { position: absolute; inset: 0; pointer-events: none; }
+.cc-root.dark .cc-bgfx {
+  background:
+    radial-gradient(circle at 18% 22%, rgba(139,92,246,.16), transparent 42%),
+    radial-gradient(circle at 82% 78%, rgba(34,211,238,.12), transparent 45%),
+    radial-gradient(1px 1px at 12% 30%, #fff8, transparent), radial-gradient(1px 1px at 38% 12%, #fff6, transparent),
+    radial-gradient(1.5px 1.5px at 64% 40%, #fff7, transparent), radial-gradient(1px 1px at 86% 18%, #fff6, transparent),
+    radial-gradient(1px 1px at 24% 74%, #fff5, transparent), radial-gradient(1.5px 1.5px at 72% 86%, #fff7, transparent),
+    radial-gradient(1px 1px at 48% 62%, #fff5, transparent);
+}
+.cc-root.light .cc-bgfx {
+  background:
+    radial-gradient(circle at 18% 22%, rgba(139,92,246,.16), transparent 45%),
+    radial-gradient(circle at 82% 78%, rgba(34,211,238,.14), transparent 48%),
+    radial-gradient(rgba(99,102,241,.2) 1px, transparent 1.6px) 0 0 / 22px 22px;
+}
+.cc-root canvas { position: relative; z-index: 1; }
+
+/* header card + info */
+.cc-header {
+  position: absolute; z-index: 5; left: 12px; right: 12px; top: 10px; max-height: 74%; overflow-y: auto; touch-action: pan-y;
+  padding: 12px 14px; border-radius: 20px;
+  background: var(--cc-glass); border: 1px solid var(--cc-line);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 10px 30px var(--cc-shadow);
+}
+.cc-head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cc-header h1 {
+  margin: 0; font-family: 'Fraunces', serif; font-size: 18px; font-weight: 600; line-height: 1.1;
+  background: linear-gradient(90deg, #8b5cf6, #06b6d4); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.cc-header p { margin: 3px 0 0; font-size: 11px; color: var(--cc-dim); }
+.cc-info-btn {
+  flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--cc-text); background: var(--cc-soft); border: 1px solid var(--cc-line); transition: all .2s ease;
+}
+.cc-info-btn.on { color: #fff; background: linear-gradient(135deg, #8B5CF6, #6366F1); border-color: transparent; box-shadow: 0 4px 14px rgba(139,92,246,.45); }
+.cc-info { overflow: hidden; }
+.cc-info-in { padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.cc-info-lead { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--cc-text); }
+.cc-info ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cc-info li { display: flex; gap: 10px; align-items: center; font-size: 12px; line-height: 1.4; color: var(--cc-dim); }
+.cc-info li b { color: var(--cc-text); }
+.cc-ico { width: 26px; height: 26px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.ico-book { width: 14px; height: 19px; border-radius: 3px; background: linear-gradient(135deg, #8B5CF6, #6366F1); box-shadow: 0 0 10px rgba(139,92,246,.6); }
+.ico-gem { width: 11px; height: 11px; transform: rotate(45deg); border-radius: 2px; background: linear-gradient(135deg, #22D3EE, #0EA5E9); box-shadow: 0 0 10px rgba(34,211,238,.6); }
+.ico-orbit { width: 22px; height: 22px; border-radius: 50%; border: 1.5px dashed var(--cc-dim); }
+.ico-echo { width: 24px; border-top: 2px dotted #F472B6; }
+.cc-info-why { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 14px; background: var(--cc-soft); font-size: 12px; line-height: 1.45; color: var(--cc-dim); }
+.cc-info-why b { color: var(--cc-text); margin-bottom: 2px; }
+.cc-info-ok {
+  align-self: flex-end; border: none; cursor: pointer; color: #fff; font-size: 12px; font-weight: 700;
+  padding: 8px 16px; border-radius: 99px; background: linear-gradient(135deg, #8B5CF6, #6366F1);
+}
+
+/* chips + floating buttons */
+.cc-chips {
+  position: absolute; z-index: 5; left: 12px; right: 70px; bottom: 14px;
+  display: flex; gap: 8px; overflow-x: auto; touch-action: pan-x; scrollbar-width: none;
+}
+.cc-chips::-webkit-scrollbar { display: none; }
+.cc-chips button {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  padding: 9px 13px; border-radius: 99px; font-size: 12px; font-weight: 700; color: var(--cc-text);
+  background: var(--cc-glass); border: 1px solid var(--cc-line);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+}
+.cc-chips button i { width: 9px; height: 12px; border-radius: 2px; background: var(--c); box-shadow: 0 0 8px var(--c); }
+.cc-fabs { position: absolute; z-index: 5; right: 12px; bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
+.cc-fabs button {
+  width: 42px; height: 42px; border-radius: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  color: var(--cc-text); background: var(--cc-glass); border: 1px solid var(--cc-line);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+}
+.cc-fabs button.on { color: #fff; background: linear-gradient(135deg, #F472B6, #8B5CF6); border-color: transparent; }
+
+/* bottom sheet */
+.cc-sheet {
+  position: absolute; z-index: 10; left: 0; right: 0; bottom: 0; max-height: 55%;
+  display: flex; flex-direction: column; border-radius: 28px 28px 0 0; color: var(--cc-text); touch-action: none;
+  background: var(--cc-sheet); border: 1px solid var(--cc-line); border-bottom: none;
+  backdrop-filter: blur(40px) saturate(1.4); -webkit-backdrop-filter: blur(40px) saturate(1.4);
+  box-shadow: 0 -20px 60px var(--cc-shadow), 0 0 40px color-mix(in srgb, var(--ac1) 18%, transparent);
+}
+.cc-handle { padding: 10px 0 6px; display: flex; justify-content: center; cursor: grab; touch-action: none; }
+.cc-handle span { width: 40px; height: 4px; border-radius: 99px; background: var(--cc-dim); opacity: .5; }
+.cc-close {
+  position: absolute; top: 12px; right: 14px; width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; color: var(--cc-text);
+  background: var(--cc-soft); border: 1px solid var(--cc-line);
+}
+.cc-sheet-body { padding: 4px 20px 22px; overflow-y: auto; touch-action: pan-y; display: flex; flex-direction: column; gap: 10px; }
+.cc-sheet h2 { margin: 0; font-family: 'Fraunces', serif; font-size: 22px; font-weight: 600; }
+.cc-sub { margin: 0; font-size: 12px; color: var(--cc-dim); }
+.cc-chip {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800;
+  letter-spacing: .1em; text-transform: uppercase; padding: 4px 10px; border-radius: 99px; color: var(--ac1);
+  background: color-mix(in srgb, var(--ac1) 14%, transparent); border: 1px solid color-mix(in srgb, var(--ac1) 40%, transparent);
+}
+.cc-book-line { margin: 0; font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--ac1); }
+.cc-sheet blockquote { margin: 0; font-family: 'Fraunces', Georgia, serif; font-size: 20px; line-height: 1.35; letter-spacing: -.02em; }
+.cc-label { margin-top: 6px; display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--ac2); }
+.cc-app { font-size: 14px; line-height: 1.55; color: var(--cc-text); opacity: .9; display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.cc-app p { margin: 0; }
+.cc-app ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.cc-ex { color: var(--cc-dim); }
+.cc-why { font-style: italic; color: var(--cc-dim); }
+.cc-gem-list { display: flex; flex-direction: column; gap: 8px; }
+.cc-gem-list button {
+  display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 10px 12px; border-radius: 14px; cursor: pointer;
+  color: var(--cc-text); font-size: 13px; line-height: 1.4; background: var(--cc-soft); border: 1px solid var(--cc-line);
+}
+.cc-gem-list button svg { color: var(--ac1); flex-shrink: 0; margin-top: 2px; }
+.cc-gem-list button em { display: block; margin-top: 2px; font-size: 11px; font-style: normal; color: var(--cc-dim); }
+.cc-gem-list button em.cc-echo-why { color: var(--ac1); font-weight: 700; }

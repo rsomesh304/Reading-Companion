@@ -1,0 +1,95 @@
+@keyframes mascot-float3D {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(2deg); }
+}
+@keyframes mascot-blink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+@keyframes mascot-wiggle {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  20% { transform: rotate(-9deg) scale(1.06); }
+  40% { transform: rotate(8deg) scale(1.08); }
+  60% { transform: rotate(-6deg) scale(1.05); }
+  80% { transform: rotate(4deg) scale(1.02); }
+}
+
+.mascot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.mascot.render-3d {
+  animation: mascot-float3D 4.5s ease-in-out infinite;
+  filter: drop-shadow(0 12px 20px rgba(0,0,0,0.3));
+  cursor: pointer;
+}
+
+.mascot-inner { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+.mascot-inner.wiggle { animation: mascot-wiggle 0.7s ease-in-out; }
+.mascot .blink-group { animation: mascot-blink 4s infinite; transform-origin: center; }
+.mascot-thought-wrap {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; z-index: 30; pointer-events: none;
+}
+.mascot-thought-wrap.below { top: 100%; margin-top: 2px; flex-direction: column; }
+.mascot-thought-wrap.above { bottom: 100%; margin-bottom: 2px; flex-direction: column-reverse; }
+
+.mascot-thought-dot {
+  display: block; border-radius: 50%;
+  background: var(--surface, #171826); border: 1px solid var(--border, rgba(168,133,247,0.28));
+  opacity: 0;
+}
+.dot-1 { width: 6px; height: 6px; margin: 2px 0 2px 18px; animation: bubbleDot1 4.2s ease forwards; }
+.dot-2 { width: 10px; height: 10px; margin: 0 0 3px 8px; animation: bubbleDot2 4.2s ease forwards; }
+
+.mascot-thought-cloud {
+  max-width: 200px; min-width: 120px; padding: 10px 14px; border-radius: 18px;
+  background: var(--surface, #171826); color: var(--text, #f1eefb);
+  border: 1px solid var(--border, rgba(168,133,247,0.28));
+  box-shadow: 0 10px 24px rgba(0,0,0,0.22);
+  font-size: 11px; font-weight: 600; line-height: 1.4; text-align: center; white-space: normal;
+  opacity: 0; transform-origin: top center; animation: bubbleCloud 4.2s ease forwards;
+}
+.mascot-thought-wrap.above .mascot-thought-cloud { transform-origin: bottom center; }
+
+@keyframes bubbleDot1 { 0% { opacity:0; transform:scale(0); } 6% { opacity:1; transform:scale(1); } 90% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(0); } }
+@keyframes bubbleDot2 { 0%,8% { opacity:0; transform:scale(0); } 15% { opacity:1; transform:scale(1); } 90% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(0); } }
+@keyframes bubbleCloud { 0%,16% { opacity:0; transform:scale(.2); } 28% { opacity:1; transform:scale(1.05); } 33% { transform:scale(1); } 90% { opacity:1; transform:scale(1); } 100% { opacity:0; transform:scale(.9); } }
+/* bubble above the head, opening to the upper-left or upper-right */
+.mascot-thought-wrap.above-left, .mascot-thought-wrap.above-right {
+  top: auto; bottom: 100%; margin-bottom: 4px; flex-direction: column-reverse; transform: none;
+}
+.mascot-thought-wrap.above-left, .dash-hero .mascot-thought-wrap.above-left { left: auto; right: 45%; align-items: flex-end; transform: none; }
+.mascot-thought-wrap.above-right { right: auto; left: 45%; align-items: flex-start; }
+.mascot-thought-wrap.above-left .dot-1 { margin: 3px 2px 3px 0; }
+.mascot-thought-wrap.above-left .dot-2 { margin: 0 10px 3px 0; }
+.mascot-thought-wrap.above-right .dot-1 { margin: 3px 0 3px 2px; }
+.mascot-thought-wrap.above-right .dot-2 { margin: 0 0 3px 10px; }
+
+/* gradient bubble that matches the app buttons, white text */
+.mascot-thought-wrap .mascot-thought-cloud {
+  background: linear-gradient(135deg, var(--primary, #8B5CF6), var(--primary-2, #6366F1));
+  color: #fff; border: 1px solid rgba(255,255,255,.3);
+  box-shadow: 0 12px 28px rgba(99,102,241,.4);
+  font-size: 12px; font-weight: 700; line-height: 1.4; text-shadow: 0 1px 2px rgba(0,0,0,.25);
+  max-width: 210px; min-width: 130px;
+}
+.mascot-thought-wrap .dot-1 { background: var(--primary-2, #6366F1); border-color: rgba(255,255,255,.4); }
+.mascot-thought-wrap .dot-2 { background: var(--primary, #8B5CF6); border-color: rgba(255,255,255,.4); }
+.mascot-thought-wrap .mascot-thought-dot, .mascot-thought-wrap .mascot-thought-cloud { animation-duration: 6s; }
+.mascot-inner { position: relative; }
+.mascot-mouth {
+  position: absolute; border-radius: 50%; pointer-events: none; opacity: 0;
+  transform: translate(-50%, -50%) scaleY(.3);
+  background: radial-gradient(circle at 50% 75%, #e0707f 0 28%, #3b1206 32%);
+  box-shadow: 0 0 0 1.5px rgba(59,18,6,.6);
+}
+.mascot-mouth.on { opacity: 1; }
+.mascot-mouth.css-talk { animation: mouthChat .28s ease-in-out infinite alternate; }
+@keyframes mouthChat {
+  from { transform: translate(-50%, -50%) scaleY(.3); }
+  to { transform: translate(-50%, -50%) scaleY(1.2); }
+}

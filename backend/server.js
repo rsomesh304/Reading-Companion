@@ -1,0 +1,1037 @@
+import { GoogleGenAI } from "@google/genai";
+import cors from "cors";
+import dotenv from "dotenv";
+import express from "express";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { DailyGeminiKeyPool } from "./geminiKeyPool.js";
+import {
+    createFallbackStoryScript,
+    normalizeStorySource,
+    personalizeStoryScript,
+    validateStoryScript,
+} from "./storyScript.js";
+import { MOTIF_IDS, SCRIPT_MOODS, SCRIPT_TRANSITIONS } from "./validateScript.js";
+
+dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), ".env") });
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+app.get("/api/health", (req, res) => {
+  res.send("ok");
+});
+
+const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "")
+  .split(",")
+  .map((key) => key.trim())
+  .filter(Boolean);
+const GEMINI_API_KEY = GEMINI_API_KEYS[0] || "";
+const MODEL_NAME = process.env.LIVE_MODEL_NAME || "gemini-3.1-flash-live-preview";
+const MEMORY_SUMMARY_MODEL = process.env.MEMORY_SUMMARY_MODEL || "gemini-3.6-flash";
+const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+const CLOUDFLARE_IMAGE_ENDPOINT = CLOUDFLARE_ACCOUNT_ID
+  ? `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell`
+  : null;
+
+if (!GEMINI_API_KEY) {
+  console.warn("[BOOT] No Gemini API key configured. Backend will run in degraded/offline mode until backend/.env is configured.");
+}
+
+const geminiKeyPool = new DailyGeminiKeyPool(GEMINI_API_KEYS.length);
+
+function localDay() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+function validDay(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value ? null : value;
+}
+
+function deviceDayFromRequest(req) {
+  return validDay(req.get("x-device-date")) || localDay();
+}
+
+function isQuotaOrRateLimitError(err) {
+  const message = String(err?.message || err || "");
+  const code = Number(err?.status ?? err?.code ?? 0);
+  return (
+    code === 429 ||
+    /RESOURCE_EXHAUSTED|429|quota|rate limit|exceeded your current quota|RESOURCE_EXHAUSTED/i.test(message)
+  );
+}
+
+async function withGeminiFailover(operation, label = "Gemini request", { deviceDay, failedKeyIndex } = {}) {
+  if (!GEMINI_API_KEYS.length) {
+    throw new Error("gemini_api_key_missing");
+  }
+
+  const requestedDay = validDay(deviceDay);
+  const day = requestedDay || geminiKeyPool.day || localDay();
+  if (requestedDay) geminiKeyPool.currentIndex(day);
+  if (Number.isInteger(failedKeyIndex)) geminiKeyPool.markExhausted(failedKeyIndex, day);
+  let lastError = null;
+  for (let attempt = 0; attempt < GEMINI_API_KEYS.length; attempt += 1) {
+    const keyIndex = geminiKeyPool.currentIndex(day);
+    if (keyIndex === null) break;
+    try {
+      const geminiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEYS[keyIndex] });
+      const result = await operation(geminiClient, GEMINI_API_KEYS[keyIndex], keyIndex);
+      console.info(`[GEMINI] ${label} succeeded with key ${keyIndex + 1}/${GEMINI_API_KEYS.length}`);
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (!isQuotaOrRateLimitError(error)) throw error;
+      const nextKeyIndex = geminiKeyPool.markExhausted(keyIndex, day);
+      console.warn(`[GEMINI] ${label} hit quota on key ${keyIndex + 1}/${GEMINI_API_KEYS.length}; next key ${nextKeyIndex === null ? "unavailable" : `${nextKeyIndex + 1}/${GEMINI_API_KEYS.length}`}.`);
+    }
+  }
+
+  if (lastError) throw lastError;
+  throw new Error("all_gemini_keys_exhausted");
+}
+
+async function generateGeminiContent({ model, contents, config }) {
+  return withGeminiFailover(async (geminiClient) => geminiClient.models.generateContent({ model, contents, config }));
+}
+
+async function mintGeminiToken({ deviceDay, failedKeyIndex } = {}) {
+  return withGeminiFailover(async (geminiClient, _apiKey, keyIndex) => {
+    const tokenResource = await geminiClient.authTokens.create({
+      config: {
+        uses: 1,
+        expireTime: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        newSessionExpireTime: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+        httpOptions: { apiVersion: "v1alpha" },
+      },
+    });
+    const token = typeof tokenResource === "string"
+      ? tokenResource
+      : tokenResource?.name || tokenResource?.token;
+    if (typeof token !== "string" || !token) {
+      throw new Error("ephemeral_token_missing_from_google_response");
+    }
+    return { token, keyIndex: keyIndex + 1 };
+  }, "token mint", { deviceDay, failedKeyIndex });
+}
+
+function parseStoryScript(text) {
+  const cleaned = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  return JSON.parse(cleaned);
+}
+
+function buildStoryPrompt(source) {
+  const duration = source.confidence < 0.55 ? "30 to 45 seconds; do not pad a thin summary" : "60 to 100 seconds";
+  const prior = source.priorChapterSummaries.length
+    ? `Earlier chapter summaries for continuity only; do not narrate events from these: ${JSON.stringify(source.priorChapterSummaries)}`
+    : "";
+  const newChapterEnd = source.mode === "new_chapter"
+    ? "This is the previous chapter. End gently by saying the next chapter is just beginning; do not describe it."
+    : "End with one human line that leaves the reader curious or calm.";
+  return [
+    "You are a gifted Indian storyteller telling a friend a story at night. Speak warm, natural Hindi in Devanagari with simple English words where people naturally use them. Keep sentences short and spoken.",
+    `Chapter ${source.chapterNumber || ""}: ${JSON.stringify(source.chapterTitle)}. Reading mode: ${source.mode}.`,
+    `ONLY factual source for every narrated beat: ${JSON.stringify(source.summary)}`,
+    prior,
+    "Tell one continuous story with a beginning, a turn, and a landing. Do not make a list, lecture, trailer, or recitation. Never say 'in this chapter' or 'the author says'.",
+    `The first narration beat must orient the reader with a natural reminder that this is where we left off last time, naming ${JSON.stringify(source.chapterTitle || "the saved chapter")} and then pointing to a concrete fact in the current summary. Do not use a generic unrelated opening.`,
+    "Use only facts explicitly present in the current summary. Do not infer motives, complete a plot, or spoil later events. If unsure, say less. Never mention vocabulary, learned words, meanings, gems, streaks, or the app.",
+    `Aim for ${duration}.`,
+    `${newChapterEnd} The closing_line must be short and matter-of-fact, not sentimental or a generic 'carry this story with you' phrase. For continue mode say plainly that this is where we stopped last time.`,
+    "Create 6 to 10 narration beats, each 1-3 short sentences. Max 3 summary-derived items per beat; label must be null or copied exactly from the summary (max 5 words). Never repeat a motif in consecutive beats.",
+    `mood enum: ${SCRIPT_MOODS.join("|")}. motif enum: ${MOTIF_IDS.join("|")}. transition enum: ${SCRIPT_TRANSITIONS.join("|")}.`,
+    'Return ONLY strict JSON with this exact shape: {"title":"...","mood":"reflective","palette":{"bg1":"#112233","bg2":"#223344","accent":"#eebb66","accent2":"#66ccbb"},"beats":[{"narration":"...","motif":"constellation","label":null,"items":[],"intensity":0.5,"transition":"crossfade"}],"closing_line":"..."}',
+  ].filter(Boolean).join("\n\n");
+}
+
+function isTransientModelError(err) {
+  const message = String(err || "");
+  const status = Number(err?.status ?? err?.code ?? 0);
+  return (
+    status === 429 ||
+    status === 503 ||
+    /UNAVAILABLE|RESOURCE_EXHAUSTED|429|503|high demand|temporar|rate limit/i.test(message)
+  );
+}
+
+const CLOUDFARE_ART_STYLES = {
+  "minimalist-lofi": "FLAT 2D VECTOR ILLUSTRATION in Studio Ghibli lo-fi anime style. Cel-shaded flat color shapes, soft muted color palette, hand-drawn animation look. This is NOT a photograph and NOT photorealistic - it is a flat illustrated scene, like a still frame from an animated film, gentle warm night atmosphere, minimal clean details.",
+  "charcoal-sketch": "ROUGH CHARCOAL PENCIL SKETCH on textured dark gray paper. Visible pencil strokes, smudged shading, loose expressive linework, monochrome black-and-white-and-gray only. This is NOT a photograph, NOT color, NOT digital art - it must look like a hand-drawn sketch in a physical sketchbook, lots of negative space, refined literary mood.",
+  "cinematic-silhouette": "cinematic photographic silhouette of a single person, dark moody lighting, glowing rim-light backlight, foggy atmosphere, emotional storytelling, subtle dramatic contrast, highly detailed, premium editorial photography composition.",
+  "white-ink-sketch": "WHITE INK PEN LINE DRAWING on deep solid black background. Only thin white linework and cross-hatching visible, high contrast, zero color, zero gray shading, zero photographic elements - this must look like a scanned page from a personal journal drawn with a white gel pen on black paper, lots of negative space, dark academia mood.",
+};
+
+const CLOUDFARE_STYLE_SEQUENCE = ["minimalist-lofi", "charcoal-sketch", "cinematic-silhouette", "white-ink-sketch"];
+
+function hashText(value = "") {
+  return Array.from(value).reduce((sum, char, index) => sum + char.charCodeAt(0) * (index + 1), 0);
+}
+
+const CLOUDFARE_STYLE_KEYWORDS = {
+  "cinematic-silhouette": /(discipline|willpower|sacrifice|solitude|leadership|courage|resilience|struggle|transform|monk|warrior|battle)/i,
+  "charcoal-sketch": /(poetry|literature|philosophy|wisdom|intellect|metaphor|narrative|epiphany|paradox)/i,
+  "white-ink-sketch": /(journal|diary|memoir|confession|handwritten|letter|notebook)/i,
+  "minimalist-lofi": /(peace|calm|stillness|breathe|gentle|hope|dream|quiet|serenity|meditation|soft|grace)/i,
+};
+
+function pickCloudflareArtStyle({ quote = "", bookTitle = "" } = {}) {
+  const haystack = `${bookTitle} ${quote}`.toLowerCase();
+
+  let bestStyle = null;
+  let bestScore = 0;
+  let tie = false;
+  for (const style of CLOUDFARE_STYLE_SEQUENCE) {
+    const matches = haystack.match(CLOUDFARE_STYLE_KEYWORDS[style]);
+    const score = matches ? matches.length : 0;
+    if (score > bestScore) {
+      bestScore = score;
+      bestStyle = style;
+      tie = false;
+    } else if (score > 0 && score === bestScore) {
+      tie = true;
+    }
+  }
+  if (bestStyle && !tie) return bestStyle;
+
+  // No clear keyword winner - deterministic rotation so repeated "auto"
+  // requests don't all collapse onto the same style.
+  const seed = Math.abs(hashText(`${bookTitle}|${quote}`));
+  return CLOUDFARE_STYLE_SEQUENCE[seed % CLOUDFARE_STYLE_SEQUENCE.length];
+}
+
+function buildCloudflareSketchPrompt(styleName = "auto", quote = "", bookTitle = "", imageryBrief = "") {
+  const resolvedStyle = styleName && styleName !== "auto" ? styleName : pickCloudflareArtStyle({ quote, bookTitle });
+  const style = CLOUDFARE_ART_STYLES[resolvedStyle] || CLOUDFARE_ART_STYLES["minimalist-lofi"];
+  const isNonPhotographic = resolvedStyle !== "cinematic-silhouette";
+
+  const parts = [
+    // The concrete scene comes FIRST now - this is what actually ties the
+    // image to the quote's meaning, instead of only carrying a style label.
+    imageryBrief
+      ? `Illustrate this specific scene: ${imageryBrief}`
+      : `Illustrate a scene evoking the mood of this line from the book "${bookTitle || ""}": "${quote}"`,
+    `Render it in this exact visual treatment: ${style}`,
+    "Generate a single, pure visual illustration only. No text, no title, no quote, no caption, no words, no logo, no watermark, no signature, no letters, no numbers, no typography anywhere.",
+    "Composition: elegant negative space, refined artistic framing, clean visual hierarchy, very minimal details, 9:16 portrait composition.",
+  ];
+  if (isNonPhotographic) {
+    parts.push(
+      "STRICT REQUIREMENT: this must NOT look like a photograph, NOT look like a backlit portrait photo, NOT be photorealistic. It must clearly look hand-drawn or flat-illustrated, matching the described medium exactly."
+    );
+  }
+  parts.push(
+    "Avoid busy scenes, generic gradients, clutter, text overlays, posters, screenshots, logos, labels, UI, and any readable words.",
+    "Negative prompt: text, words, letters, numbers, quote marks, typography, title, headline, watermark, logo, signature, UI, labels, stickers, speech bubbles, paper notes with writing, any readable text anywhere in the image" +
+      (isNonPhotographic ? ", photograph, photorealistic, realistic photography, camera photo, DSLR, bokeh photography" : "") +
+      "."
+  );
+  return parts.join(" ");
+}
+
+function normalizeCloudflareImageResult(payload) {
+  if (!payload) return null;
+
+  if (typeof payload === "string") {
+    const trimmed = payload.trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith("data:image/")) return trimmed;
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+    return `data:image/png;base64,${trimmed}`;
+  }
+
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const candidate = normalizeCloudflareImageResult(item);
+      if (candidate) return candidate;
+    }
+    return null;
+  }
+
+  if (typeof payload === "object") {
+    const candidates = [
+      payload.result,
+      payload.image,
+      payload.output,
+      payload.data,
+      payload.b64_json,
+      payload.base64,
+      payload.base64Image,
+      payload.image_base64,
+      payload.result?.image,
+      payload.result?.output,
+      payload.result?.data,
+      payload.result?.b64_json,
+      payload.result?.base64,
+    ];
+
+    for (const candidate of candidates) {
+      const normalized = normalizeCloudflareImageResult(candidate);
+      if (normalized) return normalized;
+    }
+
+    for (const value of Object.values(payload)) {
+      const normalized = normalizeCloudflareImageResult(value);
+      if (normalized) return normalized;
+    }
+  }
+
+  return null;
+}
+
+async function callCloudflareImageAPI(prompt) {
+  if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN || !CLOUDFLARE_IMAGE_ENDPOINT) {
+    throw new Error("cloudflare_image_credentials_missing");
+  }
+
+  const response = await fetch(CLOUDFLARE_IMAGE_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      prompt,
+      steps: 8,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    const message = errorText || `Cloudflare API error: ${response.status}`;
+    if (/daily|quota|limit|429|403/i.test(message)) {
+      throw new Error(`cloudflare_daily_quota_exceeded: ${message}`);
+    }
+    throw new Error(`cloudflare_request_failed: ${message}`);
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.startsWith("image/") || contentType.includes("octet-stream")) {
+    const binary = Buffer.from(await response.arrayBuffer());
+    return `data:${contentType || "image/png"};base64,${binary.toString("base64")}`;
+  }
+
+  const rawText = await response.text().catch(() => "");
+  if (rawText.trim()) {
+    try {
+      const parsed = JSON.parse(rawText);
+      const imageData = normalizeCloudflareImageResult(parsed);
+      if (imageData) return imageData;
+    } catch {
+      // raw text may be base64 or another non-JSON payload
+    }
+
+    const candidate = normalizeCloudflareImageResult(rawText);
+    if (candidate) return candidate;
+  }
+
+  throw new Error("cloudflare_image_not_found");
+}
+async function generateSketchWithCloudflare({ style = "auto", quote = "", bookTitle = "" } = {}) {
+  const imageryBrief = await buildImageryBriefFromQuote(quote, bookTitle);
+  const prompt = buildCloudflareSketchPrompt(style, quote, bookTitle, imageryBrief);
+  return callCloudflareImageAPI(prompt);
+}
+
+const CLOUDFARE_AUTHOR_STYLES = {
+  "minimalist-lofi": "FLAT 2D VECTOR ILLUSTRATION portrait bust in Studio Ghibli lo-fi anime style, soft muted warm colors, gentle calm mood. This is NOT a photograph.",
+  "charcoal-sketch": "ROUGH CHARCOAL PENCIL SKETCH portrait bust on textured dark gray paper, visible pencil strokes, monochrome black-gray only. This is NOT a photograph, NOT color.",
+  "cinematic-silhouette": "cinematic photographic-style portrait bust silhouette of a person, moody backlight, elegant editorial mood, premium composition.",
+  "white-ink-sketch": "WHITE INK PEN LINE DRAWING portrait bust on deep solid black background, thin white linework only, zero color, journal aesthetic. This is NOT a photograph.",
+};
+
+function buildAuthorPortraitPrompt(styleName, authorName, authorBio) {
+  const style = CLOUDFARE_AUTHOR_STYLES[styleName] || CLOUDFARE_AUTHOR_STYLES["minimalist-lofi"];
+  const isNonPhotographic = styleName !== "cinematic-silhouette";
+  const parts = [
+    style,
+    "A single, elegant, front-facing portrait bust illustration of a writer/author, shoulders-up, calm confident expression, literary editorial mood.",
+    "This is a stylized artistic interpretation for a reading app, NOT an actual photo of any specific real person - do not attempt to replicate an exact real likeness.",
+    "No text, no name, no caption, no watermark, no logo, no letters, no numbers anywhere in the image.",
+  ];
+  if (isNonPhotographic) {
+    parts.push("STRICT REQUIREMENT: must NOT look like a photograph or be photorealistic - must clearly look hand-drawn or flat-illustrated.");
+  }
+  parts.push(
+    "Negative prompt: text, words, letters, numbers, watermark, logo, signature, UI" +
+      (isNonPhotographic ? ", photograph, photorealistic, realistic photography, DSLR" : "") +
+      "."
+  );
+  return parts.join(" ");
+}
+
+async function generateAuthorPortraitWithCloudflare({ style = "minimalist-lofi", authorName = "", authorBio = "" } = {}) {
+  const prompt = buildAuthorPortraitPrompt(style, authorName, authorBio);
+  return callCloudflareImageAPI(prompt);
+}
+
+// ---------------------------------------------------------------
+// POST /api/token
+// Mints a short-lived ephemeral token so the real API key never
+// goes to the browser. The browser uses this token exactly like
+// an API key, but it expires and is locked to the Live API only.
+// Verified against ai.google.dev/gemini-api/docs/ephemeral-tokens
+// (Sept 2026).
+// ---------------------------------------------------------------
+app.post("/api/token", async (req, res) => {
+  if (!GEMINI_API_KEYS.length) {
+    console.warn("[TOKEN] blocked: no Gemini API keys configured in backend/.env");
+    return res.status(503).json({ error: "gemini_api_key_missing" });
+  }
+  try {
+    // No liveConnectConstraints here on purpose - its mere presence puts the
+    // token into a "locked" mode where the server applies its own internal
+    // defaults (which clashed with our AUDIO-only setup and caused an
+    // immediate 1007 close). Omitting it entirely keeps the token fully
+    // unlocked, so whatever config our connect() call sends (model, voice,
+    // persona, tools, session resumption) is what actually gets used.
+    const deviceDay = deviceDayFromRequest(req);
+    const reportedDay = validDay(req.body?.failedKeyDate);
+    const reportedKey = Number(req.body?.failedKeyIndex);
+    const failedKeyIndex = reportedDay === deviceDay && Number.isInteger(reportedKey) && reportedKey >= 1 && reportedKey <= GEMINI_API_KEYS.length
+      ? reportedKey - 1
+      : undefined;
+    const tokenInfo = await mintGeminiToken({
+      deviceDay,
+      failedKeyIndex,
+    });
+    return res.json({ ...tokenInfo, keyCount: GEMINI_API_KEYS.length });
+  } catch (error) {
+    console.error("[TOKEN] mint failed:", error);
+    return res.status(500).json({ error: "token_mint_failed" });
+  }
+});
+
+// ---------------------------------------------------------------
+// POST /api/rephrase-memory
+// Mirrors save_explicit_memory_request() from app.py: guaranteed
+// path for "yaad rakhna" style requests, independent of whether the
+// live model calls its own save_memory tool for the same sentence.
+// ---------------------------------------------------------------
+app.post("/api/rephrase-memory", async (req, res) => {
+  const { text } = req.body || {};
+  if (!text || typeof text !== "string") {
+    return res.status(400).json({ error: "missing_text" });
+  }
+  const prompt =
+    "The reader just asked their personal reading companion to remember " +
+    "something for future sessions. Their exact words (possibly Hindi, " +
+    `Hinglish, or English) were:\n"${text}"\n\n` +
+    "Write the fact they want remembered as ONE short, clear, natural " +
+    'sentence in English, third person ("The reader..."). Rephrase it in ' +
+    "your own words - do not transliterate, and do not leave any Hindi or " +
+    "Devanagari script in the output. If the message doesn't actually " +
+    "contain a clear fact worth remembering, reply with exactly: NONE\n" +
+    "Return ONLY the sentence (or NONE), nothing else.";
+  try {
+    const response = await generateGeminiContent({
+      model: MEMORY_SUMMARY_MODEL,
+      contents: prompt,
+    });
+    const fact = (response.text || "").trim().replace(/^"|"$/g, "");
+    res.json({ fact: fact.toUpperCase() === "NONE" ? null : fact });
+  } catch (err) {
+    if (isTransientModelError(err)) {
+      console.warn("[MEMORY] rephrase deferred: model unavailable right now.");
+      return res.json({ fact: null });
+    }
+    console.error("[MEMORY] rephrase failed:", err);
+    return res.status(500).json({ error: "rephrase_failed" });
+  }
+});
+
+// ---------------------------------------------------------------
+// POST /api/compact-session
+// Mirrors compact_session_memory() from app.py: end-of-session pass
+// that extracts any durable facts the live model didn't already save.
+// ---------------------------------------------------------------
+app.post("/api/compact-session", async (req, res) => {
+  const { transcript, existingMemories } = req.body || {};
+  if (!Array.isArray(transcript) || transcript.length === 0) {
+    return res.json({ facts: [] });
+  }
+  const transcriptText = transcript
+    .map((t) => `${t.speaker}: ${t.text}`)
+    .join("\n");
+  const existingBlock =
+    Array.isArray(existingMemories) && existingMemories.length
+      ? existingMemories.map((m) => `- ${m}`).join("\n")
+      : "(none yet)";
+  const prompt =
+    "Scan this reading-companion conversation only for personal facts " +
+    "about the READER that they EXPLICITLY asked to remember for future " +
+    "sessions - using phrasing like 'remember this about me', 'yaad " +
+    "rakhna', or a clear equivalent. Extract ONLY those personal-memory " +
+    "requests, nothing else.\n\n" +
+    "CRITICAL: Do NOT infer or guess at preferences, habits, or context " +
+    "on your own just because they came up in conversation. A reader " +
+    "mentioning something in passing (e.g. talking about their job, " +
+    "their day, an opinion) is NOT a request to remember it - only an " +
+    "explicit personal-memory ask counts. NEVER copy book quotes, gems, " +
+    "vocabulary words/meanings, chapter facts, or reading progress into " +
+    "personal memory. If nothing qualifies beyond what's already in the " +
+    "existing memory list, return [].\n\n" +
+    "Rules:\n" +
+    "- Every fact MUST be a short, complete sentence in clear, natural " +
+    "ENGLISH - rephrase yourself even if the conversation was in " +
+    "Hindi/Hinglish. Never output Devanagari script.\n" +
+    "- Do not repeat anything already in the existing memory list below.\n" +
+    "- Return ONLY a JSON array of strings. Return [] if nothing " +
+    "explicitly requested.\n\n" +
+    `Existing memory:\n${existingBlock}\n\nConversation:\n${transcriptText}`;
+  try {
+    const response = await generateGeminiContent({
+      model: MEMORY_SUMMARY_MODEL,
+      contents: prompt,
+    });
+    const match = (response.text || "").match(/\[[\s\S]*\]/);
+    const facts = match ? JSON.parse(match[0]) : [];
+    res.json({ facts: Array.isArray(facts) ? facts : [] });
+  } catch (err) {
+    if (isTransientModelError(err)) {
+      console.warn("[MEMORY] compact deferred: model unavailable right now.");
+      return res.json({ facts: [] });
+    }
+    console.error("[MEMORY] compact failed:", err);
+    return res.json({ facts: [] });
+  }
+});
+
+app.post("/api/sketch-gem", async (req, res) => {
+  const { style, quote, bookTitle, mode, authorName, authorBio } = req.body || {};
+
+  try {
+    if (mode === "author") {
+      const resolvedStyle = style && style !== "auto" ? style : "minimalist-lofi";
+      const dataUrl = await generateAuthorPortraitWithCloudflare({ style: resolvedStyle, authorName, authorBio });
+      return res.json({ dataUrl, style: resolvedStyle });
+    }
+    const resolvedStyle = style && style !== "auto" ? style : pickCloudflareArtStyle({ quote, bookTitle });
+    const dataUrl = await generateSketchWithCloudflare({ style: resolvedStyle, quote, bookTitle });
+    return res.json({ dataUrl, style: resolvedStyle });
+  } catch (err) {
+    const detail = String(err || "sketch_failed");
+    console.error("[BACKEND] Cloudflare sketch generation failed:", detail);
+    return res.status(502).json({
+      error: "sketch_failed",
+      detail,
+      provider: "cloudflare",
+    });
+  }
+});
+// ---------------------------------------------------------------
+// POST /api/author-portrait
+// Looks the author up on Wikipedia (free, no API key needed) and
+// returns their photo as a data URL - avoids CORS issues on the
+// client and means we never need a paid image-search API.
+// ---------------------------------------------------------------
+const UA = "ReadingCompanion/1.0 (personal reading app)";
+const BRAVE_KEY = process.env.BRAVE_API_KEY;
+console.log(`[PORTRAIT] Brave key loaded: ${BRAVE_KEY ? "yes" : "NO - add BRAVE_API_KEY to backend/.env and restart"}`);
+
+async function fetchJson(url, headers = {}) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json", ...headers } });
+    if (r.ok) return r.json();
+    // Wikipedia/Wikidata rate-limit with 429: wait and retry instead of giving up
+    if (r.status === 429 && attempt < 2) {
+      const wait = Number(r.headers.get("retry-after")) || (attempt + 1) * 1.5;
+      await new Promise((res) => setTimeout(res, Math.min(wait, 6) * 1000));
+      continue;
+    }
+    throw new Error(`HTTP ${r.status}`);
+  }
+  throw new Error("HTTP 429");
+}
+async function imageUrlToDataUrl(url) {
+  const r = await fetch(url, { headers: { "User-Agent": UA }, redirect: "follow" });
+  if (!r.ok) return null;
+  const type = (r.headers.get("content-type") || "").split(";")[0];
+  if (!type.startsWith("image/") || type.includes("svg")) return null;
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.length < 2500) return null;
+  return `data:${type};base64,${buf.toString("base64")}`;
+}
+
+app.post("/api/book-cover", async (req, res) => {
+  const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+  const author = typeof req.body?.author === "string" ? req.body.author.trim() : "";
+  if (!title) return res.status(400).json({ error: "missing_book_title" });
+
+  try {
+    const params = new URLSearchParams({ title, fields: "title,author_name,cover_i", limit: "10" });
+    if (author) params.set("author", author);
+    const result = await fetchJson(`https://openlibrary.org/search.json?${params}`);
+    const docs = Array.isArray(result?.docs) ? result.docs : [];
+    const authorNorm = norm(author);
+    const match = docs.find((doc) => doc.cover_i && (!authorNorm || (doc.author_name || []).some((name) => {
+      const candidate = norm(name);
+      return candidate === authorNorm || authorNorm.includes(candidate);
+    }))) || (!authorNorm ? docs.find((doc) => doc.cover_i) : null);
+    if (!match) return res.status(404).json({ error: "book_cover_not_found" });
+
+    const coverUrl = `https://covers.openlibrary.org/b/id/${match.cover_i}-L.jpg?default=false`;
+    const dataUrl = await imageUrlToDataUrl(coverUrl);
+    if (!dataUrl) return res.status(404).json({ error: "book_cover_unavailable" });
+    return res.json({ coverUrl, dataUrl });
+  } catch (error) {
+    console.warn("[BOOK COVER] lookup failed:", error.message);
+    return res.status(502).json({ error: "book_cover_lookup_failed" });
+  }
+});
+
+const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+const nameTokens = (n) => norm(n).split(" ").filter((t) => t.length > 1);
+const WRITER_RE = /\b(author|writer|novelist|poet|teacher|philosopher|speaker|essayist|spiritual|self help|psychologist|counselor|counsellor|scholar|professor|coach|monk|economist|scientist)\b/i;
+const MUSICISH = /\b(album|concert|band|pop|rock|quintet|songs?|tour|lyrics)\b/i;
+function otherJobRegex(name) {
+  const toks = nameTokens(name);
+  const jobs = ["singer", "musician", "songwriter", "actor", "actress", "footballer", "cricketer", "politician", "rapper", "drummer", "guitarist", "pianist", "comedian"]
+    .filter((j) => !toks.includes(j));
+  return new RegExp(`\\b(${jobs.join("|")})\\b`, "i");
+}
+// STRICT: first name, optional middle initial(s), then last name - side by side.
+function nameMatches(authorName, candidate) {
+  const toks = nameTokens(authorName);
+  if (!toks.length) return false;
+  const text = norm(candidate);
+  if (toks.length < 2) return text.includes(toks[0]);
+  return new RegExp(`\\b${toks[0]}(?: [a-z]{1,2}){0,2} ${toks[toks.length - 1]}\\b`).test(text);
+}
+
+async function wikiPages(query) {
+  const j = await fetchJson(
+    `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=8` +
+    `&prop=pageimages|extracts&piprop=thumbnail&pithumbsize=600&exintro=1&explaintext=1&exlimit=max&format=json`
+  );
+  return Object.values(j?.query?.pages || {});
+}
+
+const PORTRAIT_SOURCES = [
+  { name: "wikipedia-rest", fn: async (name, book) => {
+    // Most reliable path: Wikipedia's own summary API serves the page's
+    // original portrait. Try the plain name, then common disambiguations.
+    const candidates = [name, `${name} (author)`, `${name} (writer)`, `${name} (novelist)`];
+    const urls = [];
+    for (const title of candidates) {
+      try {
+        const j = await fetchJson(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+        if (!j?.title || !nameMatches(name, j.title)) continue;
+        const text = norm(`${j.title}. ${j.description || ""}. ${(j.extract || "").slice(0, 300)}`);
+        const hasBook = book && text.includes(norm(book));
+        if (!WRITER_RE.test(text) && !hasBook) continue;
+        const img = j.originalimage?.source || j.thumbnail?.source;
+        if (img) urls.push(img);
+      } catch { /* try the next title variant */ }
+    }
+    return urls;
+  }},
+  { name: "openlibrary", fn: async (name, book) => {
+    if (!book) return [];
+    const j = await fetchJson(`https://openlibrary.org/search.json?title=${encodeURIComponent(book)}&author=${encodeURIComponent(name)}&fields=author_key,author_name&limit=5`);
+    const urls = [];
+    for (const d of j.docs || []) {
+      const idx = (d.author_name || []).findIndex((a) => nameMatches(name, a));
+      if (idx >= 0 && d.author_key?.[idx]) urls.push(`https://covers.openlibrary.org/a/olid/${d.author_key[idx]}-L.jpg?default=false`);
+    }
+    return urls;
+  }},
+  { name: "openlibrary-authors", fn: async (name) => {
+    // Direct author lookup - works even without a book title.
+    const j = await fetchJson(`https://openlibrary.org/search/authors.json?q=${encodeURIComponent(name)}`);
+    const urls = [];
+    for (const d of (j.docs || []).slice(0, 4)) {
+      if (d.key && nameMatches(name, d.name || "")) urls.push(`https://covers.openlibrary.org/a/olid/${d.key}-L.jpg?default=false`);
+    }
+    return urls;
+  }},
+  { name: "brave", fn: async (name, book) => {
+    if (!BRAVE_KEY) return [];
+    const otherJob = otherJobRegex(name);
+    const bookNorm = norm(book);
+    const shops = /(amazon|goodreads|flipkart|barnesandnoble|audible|bookshop|abebooks|ebay|etsy|walmart|scribd|storytel|kobo|thriftbooks|penguinrandomhouse|pinterest)/i;
+    const badTitle = /\b(cover|paperback|hardcover|audiobook|ebook|kindle|review|summary|pdf|edition|bestseller|quotes|podcast|episode)\b/i;
+    // titles that are certainly the BOOK's image, not the author's face - even if the name appears in the title
+    const bookishTitle = /\b(paperback|hardcover|audiobook|kindle|ebook|collection|box ?set|books? (by|collection)|set of|novel by|volume|combo|series)\b/i;
+    const faceTitle = /\b(portrait|interview|conversation|talks?|speech|meet the author|biography|profile|lecture|discussion)\b/i;
+    const socialThumb = /youtube\.com|youtu\.be|i\.ytimg\.com|instagram\.com|facebook\.com|fbcdn\.net/i;
+    const queries = [`"${name}" author portrait`, book ? `"${name}" ${book} author interview` : "", `"${name}" interview`].filter(Boolean);
+    const all = (await Promise.all(queries.map((q) =>
+      fetchJson(`https://api.search.brave.com/res/v1/images/search?q=${encodeURIComponent(q)}&count=30&safesearch=strict`, { "X-Subscription-Token": BRAVE_KEY })
+        .then((j) => j.results || []).catch(() => [])
+    ))).flat();
+    const scored = [];
+    const seen = new Set();
+    for (const r of all) {
+      const src = r.thumbnail?.src;
+      if (!src || seen.has(src)) continue;
+      seen.add(src);
+      const title = r.title || "";
+      const t = norm(title);
+      const domain = `${r.source || ""} ${r.url || ""}`;
+      const mentionsBook = bookNorm && t.includes(bookNorm);
+      const fullMatch = nameMatches(name, title);
+      // looser check: every name word appears somewhere ("The Courage to be Disliked - Ichiro Kishimi, Fumitake Koga")
+      const allTokens = nameTokens(name).length > 1 && nameTokens(name).every((tok) => t.includes(tok));
+      const facePage = /wikipedia|wikimedia|britannica|ted\.com|goodreads\.com\/author|speaker|interview|youtube\.com|youtu\.be|instagram\.com|facebook\.com/i.test(domain);
+      if (!fullMatch && !(allTokens && facePage)) continue;
+      if (bookishTitle.test(title)) continue;          // a book image, never a face
+      if (badTitle.test(title) && !mentionsBook) continue;
+      if (otherJob.test(t)) continue;
+      if (MUSICISH.test(t) && !mentionsBook) continue;
+      if (shops.test(domain) && !/goodreads\.com\/author/i.test(domain)) continue;
+      const w = Number(r.properties?.width ?? r.thumbnail?.width);
+      const h = Number(r.properties?.height ?? r.thumbnail?.height);
+      if (!w || !h) continue;
+      let score = 0;
+      const ratio = w / h;
+      if (ratio < 0.6 || ratio > 2.0) continue;
+      if (ratio >= 0.75 && ratio <= 1.35) score += 3;
+      if (fullMatch) score += 2;
+      if (mentionsBook) score -= 4;                    // title talks about the book, not the person
+      if (WRITER_RE.test(t)) score += 2;
+      if (faceTitle.test(t)) score += 3;
+      if (/wikipedia|wikimedia|britannica|ted\.com/i.test(domain)) score += 3;
+      if (socialThumb.test(domain)) score += 2;        // youtube/instagram thumbnails of interviews
+      if (score < 2) continue;
+      scored.push({ url: src, score, title });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    console.log(`[PORTRAIT] brave: ${all.length} results, ${scored.length} passed. Top:`, scored.slice(0, 3).map((s) => `${s.score} "${s.title.slice(0, 50)}"`));
+    return scored.slice(0, 8).map((s) => s.url);
+  }},
+  { name: "wikipedia", fn: async (name, book) => {
+    const otherJob = otherJobRegex(name);
+    const pages = [...(await wikiPages(`${name} ${book}`.trim())), ...(await wikiPages(name))];
+    const found = [];
+    for (const p of pages) {
+      if (!p.thumbnail?.source || !nameMatches(name, p.title)) continue;
+      const text = norm(`${p.title}. ${p.extract || ""}`);
+      const hasBook = book && text.includes(norm(book));
+      let score = 0;
+      if (hasBook) score += 5;
+      if (WRITER_RE.test(text)) score += 2;
+      if (otherJob.test(text) && !hasBook) score -= 4;
+      if (score >= 2) found.push({ url: p.thumbnail.source, score });
+    }
+    return found.sort((a, b) => b.score - a.score).map((f) => f.url);
+  }},
+  { name: "wikidata", fn: async (name) => {
+    const otherJob = otherJobRegex(name);
+    const s = await fetchJson(`https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(name)}&language=en&limit=8&format=json`);
+    const ok = (s.search || []).filter((e) => nameMatches(name, e.label || "") && WRITER_RE.test(norm(e.description)) && !otherJob.test(norm(e.description)));
+    if (!ok.length) return [];
+    const e = await fetchJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${ok.map((x) => x.id).join("|")}&props=claims&format=json`);
+    const files = [];
+    for (const ent of Object.values(e.entities || {})) {
+      const file = ent.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+      if (file) files.push(file);
+    }
+    if (!files.length) return [];
+    const urls = [];
+    try {
+      // Resolve via Commons imageinfo for real 600px thumbnails (Special:FilePath often 404s on odd file names)
+      const titles = files.map((f) => `File:${f}`).join("|");
+      const ii = await fetchJson(`https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(titles)}&prop=imageinfo&iiprop=url&iiurlwidth=600&format=json`);
+      for (const p of Object.values(ii?.query?.pages || {})) {
+        const u = p.imageinfo?.[0]?.thumburl || p.imageinfo?.[0]?.url;
+        if (u) urls.push(u);
+      }
+    } catch { /* fall back to FilePath below */ }
+    for (const file of files) urls.push(`https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}?width=600`);
+    return urls;
+  }},
+];
+
+function splitAuthors(s) {
+  return String(s || "").split(/\s*(?:,|&|\+|;|\band\b|\bwith\b)\s*/i).map((x) => x.trim()).filter((x) => x.length > 2).slice(0, 4);
+}
+async function portraitForOne(name, book, skip) {
+  const sourcePriority = { "wikipedia-rest": 0, wikipedia: 1, wikidata: 2, "openlibrary-authors": 3, openlibrary: 4, brave: 5 };
+  const sources = [...PORTRAIT_SOURCES].sort((a, b) => sourcePriority[a.name] - sourcePriority[b.name]);
+  const exhausted = [];
+  const rateLimited = new Set();
+  for (const source of sources) {
+    try {
+      const urls = await source.fn(name, book);
+      let got = false;
+      for (const url of urls) {
+        if (skip.has(url)) continue;
+        const dataUrl = await imageUrlToDataUrl(url).catch(() => null);
+        if (dataUrl) {
+          console.log(`[PORTRAIT] ${name} -> ${source.name}`);
+          return { dataUrl, source: source.name, sourceUrl: url };
+        }
+      }
+      if (!urls.length) exhausted.push(source.name);
+      else got = true;
+    } catch (err) {
+      if (/429/.test(String(err?.message))) rateLimited.add(source.name);
+      else exhausted.push(source.name);
+      console.warn(`[PORTRAIT] ${name} / ${source.name} failed:`, err.message);
+    }
+  }
+  // If the free wiki sources were only rate-limited, give them one more chance after a pause
+  if (rateLimited.size) {
+    await new Promise((res) => setTimeout(res, 4000));
+    for (const source of sources.filter((s) => rateLimited.has(s.name))) {
+      try {
+        const urls = await source.fn(name, book);
+        for (const url of urls) {
+          if (skip.has(url)) continue;
+          const dataUrl = await imageUrlToDataUrl(url).catch(() => null);
+          if (dataUrl) {
+            console.log(`[PORTRAIT] ${name} -> ${source.name} (after backoff)`);
+            rateLimited.delete(source.name);
+            return { dataUrl, source: source.name, sourceUrl: url };
+          }
+        }
+      } catch (err) {
+        console.warn(`[PORTRAIT] ${name} / ${source.name} retry failed:`, err.message);
+      }
+    }
+  }
+  console.log(`[PORTRAIT] ${name}: nothing found`);
+  return { dataUrl: null, busy: rateLimited.size > 0 };
+}
+
+app.post("/api/author-portrait", async (req, res) => {
+  const { authorName, bookTitle, tried } = req.body || {};
+  const names = splitAuthors(authorName);
+  if (!names.length) return res.status(400).json({ error: "missing_author_name" });
+  const book = typeof bookTitle === "string" ? bookTitle.trim() : "";
+  const skip = new Set(Array.isArray(tried) ? tried : []);
+  console.log(`[PORTRAIT] authors: ${names.join(" | ")} / book "${book}"`);
+  const found = await Promise.all(names.map((n) => portraitForOne(n, book, skip)));
+  const portraits = names.map((n, i) => ({ name: n, dataUrl: found[i]?.dataUrl || null, sourceUrl: found[i]?.sourceUrl || null }));
+  const first = portraits.find((p) => p.dataUrl);
+  if (!first) {
+    const busy = found.some((f) => f?.busy);
+    return res.status(busy ? 503 : 404).json({ error: busy ? "sources_busy" : "no_image_found" });
+  }
+  return res.json({ dataUrl: first.dataUrl, sourceUrl: first.sourceUrl, portraits });
+});
+// ---------------------------------------------------------------
+// POST /api/mascot-line
+// Generates a short, witty, situation-aware mascot one-liner via
+// the text model, instead of a fixed hardcoded set of lines.
+// ---------------------------------------------------------------
+const MASCOT_ANGLES = [
+  "a funny observation about procrastination",
+  "gentle satire about doomscrolling versus reading",
+  "one genuinely useful reading or vocabulary tip",
+  "a kind-hearted roast of common excuses for not reading",
+  "a quick reminder of one app feature (gems, memory, camera, chapter completion)",
+  "a witty remark about the time of day",
+  "a motivational line with a comic twist",
+  "a comment about their streak or word count, using the facts",
+];
+app.post("/api/mascot-line", async (req, res) => {
+  const { character, context, recent, facts, timeOfDay } = req.body || {};
+  const who = typeof character === "string" && character.trim() ? character.trim() : "owl";
+  const where = typeof context === "string" && context.trim() ? context.trim() : "the app's home screen";
+  const angle = MASCOT_ANGLES[Math.floor(Math.random() * MASCOT_ANGLES.length)];
+  const used = Array.isArray(recent) && recent.length
+    ? `Lines already used - never repeat or closely paraphrase them:\n${recent.map((r) => `- ${r}`).join("\n")}\n\n` : "";
+  const prompt =
+    `You are a tiny ${who} mascot inside a reading-companion app for an Indian reader learning English through books. ` +
+    `Screen: "${where}". Time of day: ${timeOfDay || "unknown"}. Facts about the reader: ${facts || "none"}.\n\n` +
+    used +
+    `Write ONE line (max 16 words) in natural Hinglish. Angle: ${angle}. ` +
+    `It must be funny or lightly satirical AND useful or encouraging. Never address the reader by name. ` +
+    `No quotes, no markdown, no emoji. Return only the line.`;
+  try {
+    const response = await generateGeminiContent({ model: MEMORY_SUMMARY_MODEL, contents: prompt, config: { temperature: 1.3 } });
+    const line = (response.text || "").trim().replace(/^"|"$/g, "").replace(/\n/g, " ");
+    res.json({ line: line || null });
+  } catch (err) {
+    console.warn("[MASCOT] line generation failed:", String(err).slice(0, 160));
+    res.json({ line: null });
+  }
+});
+
+// ---------------------------------------------------------------
+// POST /api/gem-echoes
+// Semantic linking for the Mind Map: finds pairs of gems from
+// DIFFERENT books that express the same underlying idea, even when
+// the wording shares no keywords (e.g. "stay grounded no matter how
+// high you fly" ~ "tall trees are held up by roots no one sees").
+// Returns pairs with a short human-readable reason for trust.
+// ---------------------------------------------------------------
+app.post("/api/gem-echoes", async (req, res) => {
+  const gems = Array.isArray(req.body?.gems) ? req.body.gems.slice(0, 40) : [];
+  if (gems.length < 2) return res.json({ pairs: [] });
+  const catalog = gems
+    .map((g) => ({
+      id: String(g.id),
+      book: String(g.bookTitle || "unknown book"),
+      quote: String(g.quote || "").slice(0, 220),
+      takeaway: String(g.takeaway || g.takeawayWhyItMatters || "").slice(0, 160),
+    }))
+    .filter((g) => g.quote);
+  if (catalog.length < 2) return res.json({ pairs: [] });
+  const prompt =
+    "You are linking ideas across a reader's saved quotes ('gems') from DIFFERENT books.\n" +
+    "Here is the catalog as JSON:\n" + JSON.stringify(catalog) + "\n\n" +
+    "Find pairs of gems that express the SAME underlying principle, theme or life lesson, even if the wording shares no keywords - " +
+    "different metaphors for the same truth absolutely count (for example, 'no matter how high you fly, stay grounded' and " +
+    "'the tallest trees are held up by roots no one sees' both mean success needs grounding and humility).\n" +
+    "Rules:\n" +
+    "- ONLY pair gems whose 'book' differs. Never pair gems from the same book.\n" +
+    "- Do NOT pair two quotes just because both are motivational or about success in general - the core lesson must genuinely match.\n" +
+    "- For each pair give a reason of at most 12 words, plain English, naming the shared idea.\n" +
+    "- Return ONLY a JSON array of [idA, idB, reason] triples. Return [] if nothing genuinely connects.";
+  try {
+    const response = await generateGeminiContent({
+      model: MEMORY_SUMMARY_MODEL,
+      contents: prompt,
+      config: { temperature: 0.2 },
+    });
+    const match = (response.text || "").match(/\[[\s\S]*\]/);
+    const raw = match ? JSON.parse(match[0]) : [];
+    const valid = new Set(catalog.map((g) => g.id));
+    const bookOf = new Map(catalog.map((g) => [g.id, g.book]));
+    const pairs = (Array.isArray(raw) ? raw : [])
+      .filter((p) => Array.isArray(p) && valid.has(p[0]) && valid.has(p[1]) && p[0] !== p[1] && bookOf.get(p[0]) !== bookOf.get(p[1]))
+      .map((p) => [p[0], p[1], String(p[2] || "").slice(0, 120)])
+      .slice(0, 60);
+    res.json({ pairs });
+  } catch (err) {
+    if (isTransientModelError(err)) {
+      console.warn("[ECHOES] deferred: model unavailable right now.");
+      return res.json({ pairs: [] });
+    }
+    console.error("[ECHOES] failed:", err);
+    res.json({ pairs: [] });
+  }
+});
+
+// ---------------------------------------------------------------
+// POST /api/story-script
+// Writes a closed-schema, chapter-summary-grounded cinematic script.
+// Invalid model output is repaired once, then replaced with a safe fallback.
+// ---------------------------------------------------------------
+app.post("/api/story-script", async (req, res) => {
+  const source = normalizeStorySource(req.body?.source || req.body || {});
+  if (!source.summary) return res.status(422).json({ error: "story_source_empty" });
+
+  const prompt = buildStoryPrompt(source);
+  let previousOutput = "";
+  let validationErrors = [];
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const contents = attempt === 0
+        ? prompt
+        : `${prompt}\n\nYour previous response failed validation (${validationErrors.join("; ")}). Repair it to match the schema exactly. Previous response: ${previousOutput.slice(0, 12000)}`;
+      const response = await generateGeminiContent({
+        model: MEMORY_SUMMARY_MODEL,
+        contents,
+        config: { temperature: 0.5, responseMimeType: "application/json" },
+      });
+      previousOutput = String(response.text || "");
+      const script = parseStoryScript(previousOutput);
+      const result = validateStoryScript(script, source);
+      if (result.valid) return res.json({ script: personalizeStoryScript(script, source), fallback: false });
+      validationErrors = result.errors;
+    } catch (error) {
+      validationErrors = [String(error?.message || "invalid model response").slice(0, 300)];
+    }
+  }
+
+  console.warn("[STORY] using safe fallback after invalid model response:", validationErrors.join("; "));
+  return res.json({ script: createFallbackStoryScript(source), fallback: true });
+});
+
+// ---------------------------------------------------------------
+// POST /api/visual-recap
+// Turns the current chapter's summary into a short kinetic-visual
+// script: an overall mood for the ambient canvas + timed beats whose
+// fx words the screen physically acts out (fall, tremble, blur...).
+// ---------------------------------------------------------------
+const RECAP_MOODS = ["storm", "tension", "warmth", "mystery", "hope", "melancholy", "triumph", "calm"];
+const RECAP_FX = ["fall", "shake", "tremble", "blur", "glow", "burst", "ripple", "fade", "slam"];
+function recapFallback(bookTitle, chapterTitle, summary) {
+  const beats = [
+    { t: `Toh... "${bookTitle || "aapki kitab"}" ko phir se kholte hain.`, fx: null },
+  ];
+  const sentences = String(summary || "").match(/[^.!?]+[.!?]?/g) || [];
+  for (const sentence of sentences.map((part) => part.trim()).filter(Boolean).slice(0, 5)) {
+    beats.push({ t: sentence.slice(0, 90), fx: "fade" });
+  }
+  if (!sentences.length && chapterTitle) beats.push({ t: `${chapterTitle} - yahin se aage.`, fx: "glow" });
+  beats.push({ t: "Chalo, ab aage badhte hain.", fx: null });
+  return { mood: "calm", beats };
+}
+app.post("/api/visual-recap", async (req, res) => {
+  const { bookTitle = "", chapterTitle = "", summary = "", priorChapterSummaries = [] } = req.body || {};
+  const text = String(summary || "").trim();
+  if (!text) {
+    return res.json(recapFallback(bookTitle, chapterTitle, ""));
+  }
+  const priorSummaries = Array.isArray(priorChapterSummaries)
+    ? priorChapterSummaries.filter((item) => typeof item === "string").slice(-3)
+    : [];
+  const prompt = [
+    "You are the reader's warm reading companion, giving a short Roman Hinglish recap before they continue.",
+    `Book: ${JSON.stringify(String(bookTitle).slice(0, 160))}. Chapter: ${JSON.stringify(String(chapterTitle).slice(0, 160))}.`,
+    priorSummaries.length ? `Earlier chapter context (continuity only): ${JSON.stringify(priorSummaries)}` : "",
+    `Actual current chapter summary (the only source for narrated events): ${JSON.stringify(text.slice(0, 6000))}`,
+    "Create 3 to 7 short spoken beats. Beat one is a natural bridge; narrate only events explicitly stated in the current summary; finish with a gentle forward nudge.",
+    "Never add plot details, guessed events, vocabulary, definitions, or facts from outside the supplied summary.",
+    `Each beat must be an object with t (short spoken text) and fx (one of ${RECAP_FX.join(", ")} or null). mood must be exactly one of ${RECAP_MOODS.join(", ")}.`,
+    'Return only JSON: {"mood":"calm","beats":[{"t":"...","fx":null}]}',
+  ].filter(Boolean).join("\n");
+  try {
+    const response = await generateGeminiContent({ model: MEMORY_SUMMARY_MODEL, contents: prompt, config: { temperature: 0.7 } });
+    const match = (response.text || "").match(/\{[\s\S]*\}/);
+    const parsed = match ? JSON.parse(match[0]) : null;
+    const mood = RECAP_MOODS.includes(parsed?.mood) ? parsed.mood : "calm";
+    const beats = (Array.isArray(parsed?.beats) ? parsed.beats : [])
+      .map((b) => ({ t: String(b?.t || "").slice(0, 90), fx: RECAP_FX.includes(b?.fx) ? b.fx : null }))
+      .filter((b) => b.t)
+      .slice(0, 8);
+    if (beats.length < 2) return res.json(recapFallback(bookTitle, chapterTitle, text));
+    res.json({ mood, beats });
+  } catch (err) {
+    if (isTransientModelError(err)) {
+      console.warn("[RECAP] model unavailable; using summary-based fallback.");
+      return res.json(recapFallback(bookTitle, chapterTitle, text));
+    }
+    console.warn("[RECAP] invalid model response; using summary-based fallback:", err?.message || err);
+    res.json(recapFallback(bookTitle, chapterTitle, text));
+  }
+});
+
+// ---------------------------------------------------------------
+// Helper: converts a quote's meaning into a concrete visual scene
+// brief before handing it to the image model - fixes generic/
+// unrelated illustrations by grounding the prompt in what the
+// quote is actually about.
+// ---------------------------------------------------------------
+async function buildImageryBriefFromQuote(quote, bookTitle) {
+  const prompt =
+    `A reader saved this line from the book "${bookTitle || "a book"}": "${quote}"\n\n` +
+    "Describe, in 2-3 concrete sentences, a SINGLE visual scene that captures this line's " +
+    "meaning and mood - specific objects, setting, lighting, a figure's pose or action if " +
+    "relevant. This description will guide an illustration, so be concrete and visual, not " +
+    "abstract. Do NOT mention rendering any text, letters, or words in the image. Return " +
+    "ONLY the scene description, nothing else.";
+  try {
+    const response = await generateGeminiContent({ model: MEMORY_SUMMARY_MODEL, contents: prompt });
+    return (response.text || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+const PORT = process.env.PORT || 8787;
+app.listen(PORT, () => {
+  console.log(`[BACKEND] Token server running on http://localhost:${PORT}`);
+});

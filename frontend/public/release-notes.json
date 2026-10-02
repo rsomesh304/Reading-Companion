@@ -1,0 +1,23 @@
+{
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-02",
+      "title": "Reading Companion is live",
+      "items": [
+        {
+          "type": "feature",
+          "text": "Live reading companion with Hindi and Odia vocabulary support"
+        },
+        {
+          "type": "feature",
+          "text": "Gems, memory, and chapter tracking saved entirely on-device"
+        },
+        {
+          "type": "improve",
+          "text": "Progressive Web App install flow and update notifications ready"
+        }
+      ]
+    }
+  ]
+}
