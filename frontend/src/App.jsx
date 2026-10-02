@@ -72,6 +72,7 @@ import { Component, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AudioCapture } from "./audioCapture.js";
 import { AudioPlayback } from "./audioPlayback.js";
+import { apiUrl } from "./api.js";
 import { CameraCapture } from "./cameraCapture.js";
 import MascotCharacter from "./components/MascotCharacter.jsx";
 import { GeminiLiveClient } from "./geminiLiveClient.js";
@@ -1257,7 +1258,7 @@ function LibraryScreen({ nav }) {
     setPortraitSearching(true);
     if (!isAutoRetry) setPortraitError(false);
     try {
-      const res = await fetch("/api/author-portrait", {
+      const res = await fetch(apiUrl("/api/author-portrait"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ authorName: authorEditor.authorName, bookTitle: library.getBook(authorEditor.bookId)?.title || "", tried: authorEditor.tried || [] }),
@@ -1817,7 +1818,7 @@ function GemsScreen({ nav }) {
     gemsStore.markSketchPending(gem.id);
     forceTick((n) => n + 1);
     try {
-      const res = await fetch("/api/sketch-gem", {
+      const res = await fetch(apiUrl("/api/sketch-gem"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ style, quote: gem.quote, bookTitle: gem.bookTitle }),
@@ -2243,7 +2244,7 @@ function SessionScreen({ bookId, onEnd }) {
   useEffect(() => {
     if (!book?.title || book.coverImage) return undefined;
     let cancelled = false;
-    fetch("/api/book-cover", {
+    fetch(apiUrl("/api/book-cover"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: book.title, author: book.authorName || "" }),
@@ -2443,7 +2444,7 @@ function SessionScreen({ bookId, onEnd }) {
     const explicitPersonalMemory = EXPLICIT_MEMORY_TRIGGER.test(fullText) &&
       !SAVE_GEM_TRIGGER.test(fullText) && !NON_MEMORY_CONTENT_TRIGGER.test(fullText);
     if (explicitPersonalMemory) {
-      fetch("/api/rephrase-memory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: fullText }) })
+      fetch(apiUrl("/api/rephrase-memory"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: fullText }) })
         .then((r) => r.json()).then(({ fact }) => fact && memoryStore.add(fact)).catch(() => {});
     }
     lastUserTurnRef.current = fullText;
@@ -2467,7 +2468,7 @@ function SessionScreen({ bookId, onEnd }) {
     const transcriptSnapshot = transcript;
     const currentMemories = memoryStore?.memories || [];
     try {
-      const summaryRes = await fetch("/api/compact-session", {
+      const summaryRes = await fetch(apiUrl("/api/compact-session"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transcript: transcriptSnapshot, existingMemories: currentMemories }),
@@ -2485,7 +2486,7 @@ function SessionScreen({ bookId, onEnd }) {
     const current = library.getBook(bookId);
     if (current?.authorPortraits?.some((p) => p.dataUrl)) return;
     try {
-      const res = await fetch("/api/author-portrait", {
+      const res = await fetch(apiUrl("/api/author-portrait"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ authorName, bookTitle: book?.title || "" }),

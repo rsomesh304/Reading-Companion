@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { apiUrl } from "./api.js";
 
 const WATCH_LOUD_MS = 9000;      // reader has spoken this long with no server message
 const WATCH_SILENT_MS = 18000;   // and the server has been completely silent this long
@@ -311,7 +312,7 @@ export class GeminiLiveClient {
       ? JSON.stringify({ failedKeyIndex, failedKeyDate: failedKeyDay })
       : undefined;
     if (requestBody) headers["Content-Type"] = "application/json";
-    const res = await fetch("/api/token", {
+    const res = await fetch(apiUrl("/api/token"), {
       method: "POST",
       headers,
       body: requestBody,

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import { AnimatePresence, motion as Motion, useDragControls } from "framer-motion";
 import { BookOpen, Gem, Info, Link2, Maximize2, Shuffle, X as XIcon } from "lucide-react";
+import { apiUrl } from "./api.js";
 import "./MemoryConstellation.css";
 
 const TAU = Math.PI * 2;
@@ -167,7 +168,7 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
       const payload = [...involved.values()].slice(0, 40)
         .map((g) => ({ id: g.id, bookTitle: g.bookTitle, quote: g.quote, takeaway: g.takeaway || "" }));
       try {
-        const res = await fetch("/api/gem-echoes", {
+        const res = await fetch(apiUrl("/api/gem-echoes"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ gems: payload }),

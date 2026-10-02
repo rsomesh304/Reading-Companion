@@ -1,3 +1,5 @@
+import { apiUrl } from "../api.js";
+
 const CACHE_KEY = "reading_companion_story_scripts_v1";
 
 export function storySourceHash(source) {
@@ -33,7 +35,7 @@ export async function getStoryScript(bookId, source, { signal } = {}) {
   const key = storyCacheId(bookId, source);
   if (isUsableScript(cache[key]?.script)) return { script: cache[key].script, cached: true };
 
-  const response = await fetch("/api/story-script", {
+  const response = await fetch(apiUrl("/api/story-script"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ source: {
