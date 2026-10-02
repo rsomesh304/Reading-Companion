@@ -262,11 +262,12 @@ export function AboutScreen({ nav }) {
 const REPORT_KEY = "rc_reports";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const FORMSPREE_ENDPOINT = import.meta.env.VITE_FORMSPREE_ENDPOINT;
 
 async function deliver(report) {
-  if (!SUPABASE_URL || !SUPABASE_KEY) return false;
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/bug_reports`, {
+  const deliveries = [];
+  if (SUPABASE_URL && SUPABASE_KEY) {
+    deliveries.push(fetch(`${SUPABASE_URL}/rest/v1/bug_reports`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -288,9 +289,32 @@ async function deliver(report) {
         device: report.device,
         created_at: report.createdAt,
       }),
-    });
-    return res.ok || res.status === 409;
-  } catch { return false; }
+    }).then((res) => res.ok || res.status === 409).catch(() => false));
+  }
+  if (FORMSPREE_ENDPOINT) {
+    deliveries.push(fetch(FORMSPREE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        _subject: `[Reading Companion] ${report.type}: ${report.title}`,
+        report_id: report.id,
+        type: report.type,
+        area: report.area,
+        severity: report.severity || "Not applicable",
+        title: report.title,
+        description: report.description,
+        steps: report.steps || "Not provided",
+        reporter: report.reporter,
+        app_version: report.appVersion,
+        device: JSON.stringify(report.device),
+        created_at: report.createdAt,
+        screenshot_count: report.screenshots?.length || 0,
+      }),
+    }).then((res) => res.ok).catch(() => false));
+  }
+  if (deliveries.length === 0) return false;
+  const results = await Promise.all(deliveries);
+  return results.every(Boolean);
 }
 const TYPES = [
   { id: "bug", label: "Bug", Icon: Bug },
