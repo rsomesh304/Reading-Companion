@@ -62,15 +62,18 @@ export default function UpdateManager({ paused = false, onUpdateState, actionsRe
 
   const [incoming, setIncoming] = useState([]);
   const [whatsNew, setWhatsNew] = useState([]);
+  // Dev-only: open the app with ?simulateUpdate to preview the update UI without a real update.
+  const simulateUpdate = import.meta.env.DEV && new URLSearchParams(window.location.search).has("simulateUpdate");
+  const updateReady = needRefresh || simulateUpdate;
 
   useEffect(() => {
-    if (!needRefresh) return;
-    loadNotes().then((all) => setIncoming(all.filter((release) => cmp(release.version, APP_VERSION) > 0)));
-  }, [needRefresh]);
+    if (!updateReady) return;
+    loadNotes().then((all) => setIncoming(simulateUpdate ? all.slice(0, 1) : all.filter((release) => cmp(release.version, APP_VERSION) > 0)));
+  }, [updateReady, simulateUpdate]);
 
   useEffect(() => {
-    onUpdateState?.({ available: needRefresh, releases: incoming });
-  }, [needRefresh, incoming, onUpdateState]);
+    onUpdateState?.({ available: updateReady, releases: incoming });
+  }, [updateReady, incoming, onUpdateState]);
 
   useEffect(() => {
     if (!actionsRef) return undefined;

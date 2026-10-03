@@ -71,6 +71,7 @@ import {
 import { Component, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiUrl } from "./api.js";
+import { computeBadges } from "./appBadges.js";
 import { AudioCapture } from "./audioCapture.js";
 import { AudioPlayback } from "./audioPlayback.js";
 import { CameraCapture } from "./cameraCapture.js";
@@ -119,6 +120,7 @@ import { getRecap, saveTurn } from "./sessionMemory.js";
 import { AboutScreen, ReportScreen, SettingsScreen } from "./SettingsScreens.jsx";
 import { resolveStorySource } from "./story/resolveStorySource.js";
 import StoryTheatre from "./story/StoryTheatre.jsx";
+import UpdateAnnouncement from "./UpdateAnnouncement.jsx";
 import UpdateManager from "./UpdateManager.jsx";
 import { useBookAura } from "./useBookAura.js";
 import { useButtonHaptics, useHaptic } from "./useHaptic.js";
@@ -555,7 +557,10 @@ export default function App() {
     window.history.back();
   }
 
+  const badges = computeBadges({ updateAvailable: updateState.available });
+
   const nav = {
+    badges,
     goDashboard: () => navigateTo("dashboard"),
     goLibrary: () => navigateTo("library"),
     goGems: () => navigateTo("gems"),
@@ -596,7 +601,7 @@ export default function App() {
             {screen === "about" && <AboutScreen nav={nav} />}
             {screen === "report" && <ReportScreen nav={nav} stores={{ profile: profileStore }} />}
           </div>
-          <BottomNav active={["settings", "about", "report"].includes(screen) ? "profile" : screen} onNavigate={(id) => navigateTo(id)} />
+          <BottomNav active={["settings", "about", "report"].includes(screen) ? "profile" : screen} onNavigate={(id) => navigateTo(id)} badges={badges} />
         </div>
       )}
 
@@ -614,6 +619,12 @@ export default function App() {
         paused={screen === "session" || showOnboarding}
         onUpdateState={setUpdateState}
         actionsRef={updateActionsRef}
+      />
+      <UpdateAnnouncement
+        available={updateState.available}
+        releases={updateState.releases}
+        paused={screen === "session" || showOnboarding}
+        onUpdate={nav.applyUpdate}
       />
       <ToastHost />
       <AnimatePresence>
@@ -728,7 +739,7 @@ function ConfirmModal({ title, message, onConfirm, onCancel }) {
 
 // ==================== BOTTOM NAV ====================
 
-function BottomNav({ active, onNavigate }) {
+function BottomNav({ active, onNavigate, badges = {} }) {
   const { triggerLightTap } = useHaptic();
   const items = [
     { id: "dashboard", Icon: Home, label: "Home" },
@@ -746,7 +757,10 @@ function BottomNav({ active, onNavigate }) {
           </Motion.button>
         ))}
         <Motion.button className={`nav-item ${active === "profile" ? "active" : ""}`} whileTap={{ scale: 0.9 }} transition={INTERACTION_SPRING} onClick={() => { triggerLightTap(); onNavigate("profile"); }}>
-          <span className="nav-icon-box"><span className="nav-avatar">{renderAvatar(22)}</span></span>
+          <span className="nav-icon-box">
+            <span className="nav-avatar">{renderAvatar(22)}</span>
+            {badges.profile > 0 && <span className="rc-badge" aria-label={`${badges.profile} pending`}>{badges.profile}</span>}
+          </span>
           <span className="nav-label">Profile</span>
         </Motion.button>
       </nav>
@@ -2212,13 +2226,14 @@ function ProfileScreen({ nav }) {
       <div className="settings-group">
         <div className="settings-group-title">More</div>
         {[
-          { Icon: SettingsIcon, label: "Settings", hint: "Theme, voice, backup, privacy", go: nav.goSettings },
+          { Icon: SettingsIcon, label: "Settings", hint: "Theme, voice, backup, privacy", go: nav.goSettings, badge: nav.badges?.settings },
           { Icon: Bug, label: "Report an issue", hint: "Bugs, ideas and improvements", go: nav.goReport },
           { Icon: Info, label: "About", hint: "Why this app exists", go: nav.goAbout },
-        ].map(({ Icon, label, hint, go }) => (
+        ].map(({ Icon, label, hint, go, badge }) => (
           <div key={label} className="settings-row elevated" onClick={go} role="button">
             <div className="settings-row-icon"><Icon size={17} /></div>
             <div className="settings-row-text"><div className="settings-row-label">{label}</div><div className="settings-row-hint">{hint}</div></div>
+            {badge > 0 && <span className="rc-badge" aria-label={`${badge} pending`}>{badge}</span>}
             <ChevronRight size={18} />
           </div>
         ))}
