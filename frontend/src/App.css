@@ -1610,6 +1610,14 @@ h1, h2, .book-tile-title, .continue-title, .gem-quote, .chapter-detail-title { f
 .bottom-nav .nav-avatar { width: 34px !important; height: 34px !important; border-radius: 50%; overflow: hidden; flex-shrink: 0; box-shadow: 0 0 0 2px var(--border); }
 .bottom-nav .nav-item.active .nav-avatar { box-shadow: 0 0 0 2px var(--primary); }
 .bottom-nav .nav-avatar .avatar-img, .bottom-nav .nav-avatar .avatar-preset-fill { width: 100%; height: 100%; }
+
+/* Red count badge shared by the dock and the Profile list */
+.rc-badge { display: inline-grid; place-items: center; flex-shrink: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; color: #fff; background: #dc2626; font-size: 10px; font-weight: 900; line-height: 1; box-shadow: 0 0 0 2px var(--bg-1); animation: rc-badge-pulse 2.4s ease-in-out infinite; }
+.bottom-nav .nav-icon-box { position: relative; }
+.bottom-nav .nav-icon-box .rc-badge { position: absolute; top: -5px; right: -9px; z-index: 2; }
+.settings-row .rc-badge { box-shadow: none; }
+@keyframes rc-badge-pulse { 50% { transform: scale(1.12); } }
+@media (prefers-reduced-motion: reduce) { .rc-badge { animation: none; } }
 /* mascot in empty states: bubble opens above-left of the head */
 .mascot-stage { width: 100%; display: flex; justify-content: center; padding: 118px 0 0 4%; box-sizing: border-box; }
 .mascot-stage .mascot-thought-wrap.above-left {
