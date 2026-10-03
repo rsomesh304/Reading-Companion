@@ -260,10 +260,12 @@ app.post("/api/bug-reports/screenshot-urls", async (req, res) => {
   }
 });
 
-const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "")
-  .split(",")
-  .map((key) => key.trim())
-  .filter(Boolean);
+const GEMINI_API_KEYS = [...new Set(
+  `${process.env.GEMINI_API_KEYS || ""},${process.env.GEMINI_API_KEY || ""}`
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean),
+)];
 const GEMINI_API_KEY = GEMINI_API_KEYS[0] || "";
 const MODEL_NAME = process.env.LIVE_MODEL_NAME || "gemini-3.1-flash-live-preview";
 const MEMORY_SUMMARY_MODEL = process.env.MEMORY_SUMMARY_MODEL || "gemini-3.6-flash";
@@ -304,7 +306,27 @@ function isQuotaOrRateLimitError(err) {
   );
 }
 
-async function withGeminiFailover(operation, label = "Gemini request", { deviceDay, failedKeyIndex } = {}) {
+// A key that Google rejects (wrong, expired, blocked) should be skipped just like one that hit its limit.
+function isKeyFault(err) {
+  if (isQuotaOrRateLimitError(err)) return true;
+  const message = String(err?.message || err || "");
+  const code = Number(err?.status ?? err?.code ?? 0);
+  return code === 401 || code === 403 || /API[_ ]?KEY|PERMISSION_DENIED|UNAUTHENTICATED|billing|expired|suspended|forbidden/i.test(message);
+}
+
+// How long a failed key rests, based on why it failed (reported by the app or seen here).
+function cooldownForReason(reason) {
+  const text = String(reason || "");
+  if (/api[_ ]?key|permission|unauth|billing|expired|suspended|forbidden|denied|1008/i.test(text)) return 60 * 60 * 1000;
+  if (/quota|exhaust|429|rate.?limit|too many/i.test(text)) return 15 * 60 * 1000;
+  return 2 * 60 * 1000;
+}
+
+function redactSecrets(value, max = 200) {
+  return String(value || "").replace(/[A-Za-z0-9_.-]{28,}/g, "[redacted]").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+async function withGeminiFailover(operation, label = "Gemini request", { deviceDay, failedKeyIndex, failedKeyReason } = {}) {
   if (!GEMINI_API_KEYS.length) {
     throw new Error("gemini_api_key_missing");
   }
@@ -312,7 +334,10 @@ async function withGeminiFailover(operation, label = "Gemini request", { deviceD
   const requestedDay = validDay(deviceDay);
   const day = requestedDay || geminiKeyPool.day || localDay();
   if (requestedDay) geminiKeyPool.currentIndex(day);
-  if (Number.isInteger(failedKeyIndex)) geminiKeyPool.markExhausted(failedKeyIndex, day);
+  if (Number.isInteger(failedKeyIndex)) {
+    console.warn(`[GEMINI] app reported key ${failedKeyIndex + 1}/${GEMINI_API_KEYS.length} failed: ${redactSecrets(failedKeyReason) || "no reason given"}`);
+    geminiKeyPool.markExhausted(failedKeyIndex, day, cooldownForReason(failedKeyReason));
+  }
   let lastError = null;
   for (let attempt = 0; attempt < GEMINI_API_KEYS.length; attempt += 1) {
     const keyIndex = geminiKeyPool.currentIndex(day);
@@ -324,21 +349,20 @@ async function withGeminiFailover(operation, label = "Gemini request", { deviceD
       return result;
     } catch (error) {
       lastError = error;
-      if (!isQuotaOrRateLimitError(error)) throw error;
-      const nextKeyIndex = geminiKeyPool.markExhausted(keyIndex, day);
-      console.warn(`[GEMINI] ${label} hit quota on key ${keyIndex + 1}/${GEMINI_API_KEYS.length}; next key ${nextKeyIndex === null ? "unavailable" : `${nextKeyIndex + 1}/${GEMINI_API_KEYS.length}`}.`);
+      if (!isKeyFault(error)) throw error;
+      const nextKeyIndex = geminiKeyPool.markExhausted(keyIndex, day, cooldownForReason(error?.message));
+      console.warn(`[GEMINI] ${label} failed on key ${keyIndex + 1}/${GEMINI_API_KEYS.length} (${redactSecrets(error?.message, 120)}); next key ${nextKeyIndex === null ? "unavailable" : `${nextKeyIndex + 1}/${GEMINI_API_KEYS.length}`}.`);
     }
   }
 
-  if (lastError) throw lastError;
-  throw new Error("all_gemini_keys_exhausted");
+  throw Object.assign(new Error("all_gemini_keys_exhausted"), { cause: lastError });
 }
 
 async function generateGeminiContent({ model, contents, config }) {
   return withGeminiFailover(async (geminiClient) => geminiClient.models.generateContent({ model, contents, config }));
 }
 
-async function mintGeminiToken({ deviceDay, failedKeyIndex } = {}) {
+async function mintGeminiToken({ deviceDay, failedKeyIndex, failedKeyReason } = {}) {
   return withGeminiFailover(async (geminiClient, _apiKey, keyIndex) => {
     const tokenResource = await geminiClient.authTokens.create({
       config: {
@@ -355,7 +379,7 @@ async function mintGeminiToken({ deviceDay, failedKeyIndex } = {}) {
       throw new Error("ephemeral_token_missing_from_google_response");
     }
     return { token, keyIndex: keyIndex + 1 };
-  }, "token mint", { deviceDay, failedKeyIndex });
+  }, "token mint", { deviceDay, failedKeyIndex, failedKeyReason });
 }
 
 function parseStoryScript(text) {
@@ -399,9 +423,9 @@ function isTransientModelError(err) {
 
 const CLOUDFARE_ART_STYLES = {
   "minimalist-lofi": "FLAT 2D VECTOR ILLUSTRATION in Studio Ghibli lo-fi anime style. Cel-shaded flat color shapes, soft muted color palette, hand-drawn animation look. This is NOT a photograph and NOT photorealistic - it is a flat illustrated scene, like a still frame from an animated film, gentle warm night atmosphere, minimal clean details.",
-  "charcoal-sketch": "ROUGH CHARCOAL PENCIL SKETCH on textured dark gray paper. Visible pencil strokes, smudged shading, loose expressive linework, monochrome black-and-white-and-gray only. This is NOT a photograph, NOT color, NOT digital art - it must look like a hand-drawn sketch in a physical sketchbook, lots of negative space, refined literary mood.",
+  "charcoal-sketch": "ROUGH CHARCOAL PENCIL SKETCH on textured dark gray paper. Visible pencil strokes, smudged shading, loose expressive linework, monochrome black-and-white-and-gray only. This is NOT a photograph, NOT color, NOT digital art - it must look hand-drawn with charcoal, lots of negative space, refined literary mood.",
   "cinematic-silhouette": "cinematic photographic silhouette of a single person, dark moody lighting, glowing rim-light backlight, foggy atmosphere, emotional storytelling, subtle dramatic contrast, highly detailed, premium editorial photography composition.",
-  "white-ink-sketch": "WHITE INK PEN LINE DRAWING on deep solid black background. Only thin white linework and cross-hatching visible, high contrast, zero color, zero gray shading, zero photographic elements - this must look like a scanned page from a personal journal drawn with a white gel pen on black paper, lots of negative space, dark academia mood.",
+  "white-ink-sketch": "WHITE INK PEN LINE DRAWING on deep solid black background. Only thin white linework and cross-hatching visible, high contrast, zero color, zero gray shading, zero photographic elements - drawn with a white gel pen on black paper, lots of negative space, dark academia mood.",
 };
 
 const CLOUDFARE_STYLE_SEQUENCE = ["minimalist-lofi", "charcoal-sketch", "cinematic-silhouette", "white-ink-sketch"];
@@ -447,28 +471,32 @@ function buildCloudflareSketchPrompt(styleName = "auto", quote = "", bookTitle =
   const style = CLOUDFARE_ART_STYLES[resolvedStyle] || CLOUDFARE_ART_STYLES["minimalist-lofi"];
   const isNonPhotographic = resolvedStyle !== "cinematic-silhouette";
 
+  // The quote itself never goes to the image model: it would try to draw it as garbled lettering.
+  // Also phrased positively; naming "text" or "words" in a prompt tends to make image models draw them.
   const parts = [
-    // The concrete scene comes FIRST now - this is what actually ties the
-    // image to the quote's meaning, instead of only carrying a style label.
-    imageryBrief
-      ? `Illustrate this specific scene: ${imageryBrief}`
-      : `Illustrate a scene evoking the mood of this line from the book "${bookTitle || ""}": "${quote}"`,
+    `A wordless, purely visual scene: ${sanitizeImageryBrief(imageryBrief)}`,
     `Render it in this exact visual treatment: ${style}`,
-    "Generate a single, pure visual illustration only. No text, no title, no quote, no caption, no words, no logo, no watermark, no signature, no letters, no numbers, no typography anywhere.",
-    "Composition: elegant negative space, refined artistic framing, clean visual hierarchy, very minimal details, 9:16 portrait composition.",
+    "Only natural and atmospheric elements: sky, light, water, mountains, trees, fog, stars, paths, distant figures seen from behind. Every surface is smooth and empty, clean and unmarked.",
+    "Composition: elegant negative space, refined artistic framing, very minimal details, 9:16 portrait composition.",
   ];
   if (isNonPhotographic) {
-    parts.push(
-      "STRICT REQUIREMENT: this must NOT look like a photograph, NOT look like a backlit portrait photo, NOT be photorealistic. It must clearly look hand-drawn or flat-illustrated, matching the described medium exactly."
-    );
+    parts.push("It must clearly look hand-drawn or flat-illustrated, NOT a photograph and NOT photorealistic, matching the described medium exactly.");
   }
-  parts.push(
-    "Avoid busy scenes, generic gradients, clutter, text overlays, posters, screenshots, logos, labels, UI, and any readable words.",
-    "Negative prompt: text, words, letters, numbers, quote marks, typography, title, headline, watermark, logo, signature, UI, labels, stickers, speech bubbles, paper notes with writing, any readable text anywhere in the image" +
-      (isNonPhotographic ? ", photograph, photorealistic, realistic photography, camera photo, DSLR, bokeh photography" : "") +
-      "."
-  );
   return parts.join(" ");
+}
+
+const WRITING_PRONE_WORDS = /\b(books?|pages?|paper|papers|posters?|signs?|signboards?|screens?|monitors?|phones?|letters?|words?|texts?|writings?|written|notes?|labels?|banners?|billboards?|newspapers?|diary|journals?|notebooks?|calendars?|clocks?|plaques?|inscriptions?|quote|quotes|caption|title|headline|map|maps)\b/i;
+const NEUTRAL_SCENE = "a lone figure seen from behind on a quiet path under soft, atmospheric light, with open sky and gentle landscape";
+
+// Drops any sentence that mentions objects models like to cover with lettering.
+function sanitizeImageryBrief(brief = "") {
+  const cleaned = String(brief || "")
+    .replace(/["“”][^"“”]*["“”]/g, "")
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => sentence.trim() && !WRITING_PRONE_WORDS.test(sentence))
+    .join(" ")
+    .trim();
+  return cleaned || NEUTRAL_SCENE;
 }
 
 function normalizeCloudflareImageResult(payload) {
@@ -637,10 +665,15 @@ app.post("/api/token", async (req, res) => {
     const tokenInfo = await mintGeminiToken({
       deviceDay,
       failedKeyIndex,
+      failedKeyReason: typeof req.body?.failedKeyReason === "string" ? req.body.failedKeyReason : "",
     });
     return res.json({ ...tokenInfo, keyCount: GEMINI_API_KEYS.length });
   } catch (error) {
-    console.error("[TOKEN] mint failed:", error);
+    if (error?.message === "all_gemini_keys_exhausted") {
+      console.warn("[TOKEN] every Gemini key is resting or failing; asking the app to wait");
+      return res.status(429).json({ error: "all_keys_unavailable" });
+    }
+    console.error("[TOKEN] mint failed:", redactSecrets(error?.message || error, 300));
     return res.status(500).json({ error: "token_mint_failed" });
   }
 });
@@ -1256,10 +1289,11 @@ async function buildImageryBriefFromQuote(quote, bookTitle) {
   const prompt =
     `A reader saved this line from the book "${bookTitle || "a book"}": "${quote}"\n\n` +
     "Describe, in 2-3 concrete sentences, a SINGLE visual scene that captures this line's " +
-    "meaning and mood - specific objects, setting, lighting, a figure's pose or action if " +
-    "relevant. This description will guide an illustration, so be concrete and visual, not " +
-    "abstract. Do NOT mention rendering any text, letters, or words in the image. Return " +
-    "ONLY the scene description, nothing else.";
+    "meaning and mood - open sky, light, landscape, water, weather, or a lone figure seen from behind. " +
+    "This description will guide an illustration, so be concrete and visual, not abstract. " +
+    "STRICT: the scene must contain no books, pages, paper, posters, signs, screens, phones, notes, " +
+    "labels, maps or anything that carries writing, and you must not repeat or quote the line. " +
+    "Return ONLY the scene description, nothing else.";
   try {
     const response = await generateGeminiContent({ model: MEMORY_SUMMARY_MODEL, contents: prompt });
     return (response.text || "").trim();

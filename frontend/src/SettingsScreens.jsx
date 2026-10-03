@@ -3,15 +3,18 @@
 /* eslint-disable react-hooks/immutability */
 import { motion as Motion } from "framer-motion";
 import {
-  Bug,
-  ChevronLeft, ChevronRight, Code, Download, HardDrive, Heart, ImagePlus, Lightbulb, Moon, RefreshCw,
-  Send, Shield, Sparkles, Sun, Target, Trash2, Upload, User, Volume2, Wrench, X as XIcon, Zap
+    Bug,
+    ChevronLeft, ChevronRight, Download, HardDrive, ImagePlus, Lightbulb, Moon, RefreshCw,
+    Send, Shield, Sparkles, Sun, Target, Trash2, Upload, User, Volume2, Wrench, X as XIcon, Zap
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { apiFetch } from "./api.js";
+import MajorReleaseCard from "./MajorRelease.jsx";
 import { INTERACTION_SPRING } from "./motionConfig.js";
 import { useGeminiVoiceDriver } from "./onboarding/avatarDriver.js";
-import { buildResolutionSummary, getReleaseHistory, getReportStatusLabel, normalizeReportStatus } from "./reportIssueHelpers.js";
+import { getReleaseHistory, normalizeReportStatus } from "./reportIssueHelpers.js";
+import { ReportDetail, ReportList } from "./ReportsView.jsx";
 import "./SettingsScreens.css";
 import { useHaptic } from "./useHaptic.js";
 import { APP_VERSION } from "./version.js";
@@ -63,6 +66,7 @@ function ReleaseNotesScreen({ releases, onBack }) {
                 transition={{ delay: Math.min(releaseIndex * 0.07, 0.35), duration: 0.28, ease: "easeOut" }}
               >
                 <span className="st-release-node" aria-hidden="true" />
+                {release.major ? <MajorReleaseCard release={release} /> : (
                 <div className="st-release elevated">
                   <div className="st-release-head">
                     <div>
@@ -80,6 +84,7 @@ function ReleaseNotesScreen({ releases, onBack }) {
                     ))}
                   </div>
                 </div>
+                )}
               </Motion.article>
             ))}
           </div>
@@ -300,7 +305,7 @@ export function SettingsScreen({ nav, stores }) {
 
       <Group title="Privacy & storage">
         <div className="st-note"><Shield size={15} />
-          <span>Your books, gems, words and memories are stored only on this device. During a session your voice and camera frames are sent to Google Gemini to generate replies, and nowhere else.</span>
+          <span>Your books, gems, words and memories are stored only on this device. During a session your voice, camera frames and page snapshots are sent to Google Gemini to generate replies, and nowhere else.</span>
         </div>
         <Item icon={<HardDrive size={17} />} label="Storage used" hint="On this device"><span className="st-val">{kb} KB</span></Item>
         <Item icon={<Trash2 size={17} />} label="Clear conversation history" hint="Recaps used for continuity" onClick={clearChats} />
@@ -339,74 +344,7 @@ export function SettingsScreen({ nav, stores }) {
   );
 }
 
-// ======================= ABOUT =======================
-// EDIT THESE TEXTS with your own story whenever you like.
-const ABOUT = {
-  tagline: "A friend who reads with you.",
-  why: [
-    "Reading in English can feel like walking with a stone in your shoe. One hard word, and you leave the book to open a dictionary. The flow breaks, and often the book stays closed.",
-    "And not everyone has a friend sitting next to them who can explain that word in their own language. Reading Companion is built to be that friend, for Hindi and Odia speakers who want to read English books.",
-  ],
-  principles: [
-    { t: "Your language, your pace", d: "Meanings in Hindi and Odia, with real examples, never a lecture." },
-    { t: "The book stays open", d: "Ask out loud, get the answer, keep reading. No tabs, no typing." },
-    { t: "What you read, you keep", d: "Words, gems and preferences are saved, so reading adds up." },
-    { t: "Your data stays with you", d: "Everything lives on your device. You can export or delete it any time." },
-  ],
-  dev: {
-    name: "Soumyaranjan",
-    role: "Data Engineer @ Accenture",
-    quote: "Data se roz ka kaam, design se roz ke sapne.",
-    story: "By day he builds data pipelines. By night he loves design. Reading Companion started from one question: what if a book could answer back? It was built with the help of AI, and this is version one. The real story is just beginning.",
-  },
-};
-
-export function AboutScreen({ nav }) {
-  return (
-    <div className="screen st-screen">
-      <div className="aurora-bg" />
-      <Head title="About" sub="Reading Companion" onBack={nav.goBack} />
-
-      <div className="ab-hero">
-        <div className="ab-mark"><Heart size={26} /></div>
-        <h2>Reading Companion</h2>
-        <p>{ABOUT.tagline}</p>
-        <span className="ab-ver">Version {APP_VERSION}</span>
-      </div>
-
-      <Group title="Why it exists">
-        {ABOUT.why.map((t, i) => <p key={i} className="ab-p elevated">{t}</p>)}
-      </Group>
-
-      <Group title="Who it is for">
-        <p className="ab-p elevated">Students, working people and book lovers whose first language is Hindi or Odia, and who want to enjoy English books without feeling stuck.</p>
-      </Group>
-
-      <Group title="What we believe">
-        <div className="ab-grid">
-          {ABOUT.principles.map((p) => <div key={p.t} className="ab-card elevated"><b>{p.t}</b><span>{p.d}</span></div>)}
-        </div>
-      </Group>
-
-      <Group title="The developer">
-        <div className="ab-dev elevated">
-          <div className="ab-ava"><b>{ABOUT.dev.name[0]}</b><img src="/developer.jpg" alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} /></div>
-          <div className="ab-dev-name">{ABOUT.dev.name}</div>
-          <div className="ab-dev-role">{ABOUT.dev.role}</div>
-          <p className="ab-quote">“{ABOUT.dev.quote}”</p>
-          <p className="ab-story">{ABOUT.dev.story}</p>
-        </div>
-      </Group>
-
-      <Group title="Built with">
-        <div className="st-chips static">
-          {["React", "Vite", "Gemini Live", "Framer Motion", "Web Audio"].map((t) => <span key={t}><Code size={12} /> {t}</span>)}
-        </div>
-      </Group>
-      <p className="ab-foot">Made with care in India.</p>
-    </div>
-  );
-}
+export { AboutScreen } from "./AboutScreen.jsx";
 
 // ======================= REPORT AN ISSUE =======================
 const REPORT_KEY = "rc_reports";
@@ -518,15 +456,6 @@ const TYPES = [
   { id: "feature", label: "New feature", Icon: Lightbulb, description: "Suggest a new capability or experience you want added." },
   { id: "enhance", label: "Improvement", Icon: Sparkles, description: "Recommend a better version of an existing feature or flow." },
 ];
-const REPORT_STAGES = [
-  ["sent", "Sent"],
-  ["seen", "Seen"],
-  ["review", "Review"],
-  ["approved", "Approved"],
-  ["in_progress", "Work in progress"],
-  ["testing", "Testing"],
-  ["done", "Completed"],
-];
 const AREAS = ["Home", "Reading session", "Welcome tour", "Library", "Gems & story card", "Memory & mind map", "Profile & settings", "Other"];
 const SEV = ["Low", "Medium", "High", "Blocking"];
 
@@ -551,7 +480,34 @@ function toDataUrl(file, max = 1000) {
 }
 function loadReports() { try { return JSON.parse(localStorage.getItem(REPORT_KEY) || "[]"); } catch { return []; } }
 
+function ImageLightbox({ images, index, onClose, onIndex }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowRight" && index < images.length - 1) onIndex(index + 1);
+      else if (e.key === "ArrowLeft" && index > 0) onIndex(index - 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [index, images.length, onClose, onIndex]);
+  return createPortal(
+    <div className="rp-lightbox" role="dialog" aria-modal="true" aria-label="Screenshot preview" onClick={onClose}>
+      <button type="button" className="rp-lightbox-close" onClick={onClose} aria-label="Close preview"><XIcon size={20} /></button>
+      <img src={images[index]} alt={`Screenshot ${index + 1} of ${images.length}`} onClick={(e) => e.stopPropagation()} />
+      {images.length > 1 && (
+        <div className="rp-lightbox-nav" onClick={(e) => e.stopPropagation()}>
+          <button type="button" disabled={index === 0} onClick={() => onIndex(index - 1)} aria-label="Previous screenshot"><ChevronLeft size={20} /></button>
+          <span>{index + 1} / {images.length}</span>
+          <button type="button" disabled={index === images.length - 1} onClick={() => onIndex(index + 1)} aria-label="Next screenshot"><ChevronRight size={20} /></button>
+        </div>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
 export function ReportScreen({ nav, stores }) {
+  const [lightbox, setLightbox] = useState(null);
   const [type, setType] = useState("bug");
   const [area, setArea] = useState(AREAS[0]);
   const [sev, setSev] = useState("Medium");
@@ -737,93 +693,16 @@ export function ReportScreen({ nav, stores }) {
       {view === "reports" && (
         <Group>
           {selectedId && selectedReport ? (
-            <div className="rp-details-screen">
-              <div className="rp-detail-actions">
-                <button className="rp-back-link" onClick={() => setSelectedId(null)}><ChevronLeft size={16} /> Back to reports</button>
-                {SUPABASE_URL && SUPABASE_KEY && (
-                  <button className="rp-refresh" type="button" onClick={refreshReports} disabled={refreshingReports} aria-label="Refresh report status" title="Refresh report status">
-                    <RefreshCw size={15} className={refreshingReports ? "spinning" : ""} />
-                  </button>
-                )}
-              </div>
-              <div className="rp-detail-panel">
-                <div className="rp-detail-top">
-                  <div>
-                    <span className="rp-type-badge small">{TYPES.find((t) => t.id === selectedReport.type)?.label}</span>
-                    <h4>{selectedReport.title}</h4>
-                  </div>
-                  <span className={`rp-status-badge ${normalizeReportStatus(selectedReport)}`}>{getReportStatusLabel(selectedReport)}</span>
-                </div>
-
-                <div className="rp-detail-grid">
-                  {selectedReport.ticketNumber || selectedReport.ticket_number ? <div><span>Ticket</span><strong>{`RC-${String(selectedReport.ticketNumber || selectedReport.ticket_number).padStart(6, "0")}`}</strong></div> : null}
-                  <div><span>Area</span><strong>{selectedReport.area}</strong></div>
-                  <div><span>Severity</span><strong>{selectedReport.severity || "Not set"}</strong></div>
-                  <div><span>Created</span><strong>{new Date(selectedReport.createdAt || selectedReport.created_at).toLocaleDateString()}</strong></div>
-                  <div><span>App</span><strong>{selectedReport.appVersion || selectedReport.app_version || APP_VERSION}</strong></div>
-                </div>
-
-                <div className="rp-description-block">
-                  <label>What happened</label>
-                  <p>{selectedReport.description}</p>
-                </div>
-
-                {selectedReport.steps && (
-                  <div className="rp-description-block">
-                    <label>Steps to reproduce</label>
-                    <p>{selectedReport.steps}</p>
-                  </div>
-                )}
-
-                {selectedReport.screenshots?.length > 0 && (
-                  <div className="rp-description-block">
-                    <label>Screenshots</label>
-                    {(selectedReport.screenshotUrls || selectedReport.screenshots).length > 0 ? (
-                      <div className="rp-image-grid">
-                        {(selectedReport.screenshotUrls || selectedReport.screenshots).map((shot, index) => (
-                          <img key={`${selectedReport.id}-${index}`} src={shot} alt={`Issue snapshot ${index + 1}`} />
-                        ))}
-                      </div>
-                    ) : <p>Snapshots are temporarily unavailable.</p>}
-                  </div>
-                )}
-
-                <div className="rp-resolution-box">
-                  <label>Development progress</label>
-                  <div className="rp-stage-grid">
-                    {REPORT_STAGES.map(([stage, label], index) => {
-                      const status = normalizeReportStatus(selectedReport);
-                      const currentIndex = status === "rejected" ? 2 : REPORT_STAGES.findIndex(([candidate]) => candidate === status);
-                      const stageClass = index < currentIndex ? "complete" : index === currentIndex ? "current" : "";
-                      return <div key={stage} className={`rp-stage ${stageClass}`}><span>{index + 1}</span><small>{label}</small></div>;
-                    })}
-                  </div>
-                  <p>{normalizeReportStatus(selectedReport) === "done"
-                    ? buildResolutionSummary(selectedReport)
-                    : normalizeReportStatus(selectedReport) === "rejected"
-                      ? "This report was reviewed and will not be scheduled for implementation."
-                      : `Current status: ${getReportStatusLabel(selectedReport)}. Status is managed by the development team.`}</p>
-                  {(selectedReport.statusNote || selectedReport.status_note || selectedReport.rejectionNote || selectedReport.rejection_note) ? (
-                    <>
-                      <label>{normalizeReportStatus(selectedReport) === "rejected" ? "Why this was rejected" : "Developer update"}</label>
-                      <p>{selectedReport.statusNote || selectedReport.status_note || selectedReport.rejectionNote || selectedReport.rejection_note}</p>
-                    </>
-                  ) : null}
-                  {normalizeReportStatus(selectedReport) === "done" && (selectedReport.resolutionNote || selectedReport.resolution_note) ? (
-                    <>
-                      <label>Resolution note</label>
-                      <p>{selectedReport.resolutionNote || selectedReport.resolution_note}</p>
-                    </>
-                  ) : null}
-                  {selectedReport.resolvedInVersion || selectedReport.resolved_in_version ? (
-                    <>
-                      <label>Completed in</label>
-                      <p>{`v${selectedReport.resolvedInVersion || selectedReport.resolved_in_version}`}</p>
-                    </>
-                  ) : null}
-                </div>
-              </div>
-            </div>
+            <ReportDetail
+              report={selectedReport}
+              types={TYPES}
+              appVersion={APP_VERSION}
+              canRefresh={Boolean(SUPABASE_URL && SUPABASE_KEY)}
+              refreshing={refreshingReports}
+              onBack={() => setSelectedId(null)}
+              onRefresh={refreshReports}
+              onOpenImage={(images, index) => setLightbox({ images, index })}
+            />
           ) : (
             <>
               <div className="rp-filter-row">
@@ -838,41 +717,20 @@ export function ReportScreen({ nav, stores }) {
                   </button>
                 )}
               </div>
-
-              {filteredReports.length === 0 ? (
-                <div className="st-note"><Sparkles size={15} /><span>No reports yet. Submit one from the issue form.</span></div>
-              ) : (
-                <div className="rp-report-list">
-                  {filteredReports.map((report) => (
-                    <Motion.button
-                      layout
-                      key={report.id}
-                      className={`rp-report-card rp-card-${report.type || "issue"}`}
-                      onClick={() => setSelectedId(report.id)}
-                      whileTap={{ scale: 0.99 }}
-                      transition={{ type: "spring", stiffness: 280, damping: 20 }}
-                    >
-                      <div className="rp-card-head">
-                        <span className="rp-type-badge">{TYPES.find((t) => t.id === report.type)?.label}</span>
-                        <span className={`rp-status-badge ${normalizeReportStatus(report)}`}>{getReportStatusLabel(report)}</span>
-                      </div>
-                      <h3>{report.title}</h3>
-                      <p>{report.description}</p>
-                      <div className="rp-card-meta">
-                        {report.ticketNumber || report.ticket_number ? <span>{`RC-${String(report.ticketNumber || report.ticket_number).padStart(6, "0")}`}</span> : null}
-                        <span>{report.area}</span>
-                        <span>{new Date(report.createdAt || report.created_at).toLocaleDateString()}</span>
-                        {report.screenshots?.length ? <span>{report.screenshots.length} photo(s)</span> : null}
-                      </div>
-                    </Motion.button>
-                  ))}
-                </div>
-              )}
+              <ReportList reports={filteredReports} types={TYPES} onSelect={setSelectedId} onCompose={() => setView("compose")} />
             </>
           )}
         </Group>
       )}
       {msg && <div className="st-toast">{msg}</div>}
+      {lightbox && (
+        <ImageLightbox
+          images={lightbox.images}
+          index={lightbox.index}
+          onClose={() => setLightbox(null)}
+          onIndex={(next) => setLightbox((current) => (current ? { ...current, index: next } : current))}
+        />
+      )}
     </div>
   );
 }

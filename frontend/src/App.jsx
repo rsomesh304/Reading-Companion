@@ -12,6 +12,10 @@ function getRecentOpeners() { try { return JSON.parse(localStorage.getItem(OPENE
 function saveOpener(text) {
   try { localStorage.setItem(OPENER_KEY, JSON.stringify([...getRecentOpeners(), text.slice(0, 160)].slice(-8))); } catch { /* ignore */ }
 }
+const SNAPSHOT_FIRST_NOTE = "[SYSTEM NOTE] SNAPSHOT MODE. The reader just shared a still photo of the book page they are on; the image you now see is that fixed photo, NOT a live camera, so it will not move. Treat it as the current page (rule 23b). Say ONE very short Hinglish line (under 8 words) confirming you can see the page, or say plainly that it is unclear and ask for a clearer photo. Then stay quiet until the reader asks about a word, phrase or sentence.";
+const SNAPSHOT_NEXT_NOTE = "[SYSTEM NOTE] NEW SNAPSHOT. The reader finished the previous page and shared the NEXT page. Forget the earlier page photo; the image you see now is the current page. Say ONE very short Hinglish line (under 8 words) confirming the new page is visible, or say it is unclear and ask for a clearer photo. Then stay quiet until asked.";
+const SNAPSHOT_REMINDER_NOTE = "[SYSTEM NOTE] Reminder: SNAPSHOT MODE is still on. The image you see is the reader's current page photo, not a live camera. Do not say anything about this note.";
+const SNAPSHOT_OFF_NOTE = "[SYSTEM NOTE] The reader switched to the LIVE camera. Ignore the earlier page snapshot and use only the live camera pictures from now on. Do not say anything about this note.";
 function buildOpeningNote(cont) {
   const hour = new Date().getHours();
   const period = hour < 5 ? "late night" : hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
@@ -57,6 +61,7 @@ import {
     Play,
     Plus,
     RefreshCw,
+    ScanText,
     Search,
     Settings as SettingsIcon,
     // Sun,
@@ -74,8 +79,10 @@ import { apiUrl } from "./api.js";
 import { computeBadges } from "./appBadges.js";
 import { AudioCapture } from "./audioCapture.js";
 import { AudioPlayback } from "./audioPlayback.js";
+import BookTile from "./BookTile.jsx";
 import { CameraCapture } from "./cameraCapture.js";
 import MascotCharacter from "./components/MascotCharacter.jsx";
+import { describeLiveStatus, friendlyErrorMessage } from "./friendlyErrors.js";
 import { GeminiLiveClient } from "./geminiLiveClient.js";
 import { Gems } from "./gems.js";
 import GemStoryCard from "./GemStoryCard.jsx";
@@ -116,8 +123,10 @@ import {
     UPDATE_MEMORY_DECLARATION,
 } from "./persona.js";
 import { Profile } from "./profile.js";
+import ServiceNotice from "./ServiceNotice.jsx";
 import { getRecap, saveTurn } from "./sessionMemory.js";
 import { AboutScreen, ReportScreen, SettingsScreen } from "./SettingsScreens.jsx";
+import { prepareSnapshot } from "./snapshotCapture.js";
 import { resolveStorySource } from "./story/resolveStorySource.js";
 import StoryTheatre from "./story/StoryTheatre.jsx";
 import UpdateAnnouncement from "./UpdateAnnouncement.jsx";
@@ -213,23 +222,6 @@ const GEM_ART_STYLE_OPTIONS = [
   { id: "cinematic-silhouette", label: "Cinematic Silhouette", desc: "Moody backlit, photo-style" },
   { id: "white-ink-sketch", label: "White Ink Sketch", desc: "White pen on black journal page" },
 ];
-
-function ChapterRing({ completed, total, color = "var(--primary)" }) {
-  const size = 22, strokeWidth = 3;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const pct = total > 0 ? Math.min(1, completed / total) : 0;
-  return (
-    <svg className="book-tile-progress-ring" viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
-      <circle className="ring-track" cx={size / 2} cy={size / 2} r={radius} strokeWidth={strokeWidth} />
-      <circle
-        className="ring-fill" cx={size / 2} cy={size / 2} r={radius} strokeWidth={strokeWidth}
-        strokeDasharray={circumference} strokeDashoffset={circumference * (1 - pct)}
-        style={{ stroke: color }}
-      />
-    </svg>
-  );
-}
 
 function pickGemArtStyle(gem) {
   const haystack = `${gem?.bookTitle || ""} ${gem?.quote || ""}`.toLowerCase();
@@ -423,13 +415,14 @@ function resizeImageToDataUrl(file, maxSize = 240) {
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error) { console.error("[APP] screen crashed", error); }
   render() {
     if (this.state.error) {
       return (
         <div className="screen crash-screen">
           <div className="aurora-bg" />
-          <h2>Something went wrong</h2>
-          <p className="crash-message">{String(this.state.error.message || this.state.error)}</p>
+          <h2>Yeh screen khul nahi paayi</h2>
+          <p className="crash-message">App mein chhoti si gadbad ho gayi. Aapka saved data safe hai. Home par jaakar dobara try kijiye.</p>
           <button className="primary-button" onClick={() => { this.setState({ error: null }); this.props.onReset?.(); }}>
             Go home
           </button>
@@ -888,6 +881,10 @@ function StreakHero() {
       <div className="sh-glow" />
       <div className="sh-top">
         <div className="sh-ring">
+          <span className="sh-pulse" aria-hidden="true" />
+          {streak > 0 && (
+            <span className="sh-sparks" aria-hidden="true"><i /><i /><i /><i /></span>
+          )}
           <svg viewBox="0 0 108 108">
             <defs>
               <linearGradient id="streakGradBig" x1="0" y1="0" x2="1" y2="1">
@@ -916,21 +913,94 @@ function StreakHero() {
   );
 }
 
-function KpiTile({ icon, label, value, delta, gradient, index }) {
-  const shown = useCountUp(value);
+const KPI_TONES = {
+  books: ["#8b5cf6", "#6366f1"],
+  words: ["#22d3ee", "#3b82f6"],
+  week: ["#f59e0b", "#ef4444"],
+  gems: ["#ec4899", "#8b5cf6"],
+};
+const KPI_SPINES = ["#8b5cf6", "#22d3ee", "#f59e0b", "#ec4899", "#6366f1", "#34d399"];
+const KPI_SPINE_HEIGHTS = [26, 34, 22, 38, 30, 24];
+const KPI_LETTERS = [["A", 6, 0], ["अ", 24, 0.9], ["W", 42, 1.7], ["ଅ", 60, 0.5], ["a", 14, 2.3], ["क", 52, 1.2]];
+
+function KpiArt({ kind, value, series }) {
+  if (kind === "books") {
+    const shown = Math.min(Math.max(value, 1), 6);
+    return (
+      <svg className="kpi-art" viewBox="0 0 84 52" aria-hidden="true">
+        <line x1="2" y1="48" x2="82" y2="48" className="kpi-shelf" />
+        {KPI_SPINE_HEIGHTS.map((h, i) => (
+          <rect key={i} x={6 + i * 13} y={48 - h} width="10" height={h} rx="2" className={`kpi-spine ${i < shown ? "on" : ""}`} style={{ "--d": `${i * 110}ms`, fill: KPI_SPINES[i] }} />
+        ))}
+      </svg>
+    );
+  }
+  if (kind === "words") {
+    return (
+      <div className="kpi-art kpi-letters" aria-hidden="true">
+        {KPI_LETTERS.map(([ch, left, delay]) => <span key={ch} style={{ left, animationDelay: `${delay}s` }}>{ch}</span>)}
+      </div>
+    );
+  }
+  if (kind === "week") {
+    const W = 84, H = 44, max = Math.max(...series, 1);
+    const pts = series.map((n, i) => ({ x: 4 + (i * (W - 8)) / Math.max(1, series.length - 1), y: H - 6 - (n / max) * (H - 16) }));
+    const line = smoothPath(pts);
+    const last = pts[pts.length - 1];
+    return (
+      <svg className="kpi-art" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+        <path d={`${line} L${last.x},${H - 2} L${pts[0].x},${H - 2} Z`} className="kpi-area" />
+        <path d={line} pathLength="1" className="kpi-line" />
+        <circle cx={last.x} cy={last.y} r="3" className="kpi-dot" />
+        <circle cx={last.x} cy={last.y} r="3" className="kpi-dot-ring" />
+      </svg>
+    );
+  }
   return (
-    <Motion.div className="kpi-tile elevated" style={{ "--badge": gradient, "--i": index }} whileHover={{ y: -4, scale: 1.025 }} whileTap={{ scale: 0.985 }} transition={INTERACTION_SPRING}>
-      <div className="kpi-top">
-        <div className="stat-badge">{icon}</div>
+    <div className="kpi-art kpi-gem" aria-hidden="true">
+      <div className="kpi-gem-spin">
+        <svg viewBox="0 0 48 44">
+          <defs>
+            <linearGradient id="kpiGemFill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#f9a8d4" /><stop offset="0.55" stopColor="#ec4899" /><stop offset="1" stopColor="#7c3aed" /></linearGradient>
+          </defs>
+          <polygon points="12,4 36,4 46,16 24,42 2,16" fill="url(#kpiGemFill)" />
+          <path d="M2 16 H46 M12 4 L18 16 L24 42 L30 16 L36 4" fill="none" stroke="rgba(255,255,255,.55)" strokeWidth="1" strokeLinejoin="round" />
+          <polyline points="18,16 24,4 30,16" fill="none" stroke="rgba(255,255,255,.45)" strokeWidth="1" strokeLinejoin="round" />
+        </svg>
+      </div>
+      <i className="kpi-spark s1" /><i className="kpi-spark s2" /><i className="kpi-spark s3" />
+    </div>
+  );
+}
+
+function KpiTile({ kind, icon, label, value, delta, series = [], index }) {
+  const shown = useCountUp(value);
+  const [burst, setBurst] = useState(0);
+  const { triggerLightTap } = useHaptic();
+  const [c1, c2] = KPI_TONES[kind];
+  return (
+    <Motion.button
+      type="button"
+      className={`kpi-tile kpi2 ${kind}`}
+      style={{ "--k1": c1, "--k2": c2, "--i": index }}
+      whileTap={{ scale: 0.96 }}
+      transition={INTERACTION_SPRING}
+      onClick={() => { triggerLightTap(); setBurst((b) => b + 1); }}
+      aria-label={`${label}: ${value}`}
+    >
+      <span className="kpi-shine" aria-hidden="true" />
+      <div key={burst} className={`kpi-art-wrap ${burst ? "pop" : ""}`}><KpiArt kind={kind} value={value} series={series} /></div>
+      <div className="stat-badge">{icon}</div>
+      <div className="kpi-bottom">
+        <div className="kpi-value">{shown}</div>
         {delta !== undefined && (
           <span className={`kpi-delta ${delta >= 0 ? "up" : "down"}`}>
             {delta >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}{Math.abs(delta)}
           </span>
         )}
       </div>
-      <div className="kpi-value">{shown}</div>
       <div className="kpi-label">{label}</div>
-    </Motion.div>
+    </Motion.button>
   );
 }
 
@@ -1011,16 +1081,46 @@ function MiniBars({ data }) {
   const [active, setActive] = useState(null);
   const max = Math.max(...data.map((d) => d.count), 1);
   return (
-    <div className="mini-bars">
-      {data.map((d, i) => (
-        <button key={i} type="button" className="mini-col" onClick={() => setActive(active === i ? null : i)}>
-          <span className="mini-count">{active === i || d.count > 0 ? d.count : ""}</span>
-          <span className="mini-track">
-            <span className={`mini-fill ${active === i ? "on" : ""}`} style={{ height: `${Math.max((d.count / max) * 100, 6)}%`, animationDelay: `${i * 70}ms` }} />
-          </span>
-          <span className="mini-label">{d.label.slice(0, 1)}</span>
-        </button>
-      ))}
+    <div className="mini-bars gw">
+      <svg width="0" height="0" className="gw-defs" aria-hidden="true">
+        <defs>
+          <linearGradient id="gwFill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#f9a8d4" /><stop offset="0.55" stopColor="#ec4899" /><stop offset="1" stopColor="#7c3aed" /></linearGradient>
+        </defs>
+      </svg>
+      {data.map((d, i) => {
+        const has = d.count > 0;
+        const top = has && d.count === max;
+        const size = has ? 38 + (d.count / max) * 62 : 30;
+        return (
+          <button key={i} type="button" className={`mini-col gw-col ${has ? "has" : ""} ${top ? "top" : ""} ${active === i ? "on" : ""}`} onClick={() => setActive(active === i ? null : i)} aria-label={`${d.label}: ${d.count} gem${d.count === 1 ? "" : "s"}`}>
+            <span className="mini-count">{active === i || d.count > 0 ? d.count : ""}</span>
+            <span className="gw-stage">
+              {has && <span className="gw-glow" />}
+              <svg className="gw-gem" viewBox="0 0 24 28" preserveAspectRatio="xMidYMax meet" style={{ height: `${size}%`, animationDelay: `${i * 90}ms` }}>
+                <polygon className="gw-body" points="6,2 18,2 23,10 12,27 1,10" />
+                <path className="gw-facet" d="M1 10H23M6 2L10 10L12 27L14 10L18 2" />
+              </svg>
+              {top && <><i className="gw-spark a" /><i className="gw-spark b" /></>}
+            </span>
+            <span className="mini-label">{d.label.slice(0, 1)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function EmptyShelfArt() {
+  return (
+    <div className="es-art" aria-hidden="true">
+      <span className="es-glow" />
+      <svg viewBox="0 0 72 56">
+        <path className="es-page l" d="M36 16C27 9 14 9 5 14V45C14 40 27 40 36 47Z" />
+        <path className="es-page r" d="M36 16C45 9 58 9 67 14V45C58 40 45 40 36 47Z" />
+        <path className="es-spine" d="M36 16V47" />
+        <path className="es-text" d="M12 22C18 20 24 21 30 24M12 29C18 27 24 28 30 31M42 24C48 21 54 20 60 22M42 31C48 28 54 27 60 29" />
+      </svg>
+      <i className="es-spark a" /><i className="es-spark b" /><i className="es-spark c" />
     </div>
   );
 }
@@ -1166,10 +1266,10 @@ const donutItems = restWords > 0 ? [...topItems, { label: "Other books", value: 
       <StreakHero />
 
       <div className="kpi-grid">
-        <KpiTile index={1} label="Books" value={stats.totalBooks} icon={<BookOpen size={16} />} gradient={badgeGradient(0)} />
-        <KpiTile index={2} label="Words learned" value={stats.totalWords} icon={<Brain size={16} />} gradient={badgeGradient(1)} />
-        <KpiTile index={3} label="Words this week" value={thisWeek} delta={thisWeek - prevWeek} icon={<Flame size={16} />} gradient={badgeGradient(2)} />
-        <KpiTile index={4} label="Gems saved" value={gemsList.length} icon={<Gem size={16} />} gradient={badgeGradient(4)} />
+        <KpiTile index={1} kind="books" label="Books" value={stats.totalBooks} icon={<BookOpen size={16} />} />
+        <KpiTile index={2} kind="words" label="Words learned" value={stats.totalWords} icon={<Brain size={16} />} />
+        <KpiTile index={3} kind="week" label="Words this week" value={thisWeek} delta={thisWeek - prevWeek} series={last14.slice(7).map((d) => d.count)} icon={<Flame size={16} />} />
+        <KpiTile index={4} kind="gems" label="Gems saved" value={gemsList.length} icon={<Gem size={16} />} />
       </div>
 
       <div className="dash-card elevated" style={{ "--i": 5 }}>
@@ -1236,7 +1336,7 @@ const donutItems = restWords > 0 ? [...topItems, { label: "Other books", value: 
         </div>
       ) : (
         <div className="dash-card elevated dash-empty" style={{ "--i": 10 }}>
-          <MascotCharacter characterId={mascot} size={80} animated context="no books yet on the dashboard" />
+          <EmptyShelfArt />
           <p className="empty-hint">No books yet. Add your first one to begin.</p>
           <button className="primary-button" onClick={nav.goLibrary}>Go to Library</button>
         </div>
@@ -1335,31 +1435,21 @@ function LibraryScreen({ nav }) {
         const chapters = library.getChapters(b.id);
         const total = chapters.length;
         const completed = chapters.filter((c) => !c.isPlaceholder && isChapterClosed(c)).length;
-        const accent = BADGE_GRADIENTS[i % BADGE_GRADIENTS.length][0];
         const { date, time } = formatLastRead(b.lastReadAt);
         return (
-          <Motion.div key={b.id} className="book-tile elevated" whileHover={{ y: -3, scale: 1.012 }} transition={INTERACTION_SPRING}>
-            <button className="book-tile-delete" onClick={(e) => { e.stopPropagation(); setConfirmDelete(b); }} aria-label="Delete book">
-              <Trash2 size={13} />
-            </button>
-            <div className="book-tile-body" role="button" tabIndex={0}
-              onClick={() => nav.openChapterGrid(b.id)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); nav.openChapterGrid(b.id); } }}>
-              <div className="book-tile-title">{b.title}</div>
-              <div className="book-tile-progress-row">
-                <span className="book-tile-progress-label">Chapters</span>
-                <ChapterRing completed={completed} total={total} color={accent} />
-                <span className="book-tile-progress-text" style={{ color: accent }}>{completed}/{total}</span>
-              </div>
-              <div className="book-tile-date"><span>Last read</span><span>{date} · {time}</span></div>
-            </div>
-            <div className="book-tile-footer">
-              <button type="button" className="book-tile-author-btn" onClick={(e) => { e.stopPropagation(); openAuthorModal(b); }}>
-                <User size={12} /> Author
-              </button>
-              <button className="book-tile-play" onClick={() => nav.openRecap(b.id)} aria-label="Start reading"><Play size={14} /></button>
-            </div>
-          </Motion.div>
+          <BookTile
+            key={b.id}
+            book={b}
+            index={i}
+            completed={completed}
+            total={total}
+            date={date}
+            time={time}
+            onOpen={() => nav.openChapterGrid(b.id)}
+            onDelete={(e) => { e.stopPropagation(); setConfirmDelete(b); }}
+            onAuthor={(e) => { e.stopPropagation(); openAuthorModal(b); }}
+            onPlay={() => nav.openRecap(b.id)}
+          />
         );
       })}
       </div>
@@ -2266,6 +2356,13 @@ function SessionScreen({ bookId, onEnd }) {
   const [activities, setActivities] = useState([]);
   const [liveActivity, setLiveActivity] = useState(null);
   const [feedOpen, setFeedOpen] = useState(false);
+  const [snapshot, setSnapshot] = useState(null);
+  const [snapExpanded, setSnapExpanded] = useState(false);
+  const [snapBusy, setSnapBusy] = useState(false);
+  const snapFileRef = useRef(null);
+  const snapBase64Ref = useRef(null);
+  const snapTimerRef = useRef(null);
+  const snapCountRef = useRef(0);
   const activitiesRef = useRef([]);
   const activityTimerRef = useRef(null);
   const sessionMascot = useMascotPreference();
@@ -2356,6 +2453,7 @@ function SessionScreen({ bookId, onEnd }) {
     return () => {
       clearInterval(sleepInterval);
       clearTimeout(activityTimerRef.current);
+      clearInterval(snapTimerRef.current);
       clientRef.current?.close();
       audioPlaybackRef.current?.close();
       audioCaptureRef.current?.stop();
@@ -2405,8 +2503,61 @@ function SessionScreen({ bookId, onEnd }) {
     handleEnd();
   }
 
+  function resendSnapshot() {
+    const client = clientRef.current;
+    if (snapBase64Ref.current && client?.ready) client.sendVideoFrame(snapBase64Ref.current);
+  }
+  function clearSnapshot() {
+    clearInterval(snapTimerRef.current);
+    snapTimerRef.current = null;
+    snapBase64Ref.current = null;
+    setSnapshot(null);
+    setSnapExpanded(false);
+  }
+  function openSnapshotPicker() {
+    triggerLightTap();
+    if (snapBusy) return;
+    if (!clientRef.current?.ready) {
+      notify("Companion abhi connect ho raha hai. Ek pal ruk kar snapshot lijiye.", "info");
+      return;
+    }
+    snapFileRef.current?.click();
+  }
+  async function handleSnapshotFile(file) {
+    if (!file || snapBusy) return;
+    setSnapBusy(true);
+    try {
+      const shot = await prepareSnapshot(file);
+      if (shot.quality === "dark") {
+        notify("Photo bahut andhera hai. Achhi roshni mein page ki saaf photo dobara lijiye.", "error", 5200);
+        return;
+      }
+      if (shot.quality === "blurry") notify("Photo thodi dhundhli lag rahi hai. Zaroorat ho toh dobara le lijiye.", "info", 5200);
+      if (cameraRef.current) stopCameraNow();
+      const isNext = Boolean(snapBase64Ref.current);
+      snapBase64Ref.current = shot.base64;
+      snapCountRef.current += 1;
+      setSnapshot({ dataUrl: shot.dataUrl, page: snapCountRef.current });
+      clearInterval(snapTimerRef.current);
+      snapTimerRef.current = setInterval(resendSnapshot, 15000);
+      const client = clientRef.current;
+      client?.sendVideoFrame(shot.base64);
+      setTimeout(() => client?.sendVideoFrame(shot.base64), 1000);
+      setTimeout(() => client?.sendText(isNext ? SNAPSHOT_NEXT_NOTE : SNAPSHOT_FIRST_NOTE), 500);
+      markActive();
+    } catch (e) {
+      notify(friendlyErrorMessage(e, "Photo padh nahi paya. Dobara snapshot lijiye."), "error");
+    } finally {
+      setSnapBusy(false);
+    }
+  }
+
   async function startCameraThenNotify() {
     if (cameraOn || !videoEl.current) return;
+    if (snapBase64Ref.current) {
+      clearSnapshot();
+      clientRef.current?.sendText(SNAPSHOT_OFF_NOTE);
+    }
     setCameraOn(true);
     setCameraExpanded(false);
     cameraRef.current = new CameraCapture(
@@ -2859,7 +3010,12 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
         tools: [{ functionDeclarations: [SAVE_MEMORY_DECLARATION, LOG_VOCABULARY_DECLARATION, UPDATE_CHAPTER_SUMMARY_DECLARATION, SET_CURRENT_CHAPTER_DECLARATION, RENAME_CHAPTER_DECLARATION, SET_BOOK_AUTHOR_DECLARATION, SET_CHAPTER_PAGES_DECLARATION, SAVE_GEM_DECLARATION, DELETE_GEM_DECLARATION, DELETE_VOCABULARY_DECLARATION, DELETE_MEMORY_DECLARATION, UPDATE_MEMORY_DECLARATION, LIST_SAVED_ITEMS_DECLARATION, GET_READING_STATUS_DECLARATION, GET_SESSION_ACTIVITY_DECLARATION, COMPLETE_CHAPTER_DECLARATION,SET_CHAPTER_OUTLINE_DECLARATION,] }],
       },
       handlers: {
-        onStatus: (s) => setStatus(s),
+        onStatus: (s) => {
+          setStatus(s);
+          if (s === "connected" && snapBase64Ref.current) {
+            setTimeout(() => { resendSnapshot(); clientRef.current?.sendText(SNAPSHOT_REMINDER_NOTE); }, 600);
+          }
+        },
         onAudio: (data) => audioPlaybackRef.current?.enqueue(data),
         onText: (text) => { companionTurnBufRef.current += text; },
         onUserText: (text) => {
@@ -2905,9 +3061,13 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
     ]);
     if (mic.status === "rejected") setStatus(`Mic error: ${mic.reason?.message || mic.reason}`);
     else if (conn.status === "rejected") {
-      console.warn("[LIVE] initial connection failed", conn.reason);
-      setStatus("connection problem");
-      notify("Connection mein dikkat aa gayi. Internet check karke session dobara shuru karein.", "error", 6000);
+      console.warn("[LIVE] initial connection failed", String(conn.reason?.message || conn.reason).slice(0, 160));
+      if (/all_keys_unavailable/.test(String(conn.reason?.message))) {
+        setStatus("voice service busy - try again later");
+        notify(friendlyErrorMessage(conn.reason), "error", 6000);
+      } else {
+        clientRef.current?.recover(conn.reason);
+      }
     }
   }
 
@@ -2930,7 +3090,7 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
   const railChapters = book ? library.getChapters(bookId).filter((c) => !c.isPlaceholder) : [];
   const statusKey = /reconnect|resum/i.test(status) ? "reconnecting"
     : /connecting|starting/i.test(status) ? "connecting"
-    : /closed|lost|error|failed/i.test(status) ? "lost" : "connected";
+    : /closed|lost|error|failed|busy/i.test(status) ? "lost" : "connected";
   const statusMeta = {
     connected: { label: "Live", dotClass: "status-dot connected" },
     connecting: { label: "Getting ready", dotClass: "status-dot reconnecting" },
@@ -2938,6 +3098,7 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
     lost: { label: "Offline", dotClass: "status-dot lost" },
   }[statusKey];
   const mode = orbVisual.orbMode;
+  const liveNotice = describeLiveStatus(status);
   const fmt = (s) => {
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
     const mm = String(m).padStart(h ? 2 : 1, "0"), ss = String(sec).padStart(2, "0");
@@ -2988,6 +3149,20 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
         </div>
       </div>
 
+      <AnimatePresence>
+        {liveNotice && (
+          <Motion.div key={liveNotice.code} className="hud-notice" initial={{ opacity: 0, y: 14, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.97 }} transition={INTERACTION_SPRING}>
+            <ServiceNotice
+              compact
+              kind={liveNotice.kind}
+              title={liveNotice.title}
+              detail={liveNotice.detail}
+              actions={liveNotice.code === "lost" ? [{ label: "End session", onClick: handleEnd, primary: true }] : []}
+            />
+          </Motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="hud-stage">
         <div className="orb-wrap">
           <EmberOrb levelRef={orbLevelRef} mode={mode === "listening" ? "listening" : mode === "speaking" ? "speaking" : "idle"} ghostMode={isGhostMode} />
@@ -3008,6 +3183,7 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
         <div className="hud-chips">
           <span key={`w-${sessionStats.words}`}><BookOpen size={13} /> {sessionStats.words} words</span>
           <span key={`g-${sessionStats.gems}`}><Gem size={13} /> {sessionStats.gems} gems</span>
+          {snapshot && <span key={`p-${snapshot.page}`}><ScanText size={13} /> Page {snapshot.page}</span>}
           {muted && <span className="muted-chip"><MicOff size={13} /> Muted</span>}
         </div>
       </div>
@@ -3022,12 +3198,27 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
       </div>
       <canvas ref={canvasEl} style={{ display: "none" }} />
 
+      {snapshot && (
+        <div className={`camera-preview elevated snap-preview ${snapExpanded ? "expanded" : ""}`}>
+          <img src={snapshot.dataUrl} alt="Shared page snapshot" onClick={() => setSnapExpanded((v) => !v)} />
+          <div className="camera-controls">
+            <Motion.button type="button" className="camera-adjust-button" whileTap={{ scale: 0.97 }} transition={INTERACTION_SPRING} onClick={openSnapshotPicker}>
+              Next page
+            </Motion.button>
+          </div>
+        </div>
+      )}
+      <input ref={snapFileRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { handleSnapshotFile(e.target.files?.[0]); e.target.value = ""; }} />
+
       <div className="glass-dock">
         <Motion.button className={`hud-btn ${muted ? "active" : ""}`} whileTap={{ scale: 0.94 }} transition={INTERACTION_SPRING} onClick={toggleMute} aria-label={muted ? "Unmute microphone" : "Mute microphone"}>
           {muted ? <MicOff size={22} /> : <Mic size={22} />}
         </Motion.button>
         <Motion.button className={`hud-btn ${cameraOn ? "active" : ""}`} whileTap={{ scale: 0.94 }} transition={INTERACTION_SPRING} onClick={toggleCamera} aria-label={cameraOn ? "Close camera" : "Open camera"}>
           {cameraOn ? <CameraIcon size={22} /> : <CameraOff size={22} />}
+        </Motion.button>
+        <Motion.button className={`hud-btn ${snapshot ? "active" : ""}`} whileTap={{ scale: 0.94 }} transition={INTERACTION_SPRING} onClick={openSnapshotPicker} disabled={snapBusy} aria-label={snapshot ? "Share snapshot of the next page" : "Share a snapshot of the page"}>
+          <ScanText size={22} />
         </Motion.button>
         <Motion.button className={`hud-btn ${transcriptOpen ? "active" : ""}`} whileTap={{ scale: 0.94 }} transition={INTERACTION_SPRING} onClick={toggleTranscript} aria-label="Toggle transcript">
           <MessageSquareText size={22} />
