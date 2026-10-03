@@ -123,6 +123,7 @@ import {
     UPDATE_MEMORY_DECLARATION,
 } from "./persona.js";
 import { Profile } from "./profile.js";
+import "./ProfileUI.css";
 import ServiceNotice from "./ServiceNotice.jsx";
 import { getRecap, saveTurn } from "./sessionMemory.js";
 import { AboutScreen, ReportScreen, SettingsScreen } from "./SettingsScreens.jsx";
@@ -133,6 +134,7 @@ import UpdateAnnouncement from "./UpdateAnnouncement.jsx";
 import UpdateManager from "./UpdateManager.jsx";
 import { useBookAura } from "./useBookAura.js";
 import { useButtonHaptics, useHaptic } from "./useHaptic.js";
+import { APP_VERSION } from "./version.js";
 
 const MODEL_NAME = "gemini-3.1-flash-live-preview";
 const FALLBACK_MODEL_NAME = "gemini-2.5-flash-native-audio-preview-12-2025";
@@ -879,6 +881,17 @@ function StreakHero() {
   return (
     <div className="streak-hero elevated dash-card" style={{ "--i": 0 }}>
       <div className="sh-glow" />
+      <div className={`sh-corner ${streak > 0 ? "lit" : ""}`} aria-hidden="true">
+        <span className="sh-corner-halo" />
+        <svg viewBox="0 0 24 24" className="sh-corner-flame">
+          <defs>
+            <linearGradient id="shFlameOuter" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stopColor="#ef4444" /><stop offset="0.6" stopColor="#f97316" /><stop offset="1" stopColor="#fbbf24" /></linearGradient>
+          </defs>
+          <path d="M12 1.5c.6 3.2-1.6 5-3.4 7.4C6.9 11 6 12.6 6 14.8a6 6 0 0 0 12 0c0-2.4-1-4-2.4-5.6-.3 1.6-1 2.6-2 3 .8-3.8.3-7.5-1.6-10.7z" fill="url(#shFlameOuter)" />
+          <path className="sh-corner-core" d="M12 22a3.6 3.6 0 0 1-3.6-3.6c0-1.8 1.2-2.8 2.1-4.2.4 1 1 1.5 1.5 1.6.2-1.4 1-2.4 1.6-3.2.9 1.2 2 2.4 2 5.8A3.6 3.6 0 0 1 12 22z" fill="#fde68a" />
+        </svg>
+        <i /><i /><i />
+      </div>
       <div className="sh-top">
         <div className="sh-ring">
           <span className="sh-pulse" aria-hidden="true" />
@@ -2255,79 +2268,99 @@ function ProfileScreen({ nav }) {
   }
 
   const hasPhoto = !!profileStore.data.avatar;
+  const stats = library.getStats();
+  const streak = profileStore.getStreak();
+  const gemCount = gemsStore.list().length;
+  const rise = (i) => ({ initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.45, delay: 0.06 * i, ease: "easeOut" } });
 
   return (
-    <div className="screen profile-screen">
+    <div className="screen pf-screen">
       <div className="aurora-bg" />
-      <header className="screen-header">
-        <div className="header-left">
-          <h1>Profile</h1>
-        </div>
-      </header>
 
-      <div className="profile-identity">
-        <div className="profile-avatar-wrap">
-          <button className="profile-avatar" onClick={() => fileInputRef.current?.click()}>
-            {renderAvatar(30)}
+      <Motion.section className="pf-hero" {...rise(0)}>
+        <span className="pf-mesh" aria-hidden="true" />
+        <span className="pf-blob a" aria-hidden="true" />
+        <span className="pf-blob b" aria-hidden="true" />
+        <div className="pf-kicker">Your profile</div>
+
+        <div className="pf-avatar">
+          <span className="pf-ring" aria-hidden="true" />
+          <button type="button" className="pf-avatar-btn" onClick={() => fileInputRef.current?.click()} aria-label="Change photo">
+            {renderAvatar(34)}
           </button>
-          <button className="avatar-edit-btn" onClick={() => fileInputRef.current?.click()} aria-label="Upload photo">
-            <CameraIcon size={12} />
+          <button type="button" className="pf-cam" onClick={() => fileInputRef.current?.click()} aria-label="Upload photo">
+            <CameraIcon size={13} />
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarPick} />
         </div>
-        {hasPhoto && <button className="avatar-remove-link" onClick={handleAvatarRemove}>Remove photo</button>}
 
-        <div className="avatar-preset-row">
+        <input className="pf-name" value={name} maxLength={30} onChange={(e) => setName(e.target.value)} onBlur={() => profileStore.setName(name)} aria-label="Your name" />
+        <div className="pf-chips">
+          <span className="pf-chip hot"><Flame size={13} /> {streak}-day streak</span>
+          {hasPhoto && <button type="button" className="pf-chip ghost" onClick={handleAvatarRemove}>Remove photo</button>}
+        </div>
+
+        <div className="pf-swatches" role="group" aria-label="Default avatars">
           {AVATAR_PRESETS.map(({ Icon, gradient }, idx) => (
-            <button
+            <Motion.button
               key={idx}
-              className={`avatar-preset-swatch ${!hasPhoto && profileStore.data.avatarPreset === idx ? "selected" : ""}`}
+              type="button"
+              whileTap={{ scale: 0.88 }}
+              className={`pf-swatch ${!hasPhoto && profileStore.data.avatarPreset === idx ? "on" : ""}`}
               style={{ background: gradient }}
               onClick={() => handlePresetPick(idx)}
               aria-label={`Choose default icon ${idx + 1}`}
             >
               <Icon size={16} color="#fff" />
-            </button>
+            </Motion.button>
           ))}
         </div>
 
-        <input className="profile-name-input" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => profileStore.setName(name)} />
-        <div className="profile-streak-chip"><Flame size={13} /> {profileStore.getStreak()}-day streak</div>
-      </div>
-
-            <div className="settings-group">
-        <div className="settings-group-title">Companion</div>
-        <div className="profile-mascot-card elevated">
-          <div className="profile-mascot-header">
-            <span className="profile-mascot-title">Companion</span>
-            <div className="profile-mascot-mini"><MascotCharacter characterId={mascot || "owl"} size={28} animated={false} /></div>
-          </div>
-          <div className="mascot-picker-grid">
-            {["owl", "robot", "sprout", "fox", "book"].map((id) => (
-              <button key={id} type="button" className={`mascot-picker-button ${mascot === id ? "selected" : ""}`}
-                onClick={() => { setMascot(id); forceUpdate((n) => n + 1); }} aria-label={`Choose ${id} mascot`}>
-                <MascotCharacter characterId={id} size={42} animated={false} />
-              </button>
-            ))}
-          </div>
+        <div className="pf-stats">
+          {[["Streak", streak], ["Books", stats.totalBooks], ["Words", stats.totalWords], ["Gems", gemCount]].map(([label, value]) => (
+            <div key={label}><b>{value}</b><span>{label}</span></div>
+          ))}
         </div>
-      </div>
+      </Motion.section>
 
-      <div className="settings-group">
-        <div className="settings-group-title">More</div>
-        {[
-          { Icon: SettingsIcon, label: "Settings", hint: "Theme, voice, backup, privacy", go: nav.goSettings, badge: nav.badges?.settings },
-          { Icon: Bug, label: "Report an issue", hint: "Bugs, ideas and improvements", go: nav.goReport },
-          { Icon: Info, label: "About", hint: "Why this app exists", go: nav.goAbout },
-        ].map(({ Icon, label, hint, go, badge }) => (
-          <div key={label} className="settings-row elevated" onClick={go} role="button">
-            <div className="settings-row-icon"><Icon size={17} /></div>
-            <div className="settings-row-text"><div className="settings-row-label">{label}</div><div className="settings-row-hint">{hint}</div></div>
-            {badge > 0 && <span className="rc-badge" aria-label={`${badge} pending`}>{badge}</span>}
-            <ChevronRight size={18} />
-          </div>
-        ))}
-      </div>
+      <Motion.section className="pf-block" {...rise(2)}>
+        <div className="pf-block-head"><h2>Your companion</h2><span>Pick who reads with you</span></div>
+        <div className="pf-companions">
+          {["owl", "robot", "sprout", "fox", "book"].map((id) => (
+            <Motion.button
+              key={id}
+              type="button"
+              whileTap={{ scale: 0.94 }}
+              className={`pf-companion ${mascot === id ? "on" : ""}`}
+              onClick={() => { setMascot(id); forceUpdate((n) => n + 1); }}
+              aria-label={`Choose ${id} mascot`}
+              aria-pressed={mascot === id}
+            >
+              <MascotCharacter characterId={id} size={46} animated={false} />
+              <i aria-hidden="true" />
+            </Motion.button>
+          ))}
+        </div>
+      </Motion.section>
+
+      <Motion.section className="pf-bento" {...rise(3)}>
+        <button type="button" className="pf-tile settings" onClick={nav.goSettings}>
+          <span className="pf-tile-ic"><SettingsIcon size={22} /></span>
+          <span className="pf-tile-text"><b>Settings</b><small>Theme, voice, backup, privacy</small></span>
+          {nav.badges?.settings > 0 && <span className="rc-badge" aria-label={`${nav.badges.settings} pending`}>{nav.badges.settings}</span>}
+          <ChevronRight size={18} className="pf-tile-go" />
+        </button>
+        <button type="button" className="pf-tile report" onClick={nav.goReport}>
+          <span className="pf-tile-ic"><Bug size={20} /></span>
+          <span className="pf-tile-text"><b>Report an issue</b><small>Bugs and ideas</small></span>
+        </button>
+        <button type="button" className="pf-tile about" onClick={nav.goAbout}>
+          <span className="pf-tile-ic"><Info size={20} /></span>
+          <span className="pf-tile-text"><b>About</b><small>Why this exists</small></span>
+        </button>
+      </Motion.section>
+
+      <p className="pf-foot">Reading Companion · v{APP_VERSION}</p>
     </div>
   );
 }
@@ -2485,7 +2518,7 @@ function SessionScreen({ bookId, onEnd }) {
     setActivities(next);
     setLiveActivity(item);
     clearTimeout(activityTimerRef.current);
-    activityTimerRef.current = setTimeout(() => setLiveActivity(null), 4600);
+    activityTimerRef.current = setTimeout(() => setLiveActivity(null), 3400);
   }
 
   function beginGracefulEnd() {
@@ -3234,29 +3267,53 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
 
       <div className="sess-sidekick">
         <AnimatePresence>
-          {feedOpen && activities.length > 0 && (
-            <Motion.div className="sess-feed" initial={{ opacity: 0, y: 14, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.96 }} transition={INTERACTION_SPRING}>
-              <div className="sess-feed-title">Background mein ho raha kaam</div>
-              {activities.slice().reverse().map((a) => {
-                const Ico = ACTIVITY_ICONS[a.icon] || Check;
-                return <div key={a.id} className="sess-feed-row"><Ico size={13} /><span>{a.text}</span></div>;
-              })}
-            </Motion.div>
-          )}
-        </AnimatePresence>
-        <AnimatePresence>
           {liveActivity && !feedOpen && (
             <Motion.div key={liveActivity.id} className="sess-activity-bubble"
               initial={{ opacity: 0, y: 12, scale: 0.85 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: 0.9 }} transition={INTERACTION_SPRING}>
-              {liveActivity.text}
+              {liveActivity.text.length > 64 ? `${liveActivity.text.slice(0, 62)}…` : liveActivity.text}
             </Motion.div>
           )}
         </AnimatePresence>
         <div className={`sess-mascot-btn ${feedOpen ? "on" : ""}`}>
-          <MascotCharacter characterId={sessionMascot} size={54} animated silent onTap={() => { triggerLightTap(); setFeedOpen((o) => !o); }} />
+          <MascotCharacter characterId={sessionMascot} size={54} animated silent onTap={() => { triggerLightTap(); setFeedOpen(true); }} />
           {activities.length > 0 && <span className="sess-count">{activities.length}</span>}
         </div>
       </div>
+
+      {createPortal(
+        <AnimatePresence>
+          {feedOpen && (
+            <Motion.div key="sheet" className="sess-sheet-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setFeedOpen(false)}>
+              <Motion.div className="sess-sheet" role="dialog" aria-modal="true" aria-label="Actions completed in this session"
+                initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", stiffness: 320, damping: 34 }}
+                onClick={(e) => e.stopPropagation()}>
+                <span className="sess-sheet-grip" aria-hidden="true" />
+                <div className="sess-sheet-head">
+                  <div><b>Done in this session</b><span>{activities.length} action{activities.length === 1 ? "" : "s"} completed</span></div>
+                  <button type="button" onClick={() => setFeedOpen(false)} aria-label="Close"><XIcon size={16} /></button>
+                </div>
+                {activities.length === 0 ? (
+                  <p className="sess-sheet-empty">Nothing yet. Saved words, gems and chapter updates will show up here.</p>
+                ) : (
+                  <ul className="sess-sheet-list">
+                    {activities.slice().reverse().map((a) => {
+                      const Ico = ACTIVITY_ICONS[a.icon] || Check;
+                      return (
+                        <li key={a.id}>
+                          <span className="sess-sheet-ic"><Ico size={14} /></span>
+                          <span className="sess-sheet-text">{a.text}</span>
+                          <time>{new Date(a.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </Motion.div>
+            </Motion.div>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
 
       <AnimatePresence>
         {ghostToast && (

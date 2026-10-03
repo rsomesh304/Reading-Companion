@@ -1,12 +1,9 @@
 import { motion as Motion } from "framer-motion";
 import { Calendar, Check, ChevronLeft, Clock, Flag, Hash, Image as ImageIcon, Inbox, MapPin, Plus, RefreshCw, Smartphone } from "lucide-react";
-import { buildReportTimeline, getReportStatusLabel, getReportStatusShortLabel, normalizeReportStatus } from "./reportIssueHelpers.js";
+import { buildReportTimeline, formatIstDate, formatIstDateTime, getReportStatusLabel, getReportStatusShortLabel, istDayKey, normalizeReportStatus } from "./reportIssueHelpers.js";
 import "./ReportsView.css";
 
-const formatDate = (value) => {
-  const date = new Date(value);
-  return value && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
-};
+const formatDate = formatIstDate;
 const ticketLabel = (report) => {
   const number = report.ticketNumber || report.ticket_number;
   return number ? `RC-${String(number).padStart(6, "0")}` : "";
@@ -76,6 +73,7 @@ export function ReportDetail({ report, types, appVersion, canRefresh, refreshing
   const TypeIcon = type?.Icon;
   const shots = screenshotList(report);
   const steps = buildReportTimeline(report);
+  const created = report.createdAt || report.created_at;
   const resolution = status === "done" ? (report.resolutionNote || report.resolution_note || "").trim() : "";
   const doneVersion = report.resolvedInVersion || report.resolved_in_version;
   const showResolution = status === "done" && (resolution || doneVersion);
@@ -139,17 +137,23 @@ export function ReportDetail({ report, types, appVersion, canRefresh, refreshing
       <Motion.section className="rq-block" {...rise(0.15)}>
         <h4>Status timeline</h4>
         <ol className="rq-timeline">
-          {steps.map((step) => (
+          {steps.map((step) => {
+            const isFirst = step.key === "sent" || step.key === "queued";
+            const stamp = isFirst
+              ? formatIstDateTime(created)
+              : step.date && istDayKey(step.date) !== istDayKey(created) ? formatDate(step.date) : "";
+            return (
             <li key={step.key} className={`rq-step ${step.state} ${step.key}`}>
               <span className="rq-node">{step.state === "done" ? <Check size={11} strokeWidth={3} /> : step.state === "current" ? <Clock size={11} /> : null}</span>
               <div className="rq-step-body">
-                <div className="rq-step-head"><b>{step.label}</b>{step.date ? <time>{formatDate(step.date)}</time> : null}</div>
+                <div className="rq-step-head"><b>{step.label}</b>{stamp ? <time>{stamp}</time> : null}</div>
                 {step.notes.map((note, index) => (
                   <p key={index} className="rq-note">{note.text}{note.date && index > 0 ? <time> · {formatDate(note.date)}</time> : null}</p>
                 ))}
               </div>
             </li>
-          ))}
+            );
+          })}
         </ol>
       </Motion.section>
 

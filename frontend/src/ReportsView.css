@@ -91,3 +91,6 @@
 @keyframes rqGlow { 50% { transform: scale(1.15); opacity: .75; } }
 @keyframes rqPulse { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--s) 8%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .rq-empty-art, .rq-empty-dot, .rq-hero-glow, .rq-resolution-glow, .rq-step.current .rq-node { animation: none; } }
+
+.rq-refresh .spinning { animation: rp-spin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .rq-refresh .spinning { animation-duration: 2.4s; } }

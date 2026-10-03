@@ -1,6 +1,38 @@
 {
   "releases": [
     {
+      "version": "1.5.0",
+      "date": "2026-10-04",
+      "ui": true,
+      "title": "A brand-new Profile and Settings",
+      "items": [
+        {
+          "type": "improve",
+          "text": "Completely redesigned Profile and Settings, with a new identity card, companion picker, theme and voice choosers and storage meter"
+        },
+        {
+          "type": "feature",
+          "text": "In a reading session the mascot now shows a short note when something happens, and tapping it opens a list of everything done so far"
+        },
+        {
+          "type": "improve",
+          "text": "Report status timeline now shows the time (IST) and the date of each later stage"
+        },
+        {
+          "type": "improve",
+          "text": "The streak card has a lively animated flame"
+        },
+        {
+          "type": "fix",
+          "text": "The refresh button inside a report now refreshes that report"
+        },
+        {
+          "type": "fix",
+          "text": "Home and Report an issue now scroll fully past the bottom bar, and the header and tabs stay pinned"
+        }
+      ]
+    },
+    {
       "version": "1.4.0",
       "date": "2026-10-03",
       "major": true,
