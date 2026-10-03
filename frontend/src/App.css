@@ -1506,8 +1506,8 @@ h1, h2, .book-tile-title, .continue-title, .gem-quote, .chapter-detail-title { f
 .nav-avatar { width: 30px; height: 30px; flex-shrink: 0; }
 /* ===== Scroll behaviour ===== */
 .app-shell { height: 100dvh; min-height: 0; overflow: hidden; }
-.app-content { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; padding-bottom: 0; }
-.screen { min-height: 0; flex-shrink: 0; padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)); }
+.app-content { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+.screen { flex: 1 1 auto; min-height: 0; flex-shrink: 1; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)); }
 
 /* Library + Gems: header (and Gems dropdown) stay put, only the list scrolls */
 .library-screen, .gems-screen { flex: 1 1 0; overflow: hidden; padding-bottom: 0; }
@@ -1518,6 +1518,9 @@ h1, h2, .book-tile-title, .continue-title, .gem-quote, .chapter-detail-title { f
 .gems-filter-row { flex-shrink: 0; }
 /* ===== Home: hero + speech row ===== */
 .dash-hero { padding: 20px 20px 4px; }
+.dashboard-screen { overflow: hidden; padding-bottom: 0; }
+.dash-sticky-header { position: relative; z-index: 20; flex: 0 0 auto; background: var(--bg-1); border-bottom: 1px solid var(--border); box-shadow: 0 10px 24px rgba(0,0,0,.18); }
+.dashboard-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)); }
 .dash-mascot { flex-shrink: 0; cursor: pointer; }
 .mascot-say { position: relative; z-index: 5; margin: 0 16px 12px; padding-top: 16px; }
 .say-dot { position: absolute; border-radius: 50%; background: var(--primary-2); animation: dotPop .4s cubic-bezier(.3,1.6,.5,1) both; }

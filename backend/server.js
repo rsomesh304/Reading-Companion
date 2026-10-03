@@ -5,6 +5,7 @@ import express from "express";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DailyGeminiKeyPool } from "./geminiKeyPool.js";
+import { formatTicketNumber, screenshotObjectPath } from "./reportTicket.js";
 import {
     createFallbackStoryScript,
     normalizeStorySource,
@@ -19,6 +20,7 @@ const app = express();
 app.set("trust proxy", 1);
 app.use(cors());
 app.use("/api/bug-reports/screenshots", express.json({ limit: "7mb" }));
+app.use("/api/bug-reports", express.json({ limit: "7mb" }));
 app.use(express.json());
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
@@ -29,6 +31,7 @@ const MAX_REPORT_SCREENSHOTS_BYTES = 5 * 1024 * 1024;
 const REPORT_SCREENSHOT_UPLOAD_WINDOW_MS = 60 * 60 * 1000;
 const REPORT_SCREENSHOT_UPLOAD_LIMIT = 10;
 const reportScreenshotUploadWindows = new Map();
+const REPORT_TYPES = new Set(["bug", "issue", "feature", "enhance"]);
 
 function limitReportScreenshotUploads(req, res, next) {
   const now = Date.now();
@@ -74,35 +77,92 @@ function decodeReportScreenshot(dataUrl) {
 }
 
 function validReportScreenshotPath(reportId, path) {
-  return typeof path === "string" && new RegExp(`^${reportId}/[1-${MAX_REPORT_SCREENSHOTS}]\\.(?:jpg|png)$`).test(path);
+  if (typeof path !== "string") return false;
+  const legacyPath = new RegExp(`^${reportId}/[1-${MAX_REPORT_SCREENSHOTS}]\\.(?:jpg|png)$`);
+  const categorizedPath = /^(?:Bug|Issue|Improvement|New feature)\/[\p{L}\p{N}_-]+_RC-\d{6,}(?:_[1-4])?\.(?:jpg|png)$/u;
+  return legacyPath.test(path) || categorizedPath.test(path);
 }
 
 app.get("/api/health", (req, res) => {
   res.send("ok");
 });
 
-app.post("/api/bug-reports/screenshots", limitReportScreenshotUploads, async (req, res) => {
+async function findBugReport(reportId) {
+  const url = new URL(`${SUPABASE_URL}/rest/v1/bug_reports`);
+  url.searchParams.set("id", `eq.${reportId}`);
+  url.searchParams.set("select", "id,ticket_number,screenshots");
+  const response = await fetch(url.toString(), { headers: storageHeaders() });
+  if (!response.ok) throw new Error(`bug_report_lookup_failed_${response.status}`);
+  const rows = await response.json();
+  return rows[0] || null;
+}
+
+async function deleteReportScreenshotObjects(paths) {
+  if (!paths.length) return;
+  try {
+    const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${REPORT_SCREENSHOTS_BUCKET}`, {
+      method: "DELETE",
+      headers: storageHeaders("application/json"),
+      body: JSON.stringify({ prefixes: paths }),
+    });
+    if (!response.ok) console.warn(`[REPORT SCREENSHOT] Cleanup failed (${response.status}).`);
+  } catch (error) {
+    console.warn("[REPORT SCREENSHOT] Cleanup request failed:", error?.message || error);
+  }
+}
+
+app.post("/api/bug-reports", limitReportScreenshotUploads, async (req, res) => {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return res.status(503).json({ error: "supabase_storage_not_configured" });
   }
-  const { reportId, screenshots } = req.body || {};
-  if (!/^r-\d+$/.test(reportId || "") || !Array.isArray(screenshots) || screenshots.length > MAX_REPORT_SCREENSHOTS) {
-    return res.status(400).json({ error: "invalid_screenshot_request" });
-  }
-  if (screenshots.some((screenshot) => typeof screenshot !== "string")) {
+  const report = req.body?.report;
+  const screenshots = Array.isArray(report?.screenshots) ? report.screenshots : [];
+  if (!/^r-\d+$/.test(report?.id || "") || !REPORT_TYPES.has(report?.type)
+    || String(report?.title || "").trim().length < 3
+    || String(report?.description || "").trim().length < 10
+    || screenshots.length > MAX_REPORT_SCREENSHOTS
+    || screenshots.some((screenshot) => typeof screenshot !== "string")) {
     return res.status(400).json({ error: "invalid_screenshot_request" });
   }
 
+  let createdPaths = [];
   try {
+    const existingReport = await findBugReport(report.id);
+    if (existingReport) {
+      return res.json({
+        id: existingReport.id,
+        ticketNumber: existingReport.ticket_number,
+        screenshots: Array.isArray(existingReport.screenshots) ? existingReport.screenshots : [],
+      });
+    }
+
+    const ticketResponse = await fetch(`${SUPABASE_URL}/rest/v1/rpc/next_bug_report_ticket_number`, {
+      method: "POST",
+      headers: { ...storageHeaders("application/json"), Prefer: "return=representation" },
+      body: "{}",
+    });
+    if (!ticketResponse.ok) {
+      console.error(`[REPORT] Ticket allocation failed (${ticketResponse.status}):`, await ticketResponse.text());
+      return res.status(503).json({ error: "ticket_number_unavailable" });
+    }
+    const ticketNumber = Number(await ticketResponse.json());
+    formatTicketNumber(ticketNumber);
+
     const decoded = screenshots.map(decodeReportScreenshot);
     const totalBytes = decoded.reduce((total, image) => total + image.buffer.length, 0);
     if (totalBytes > MAX_REPORT_SCREENSHOTS_BYTES) {
       return res.status(413).json({ error: "screenshots_too_large" });
     }
 
-    const paths = [];
     for (const [index, image] of decoded.entries()) {
-      const path = `${reportId}/${index + 1}.${image.extension}`;
+      const path = screenshotObjectPath({
+        type: report.type,
+        reporter: report.reporter,
+        ticketNumber,
+        index,
+        count: decoded.length,
+        extension: image.extension,
+      });
       const response = await fetch(storageObjectUrl(path), {
         method: "POST",
         headers: { ...storageHeaders(image.contentType), "x-upsert": "true" },
@@ -110,13 +170,58 @@ app.post("/api/bug-reports/screenshots", limitReportScreenshotUploads, async (re
       });
       if (!response.ok) {
         console.error(`[REPORT SCREENSHOT] Upload failed (${response.status}):`, await response.text());
+        await deleteReportScreenshotObjects(createdPaths);
         return res.status(502).json({ error: "screenshot_upload_failed" });
       }
-      paths.push(path);
+      createdPaths.push(path);
     }
-    return res.json({ screenshots: paths });
+
+    const row = {
+      id: report.id,
+      ticket_number: ticketNumber,
+      type: report.type,
+      area: report.area,
+      severity: report.severity || null,
+      title: String(report.title).trim(),
+      description: String(report.description).trim(),
+      steps: report.steps || "",
+      screenshots: createdPaths,
+      reporter: String(report.reporter || "Reader").trim().slice(0, 80),
+      app_version: report.appVersion || null,
+      device: report.device || {},
+      created_at: report.createdAt || new Date().toISOString(),
+      status: "sent",
+      resolved_at: null,
+      resolved_in_version: null,
+      resolution_note: null,
+    };
+    const insertResponse = await fetch(`${SUPABASE_URL}/rest/v1/bug_reports?select=id,ticket_number,screenshots`, {
+      method: "POST",
+      headers: { ...storageHeaders("application/json"), Prefer: "return=representation" },
+      body: JSON.stringify(row),
+    });
+    if (!insertResponse.ok) {
+      console.error(`[REPORT] Insert failed (${insertResponse.status}):`, await insertResponse.text());
+      await deleteReportScreenshotObjects(createdPaths);
+      if (insertResponse.status === 409) {
+        const concurrentReport = await findBugReport(report.id).catch(() => null);
+        if (concurrentReport) {
+          return res.json({ id: concurrentReport.id, ticketNumber: concurrentReport.ticket_number, screenshots: concurrentReport.screenshots || [] });
+        }
+      }
+      return res.status(502).json({ error: "bug_report_insert_failed" });
+    }
+    return res.json({ id: report.id, ticketNumber, screenshots: createdPaths });
   } catch (error) {
-    return res.status(400).json({ error: error?.message || "invalid_screenshot" });
+    await deleteReportScreenshotObjects(createdPaths);
+    if (error?.message === "invalid_ticket_number" || error?.message === "invalid_report_type") {
+      return res.status(400).json({ error: error.message });
+    }
+    if (/^invalid_screenshot/.test(error?.message || "")) {
+      return res.status(400).json({ error: error.message });
+    }
+    console.error("[REPORT] Submission failed:", error?.message || error);
+    return res.status(502).json({ error: "bug_report_submission_failed" });
   }
 });
 
@@ -131,6 +236,11 @@ app.post("/api/bug-reports/screenshot-urls", async (req, res) => {
   }
 
   try {
+    const report = await findBugReport(reportId);
+    const storedPaths = new Set(Array.isArray(report?.screenshots) ? report.screenshots : []);
+    if (!report || paths.some((path) => !storedPaths.has(path))) {
+      return res.status(404).json({ error: "report_screenshot_not_found" });
+    }
     const signedScreenshots = await Promise.all(paths.map(async (path) => {
       const encodedPath = path.split("/").map(encodeURIComponent).join("/");
       const response = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${REPORT_SCREENSHOTS_BUCKET}/${encodedPath}`, {

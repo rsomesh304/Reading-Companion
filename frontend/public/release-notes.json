@@ -1,6 +1,29 @@
 {
   "releases": [
     {
+      "version": "1.2.0",
+      "date": "2026-10-03",
+      "title": "Clearer issue tickets and smoother navigation",
+      "items": [
+        {
+          "type": "improve",
+          "text": "Issue reports now have a clear ticket number, with screenshots grouped by report type and labeled for easier developer review"
+        },
+        {
+          "type": "feature",
+          "text": "Check for app updates from Settings, see what changed, and install when you are ready"
+        },
+        {
+          "type": "improve",
+          "text": "Improved issue-report readability in both light and dark themes"
+        },
+        {
+          "type": "improve",
+          "text": "Kept section headings and the Home welcome area visible while scrolling"
+        }
+      ]
+    },
+    {
       "version": "1.1.0",
       "date": "2026-10-03",
       "title": "Smarter issue tracking and a smoother welcome",
