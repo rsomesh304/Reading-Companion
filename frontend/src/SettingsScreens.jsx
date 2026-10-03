@@ -3,12 +3,15 @@
 /* eslint-disable react-hooks/immutability */
 import { motion as Motion } from "framer-motion";
 import {
-    Bug, Check, ChevronLeft, Code, Download, HardDrive, Heart, ImagePlus, Lightbulb, Moon, RefreshCw,
-    Send, Shield, Sparkles, Sun, Target, Trash2, Upload, User, Volume2, X as XIcon, Zap,
+  Bug,
+  ChevronLeft, ChevronRight, Code, Download, HardDrive, Heart, ImagePlus, Lightbulb, Moon, RefreshCw,
+  Send, Shield, Sparkles, Sun, Target, Trash2, Upload, User, Volume2, X as XIcon, Zap
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { apiUrl } from "./api.js";
 import { INTERACTION_SPRING } from "./motionConfig.js";
 import { useGeminiVoiceDriver } from "./onboarding/avatarDriver.js";
+import { buildResolutionSummary, getReleaseHistory, getReportStatusLabel, normalizeReportStatus } from "./reportIssueHelpers.js";
 import "./SettingsScreens.css";
 import { useHaptic } from "./useHaptic.js";
 import { APP_VERSION } from "./version.js";
@@ -37,6 +40,51 @@ function Item({ icon, label, hint, children, onClick, danger }) {
       <span className="st-ic">{icon}</span>
       <span className="st-tx"><b>{label}</b>{hint && <small>{hint}</small>}</span>
       {children}
+    </div>
+  );
+}
+
+function ReleaseNotesScreen({ releases, onBack }) {
+  return (
+    <div className="screen st-screen">
+      <div className="aurora-bg" />
+      <Head title="Version & release notes" sub={`Current version ${APP_VERSION}`} onBack={onBack} />
+      <Group title="Release history">
+        {releases.length === 0 ? (
+          <div className="st-note"><Sparkles size={15} /><span>Release notes are loading or not available yet.</span></div>
+        ) : (
+          <div className="st-release-list">
+            {releases.map((release, releaseIndex) => (
+              <Motion.article
+                key={`${release.version}-${release.date || "release"}`}
+                className="st-release-entry"
+                initial={{ opacity: 0, x: -12 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: Math.min(releaseIndex * 0.07, 0.35), duration: 0.28, ease: "easeOut" }}
+              >
+                <span className="st-release-node" aria-hidden="true" />
+                <div className="st-release elevated">
+                  <div className="st-release-head">
+                    <div>
+                      <b>{release.title || `Version ${release.version}`}</b>
+                      <small>{release.date || "Recently updated"}</small>
+                    </div>
+                    <span>v{release.version}</span>
+                  </div>
+                  <div className="st-release-cards">
+                    {(release.items || []).map((item, index) => (
+                      <div key={`${release.version}-${index}`} className={`st-release-card st-release-card-${index % 4}`}>
+                        <span className="st-release-card-mark" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+                        <p>{item.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Motion.article>
+            ))}
+          </div>
+        )}
+      </Group>
     </div>
   );
 }
@@ -119,6 +167,23 @@ export function SettingsScreen({ nav, stores }) {
     await reg.update(); flash("You are on the latest version");
   }
 
+  const [releaseHistory, setReleaseHistory] = useState([]);
+  const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
+  useEffect(() => {
+    let active = true;
+    fetch(`/release-notes.json?t=${Date.now()}`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : { releases: [] }))
+      .then((data) => {
+        if (active) setReleaseHistory(getReleaseHistory(data.releases || []));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  if (releaseNotesOpen) {
+    return <ReleaseNotesScreen releases={releaseHistory} onBack={() => setReleaseNotesOpen(false)} />;
+  }
+
   return (
     <div className="screen st-screen">
       <div className="aurora-bg" />
@@ -177,7 +242,16 @@ export function SettingsScreen({ nav, stores }) {
 
       <Group title="App">
         <Item icon={<RefreshCw size={17} />} label="Check for updates" hint={`Version ${APP_VERSION}`} onClick={checkUpdate} />
-        <Item icon={<Sparkles size={17} />} label="Replay welcome tour" onClick={() => { profile.resetOnboarding(); nav.replayOnboarding(); }} />
+        <button
+          type="button"
+          className="st-item elevated tap st-release-trigger"
+          onClick={() => setReleaseNotesOpen(true)}
+        >
+          <span className="st-ic"><Sparkles size={17} /></span>
+          <span className="st-tx"><b>Version & release notes</b><small>See what’s new in Reading Companion</small></span>
+          <span className="st-release-version">v{APP_VERSION}</span>
+          <ChevronRight className="st-release-arrow" size={17} />
+        </button>
       </Group>
 
       <Group title="Danger zone">
@@ -264,7 +338,61 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const FORMSPREE_ENDPOINT = import.meta.env.VITE_FORMSPREE_ENDPOINT;
 
+async function uploadReportScreenshots(report) {
+  const existing = Array.isArray(report.screenshots) ? report.screenshots : [];
+  const images = existing.filter((screenshot) => typeof screenshot === "string" && screenshot.startsWith("data:image/"));
+  if (images.length === 0) return existing;
+
+  try {
+    const response = await fetch(apiUrl("/api/bug-reports/screenshots"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reportId: report.id, screenshots: images }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!Array.isArray(data.screenshots) || data.screenshots.length !== images.length) return null;
+    let uploadedIndex = 0;
+    return existing.map((screenshot) => (
+      typeof screenshot === "string" && screenshot.startsWith("data:image/")
+        ? data.screenshots[uploadedIndex++]
+        : screenshot
+    ));
+  } catch {
+    return null;
+  }
+}
+
+async function signReportScreenshots(report) {
+  const screenshots = Array.isArray(report.screenshots) ? report.screenshots : [];
+  const paths = screenshots.filter((screenshot) => typeof screenshot === "string" && !/^(?:data:image\/|https?:\/\/)/i.test(screenshot));
+  if (paths.length === 0 || !report.id) return { ...report, screenshotUrls: screenshots };
+
+  try {
+    const response = await fetch(apiUrl("/api/bug-reports/screenshot-urls"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reportId: report.id, paths }),
+    });
+    if (!response.ok) return { ...report, screenshotUrls: screenshots.filter((screenshot) => /^(?:data:image\/|https?:\/\/)/i.test(screenshot)) };
+    const data = await response.json();
+    const urls = new Map((data.screenshots || []).map(({ path, url }) => [path, url]));
+    return {
+      ...report,
+      screenshotUrls: screenshots
+        .map((screenshot) => urls.get(screenshot) || (/^(?:data:image\/|https?:\/\/)/i.test(screenshot) ? screenshot : null))
+        .filter(Boolean),
+    };
+  } catch {
+    return { ...report, screenshotUrls: screenshots.filter((screenshot) => /^(?:data:image\/|https?:\/\/)/i.test(screenshot)) };
+  }
+}
+
 async function deliver(report) {
+  const screenshots = SUPABASE_URL && SUPABASE_KEY
+    ? await uploadReportScreenshots(report)
+    : report.screenshots || [];
+  if (screenshots === null) return null;
   const deliveries = [];
   if (SUPABASE_URL && SUPABASE_KEY) {
     deliveries.push(fetch(`${SUPABASE_URL}/rest/v1/bug_reports`, {
@@ -283,11 +411,15 @@ async function deliver(report) {
         title: report.title,
         description: report.description,
         steps: report.steps,
-        screenshots: report.screenshots,
+        screenshots,
         reporter: report.reporter,
         app_version: report.appVersion,
         device: report.device,
         created_at: report.createdAt,
+        status: "sent",
+        resolved_at: report.resolvedAt || null,
+        resolved_in_version: report.resolvedInVersion || null,
+        resolution_note: report.resolutionNote || null,
       }),
     }).then((res) => res.ok || res.status === 409).catch(() => false));
   }
@@ -308,21 +440,56 @@ async function deliver(report) {
         app_version: report.appVersion,
         device: JSON.stringify(report.device),
         created_at: report.createdAt,
-        screenshot_count: report.screenshots?.length || 0,
+        screenshot_count: screenshots.length,
+        status: "sent",
       }),
     }).then((res) => res.ok).catch(() => false));
   }
-  if (deliveries.length === 0) return false;
+  if (deliveries.length === 0) return null;
   const results = await Promise.all(deliveries);
-  return results.every(Boolean);
+  if (!results.every(Boolean)) return null;
+  const displayReport = await signReportScreenshots({ ...report, screenshots });
+  return { screenshots, screenshotUrls: displayReport.screenshotUrls };
+}
+
+async function syncReportsFromSupabase(reporterName) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return [];
+  try {
+    const url = new URL(`${SUPABASE_URL}/rest/v1/bug_reports`);
+    url.searchParams.set("select", "*");
+    url.searchParams.set("order", "created_at.desc");
+    if (reporterName && reporterName.trim()) {
+      url.searchParams.set("reporter", `eq.${encodeURIComponent(reporterName.trim())}`);
+    }
+    const res = await fetch(url.toString(), {
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+      },
+    });
+    if (!res.ok) return [];
+    const rows = await res.json();
+    return Array.isArray(rows) ? Promise.all(rows.map(signReportScreenshots)) : [];
+  } catch {
+    return [];
+  }
 }
 const TYPES = [
-  { id: "bug", label: "Bug", Icon: Bug },
-  { id: "issue", label: "Issue", Icon: Zap },
-  { id: "feature", label: "New feature", Icon: Lightbulb },
-  { id: "enhance", label: "Improvement", Icon: Sparkles },
+  { id: "bug", label: "Bug", Icon: Bug, description: "Something is broken, confusing, or not working as expected." },
+  { id: "issue", label: "Issue", Icon: Zap, description: "A problem, blocker, or friction point in the app flow." },
+  { id: "feature", label: "New feature", Icon: Lightbulb, description: "Suggest a new capability or experience you want added." },
+  { id: "enhance", label: "Improvement", Icon: Sparkles, description: "Recommend a better version of an existing feature or flow." },
 ];
-const AREAS = ["Reading session", "Welcome tour", "Library", "Gems & story card", "Memory & mind map", "Profile & settings", "Other"];
+const REPORT_STAGES = [
+  ["sent", "Sent"],
+  ["seen", "Seen"],
+  ["review", "Review"],
+  ["approved", "Approved"],
+  ["in_progress", "Work in progress"],
+  ["testing", "Testing"],
+  ["done", "Completed"],
+];
+const AREAS = ["Home", "Reading session", "Welcome tour", "Library", "Gems & story card", "Memory & mind map", "Profile & settings", "Other"];
 const SEV = ["Low", "Medium", "High", "Blocking"];
 
 function toDataUrl(file, max = 1000) {
@@ -354,26 +521,90 @@ export function ReportScreen({ nav, stores }) {
   const [desc, setDesc] = useState("");
   const [steps, setSteps] = useState("");
   const [shots, setShots] = useState([]);
+  const [view, setView] = useState("compose");
+  const [reportFilter, setReportFilter] = useState("all");
+  const [selectedId, setSelectedId] = useState(null);
   const [list, setList] = useState(loadReports);
   const [msg, setMsg] = useState("");
+  const [refreshingReports, setRefreshingReports] = useState(false);
   const fileRef = useRef(null);
   const isFault = type === "bug" || type === "issue";
 
+  const filteredReports = list.filter((item) => reportFilter === "all" || item.type === reportFilter);
+  const selectedReport = filteredReports.find((item) => item.id === selectedId) || null;
+
   const flash = (t) => { setMsg(t); setTimeout(() => setMsg(""), 2800); };
+
   function persist(next) {
-    setList(next);
-    try { localStorage.setItem(REPORT_KEY, JSON.stringify(next)); }
-    catch { try { localStorage.setItem(REPORT_KEY, JSON.stringify(next.map((r) => ({ ...r, screenshots: [] })))); } catch { /* storage full */ } }
+    const prepared = next.map((r) => ({
+      ...r,
+      status: normalizeReportStatus(r),
+      resolvedAt: r.resolvedAt || r.resolved_at || null,
+      resolvedInVersion: r.resolvedInVersion || r.resolved_in_version || null,
+      resolutionNote: r.resolutionNote || r.resolution_note || "",
+    }));
+    setList(prepared);
+    try { localStorage.setItem(REPORT_KEY, JSON.stringify(prepared)); }
+    catch { try { localStorage.setItem(REPORT_KEY, JSON.stringify(prepared.map((r) => ({ ...r, screenshots: [] })))); } catch { /* storage full */ } }
   }
+
+  async function refreshReports() {
+    if (!SUPABASE_URL || !SUPABASE_KEY || refreshingReports) return;
+    setRefreshingReports(true);
+    try {
+      const remote = await syncReportsFromSupabase(stores.profile.data.name || "");
+      if (remote.length) {
+        const local = loadReports();
+        const merged = [...remote, ...local.filter((item) => !remote.some((row) => row.id === item.id))];
+        persist(merged.slice(0, 25));
+      }
+      flash("Report statuses refreshed");
+    } catch {
+      flash("Could not refresh reports right now");
+    } finally {
+      setRefreshingReports(false);
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    async function sync() {
+      if (!SUPABASE_URL || !SUPABASE_KEY) return;
+      const remote = await syncReportsFromSupabase(stores.profile.data.name || "");
+      if (!active || !remote.length) return;
+      const local = loadReports();
+      const merged = [...remote, ...local.filter((item) => !remote.some((row) => row.id === item.id))];
+      persist(merged.slice(0, 25));
+    }
+    sync();
+    return () => { active = false; };
+  }, [stores.profile.data.name]);
+
+  useEffect(() => {
+    if (selectedId && !filteredReports.some((item) => item.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [filteredReports, selectedId]);
+
   async function flush(current) {
     let changed = false;
     const next = [...current];
     for (let i = 0; i < next.length; i++) {
-      if (next[i].status === "queued" && (await deliver(next[i]))) { next[i] = { ...next[i], status: "sent", screenshots: [] }; changed = true; }
+      if (normalizeReportStatus(next[i]) === "queued") {
+        const delivered = await deliver(next[i]);
+        if (!delivered) continue;
+        next[i] = {
+          ...next[i],
+          status: "sent",
+          screenshots: delivered.screenshots,
+          screenshotUrls: delivered.screenshotUrls,
+        };
+        changed = true;
+      }
     }
     if (changed) persist(next);
   }
-  useEffect(() => { flush(list);}, []);
+  useEffect(() => { flush(list); }, []);
 
   async function addShots(files) {
     const room = 4 - shots.length;
@@ -381,6 +612,7 @@ export function ReportScreen({ nav, stores }) {
     const done = await Promise.all(picked.map((f) => toDataUrl(f).catch(() => null)));
     setShots((s) => [...s, ...done.filter(Boolean)]);
   }
+
   function submit() {
     if (title.trim().length < 3 || desc.trim().length < 10) return flash("Add a short title and a few details first");
     const r = {
@@ -395,6 +627,8 @@ export function ReportScreen({ nav, stores }) {
     };
     const next = [r, ...list].slice(0, 25);
     persist(next);
+    setSelectedId(r.id);
+    setView("reports");
     setTitle(""); setDesc(""); setSteps(""); setShots([]);
     flash("Saved. Thank you for helping improve the app!");
     flush(next);
@@ -405,57 +639,196 @@ export function ReportScreen({ nav, stores }) {
       <div className="aurora-bg" />
       <Head title="Report an issue" sub="Bugs, ideas and improvements" onBack={nav.goBack} />
 
-      <Group title="What is it about?">
-        <div className="rp-types">
-          {TYPES.map(({ id, label, Icon }) => (
-            <button key={id} className={type === id ? "on" : ""} onClick={() => setType(id)}><Icon size={16} />{label}</button>
-          ))}
-        </div>
-      </Group>
-
-      <Group title="Details">
-        <div className="st-form elevated">
-          <label>Where did it happen?
-            <select className="st-input full" value={area} onChange={(e) => setArea(e.target.value)}>{AREAS.map((a) => <option key={a}>{a}</option>)}</select>
-          </label>
-          {isFault && (
-            <div>
-              <div className="st-lbl">How serious?</div>
-              <div className="st-chips">{SEV.map((s) => <button key={s} className={sev === s ? "on" : ""} onClick={() => setSev(s)}>{s}</button>)}</div>
-            </div>
-          )}
-          <label>Title<input className="st-input full" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} placeholder={type === "feature" ? "e.g. Dark reading mode" : "e.g. Mind map does not load"} /></label>
-          <label>{type === "feature" || type === "enhance" ? "Describe your idea" : "What went wrong?"}
-            <textarea className="st-input full" rows={4} value={desc} maxLength={1500} onChange={(e) => setDesc(e.target.value)} placeholder="Write as much as you like" />
-          </label>
-          {isFault && <label>Steps to reproduce (optional)<textarea className="st-input full" rows={3} value={steps} maxLength={800} onChange={(e) => setSteps(e.target.value)} placeholder="1. Open Memory  2. Tap Mind Map  3. ..." /></label>}
-          <div>
-            <div className="st-lbl">Screenshots ({shots.length}/4)</div>
-            <div className="rp-shots">
-              {shots.map((s, i) => (
-                <div key={i} className="rp-shot"><img src={s} alt="" /><button onClick={() => setShots((x) => x.filter((_, j) => j !== i))} aria-label="Remove"><XIcon size={12} /></button></div>
-              ))}
-              {shots.length < 4 && <button className="rp-add" onClick={() => fileRef.current?.click()}><ImagePlus size={20} /></button>}
-            </div>
-            <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { addShots(e.target.files); e.target.value = ""; }} />
+      <Group>
+        <div className="rp-slider-wrap">
+          <div className="rp-slider">
+            <button className={view === "compose" ? "on" : ""} onClick={() => setView("compose")}>Raise an issue</button>
+            <button className={view === "reports" ? "on" : ""} onClick={() => setView("reports")}>Your reports</button>
           </div>
-          <button className="primary-button" onClick={submit}><Send size={15} /> Submit</button>
         </div>
       </Group>
 
-      {list.length > 0 && (
-        <Group title="Your reports">
-          {list.map((r) => (
-            <div key={r.id} className="rp-item elevated">
-              <div className="rp-item-top">
-                <span className="rp-type">{TYPES.find((t) => t.id === r.type)?.label}</span>
-                <span className={`rp-status ${r.status}`}>{r.status === "sent" ? <><Check size={11} /> Sent</> : "Queued"}</span>
-              </div>
-              <b>{r.title}</b>
-              <small>{r.area} · {new Date(r.createdAt).toLocaleDateString()}{r.screenshots?.length ? ` · ${r.screenshots.length} photo(s)` : ""}</small>
-              <button className="rp-del" onClick={() => persist(list.filter((x) => x.id !== r.id))} aria-label="Delete"><Trash2 size={13} /></button>
+      {view === "compose" && (
+        <>
+          <Group title="What is it about?">
+            <label className="rp-dropdown-label">
+              <span>Category</span>
+              <select className="rp-type-select" value={type} onChange={(e) => setType(e.target.value)}>
+                {TYPES.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </label>
+            <div className="rp-type-summary">
+              <span className="rp-type-badge">{TYPES.find((entry) => entry.id === type)?.label}</span>
+              <p>{TYPES.find((entry) => entry.id === type)?.description}</p>
             </div>
-          ))}
+          </Group>
+
+          <Group title="Details">
+            <div className="st-form elevated">
+              <label>Where did it happen?
+                <select className="st-input full" value={area} onChange={(e) => setArea(e.target.value)}>{AREAS.map((a) => <option key={a}>{a}</option>)}</select>
+              </label>
+              {isFault && (
+                <div>
+                  <div className="st-lbl">How serious?</div>
+                  <div className="st-chips">{SEV.map((s) => <button key={s} className={sev === s ? "on" : ""} onClick={() => setSev(s)}>{s}</button>)}</div>
+                </div>
+              )}
+              <label>Title<input className="st-input full" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} placeholder={type === "feature" ? "e.g. Dark reading mode" : "e.g. Mind map does not load"} /></label>
+              <label>{type === "feature" || type === "enhance" ? "Describe your idea" : "What went wrong?"}
+                <textarea className="st-input full" rows={4} value={desc} maxLength={1500} onChange={(e) => setDesc(e.target.value)} placeholder="Write as much as you like" />
+              </label>
+              {isFault && <label>Steps to reproduce (optional)<textarea className="st-input full" rows={3} value={steps} maxLength={800} onChange={(e) => setSteps(e.target.value)} placeholder="1. Open Memory  2. Tap Mind Map  3. ..." /></label>}
+              <div>
+                <div className="st-lbl">Screenshots ({shots.length}/4)</div>
+                <div className="rp-shots">
+                  {shots.map((s, i) => (
+                    <div key={i} className="rp-shot"><img src={s} alt="" /><button onClick={() => setShots((x) => x.filter((_, j) => j !== i))} aria-label="Remove"><XIcon size={12} /></button></div>
+                  ))}
+                  {shots.length < 4 && <button className="rp-add" onClick={() => fileRef.current?.click()}><ImagePlus size={20} /></button>}
+                </div>
+                <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { addShots(e.target.files); e.target.value = ""; }} />
+              </div>
+              <button className="primary-button" onClick={submit}><Send size={15} /> Submit</button>
+            </div>
+          </Group>
+        </>
+      )}
+
+      {view === "reports" && (
+        <Group>
+          {selectedId && selectedReport ? (
+            <div className="rp-details-screen">
+              <div className="rp-detail-actions">
+                <button className="rp-back-link" onClick={() => setSelectedId(null)}><ChevronLeft size={16} /> Back to reports</button>
+                {SUPABASE_URL && SUPABASE_KEY && (
+                  <button className="rp-refresh" type="button" onClick={refreshReports} disabled={refreshingReports} aria-label="Refresh report status" title="Refresh report status">
+                    <RefreshCw size={15} className={refreshingReports ? "spinning" : ""} />
+                  </button>
+                )}
+              </div>
+              <div className="rp-detail-panel">
+                <div className="rp-detail-top">
+                  <div>
+                    <span className="rp-type-badge small">{TYPES.find((t) => t.id === selectedReport.type)?.label}</span>
+                    <h4>{selectedReport.title}</h4>
+                  </div>
+                  <span className={`rp-status-badge ${normalizeReportStatus(selectedReport)}`}>{getReportStatusLabel(selectedReport)}</span>
+                </div>
+
+                <div className="rp-detail-grid">
+                  <div><span>Area</span><strong>{selectedReport.area}</strong></div>
+                  <div><span>Severity</span><strong>{selectedReport.severity || "Not set"}</strong></div>
+                  <div><span>Created</span><strong>{new Date(selectedReport.createdAt || selectedReport.created_at).toLocaleDateString()}</strong></div>
+                  <div><span>App</span><strong>{selectedReport.appVersion || selectedReport.app_version || APP_VERSION}</strong></div>
+                </div>
+
+                <div className="rp-description-block">
+                  <label>What happened</label>
+                  <p>{selectedReport.description}</p>
+                </div>
+
+                {selectedReport.steps && (
+                  <div className="rp-description-block">
+                    <label>Steps to reproduce</label>
+                    <p>{selectedReport.steps}</p>
+                  </div>
+                )}
+
+                {selectedReport.screenshots?.length > 0 && (
+                  <div className="rp-description-block">
+                    <label>Screenshots</label>
+                    {(selectedReport.screenshotUrls || selectedReport.screenshots).length > 0 ? (
+                      <div className="rp-image-grid">
+                        {(selectedReport.screenshotUrls || selectedReport.screenshots).map((shot, index) => (
+                          <img key={`${selectedReport.id}-${index}`} src={shot} alt={`Issue snapshot ${index + 1}`} />
+                        ))}
+                      </div>
+                    ) : <p>Snapshots are temporarily unavailable.</p>}
+                  </div>
+                )}
+
+                <div className="rp-resolution-box">
+                  <label>Development progress</label>
+                  <div className="rp-stage-grid">
+                    {REPORT_STAGES.map(([stage, label], index) => {
+                      const status = normalizeReportStatus(selectedReport);
+                      const currentIndex = status === "rejected" ? 2 : REPORT_STAGES.findIndex(([candidate]) => candidate === status);
+                      const stageClass = index < currentIndex ? "complete" : index === currentIndex ? "current" : "";
+                      return <div key={stage} className={`rp-stage ${stageClass}`}><span>{index + 1}</span><small>{label}</small></div>;
+                    })}
+                  </div>
+                  <p>{normalizeReportStatus(selectedReport) === "done"
+                    ? buildResolutionSummary(selectedReport)
+                    : normalizeReportStatus(selectedReport) === "rejected"
+                      ? "This report was reviewed and will not be scheduled for implementation."
+                      : `Current status: ${getReportStatusLabel(selectedReport)}. Status is managed by the development team.`}</p>
+                  {(selectedReport.statusNote || selectedReport.status_note || selectedReport.rejectionNote || selectedReport.rejection_note) ? (
+                    <>
+                      <label>{normalizeReportStatus(selectedReport) === "rejected" ? "Why this was rejected" : "Developer update"}</label>
+                      <p>{selectedReport.statusNote || selectedReport.status_note || selectedReport.rejectionNote || selectedReport.rejection_note}</p>
+                    </>
+                  ) : null}
+                  {normalizeReportStatus(selectedReport) === "done" && (selectedReport.resolutionNote || selectedReport.resolution_note) ? (
+                    <>
+                      <label>Resolution note</label>
+                      <p>{selectedReport.resolutionNote || selectedReport.resolution_note}</p>
+                    </>
+                  ) : null}
+                  {selectedReport.resolvedInVersion || selectedReport.resolved_in_version ? (
+                    <>
+                      <label>Completed in</label>
+                      <p>{`v${selectedReport.resolvedInVersion || selectedReport.resolved_in_version}`}</p>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="rp-filter-row">
+                <label className="rp-filter-label">Filter</label>
+                <select className="rp-filter" value={reportFilter} onChange={(e) => setReportFilter(e.target.value)}>
+                  <option value="all">All</option>
+                  {TYPES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+                </select>
+                {SUPABASE_URL && SUPABASE_KEY && (
+                  <button className="rp-refresh" type="button" onClick={refreshReports} disabled={refreshingReports} aria-label="Refresh report statuses" title="Refresh report statuses">
+                    <RefreshCw size={15} className={refreshingReports ? "spinning" : ""} />
+                  </button>
+                )}
+              </div>
+
+              {filteredReports.length === 0 ? (
+                <div className="st-note"><Sparkles size={15} /><span>No reports yet. Submit one from the issue form.</span></div>
+              ) : (
+                <div className="rp-report-list">
+                  {filteredReports.map((report) => (
+                    <Motion.button
+                      layout
+                      key={report.id}
+                      className={`rp-report-card rp-card-${report.type || "issue"}`}
+                      onClick={() => setSelectedId(report.id)}
+                      whileTap={{ scale: 0.99 }}
+                      transition={{ type: "spring", stiffness: 280, damping: 20 }}
+                    >
+                      <div className="rp-card-head">
+                        <span className="rp-type-badge">{TYPES.find((t) => t.id === report.type)?.label}</span>
+                        <span className={`rp-status-badge ${normalizeReportStatus(report)}`}>{getReportStatusLabel(report)}</span>
+                      </div>
+                      <h3>{report.title}</h3>
+                      <p>{report.description}</p>
+                      <div className="rp-card-meta">
+                        <span>{report.area}</span>
+                        <span>{new Date(report.createdAt || report.created_at).toLocaleDateString()}</span>
+                        {report.screenshots?.length ? <span>{report.screenshots.length} photo(s)</span> : null}
+                      </div>
+                    </Motion.button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </Group>
       )}
       {msg && <div className="st-toast">{msg}</div>}
