@@ -1,6 +1,33 @@
 {
   "releases": [
     {
+      "version": "1.1.0",
+      "date": "2026-10-03",
+      "title": "Smarter issue tracking and a smoother welcome",
+      "items": [
+        {
+          "type": "feature",
+          "text": "Attach screenshots to issue reports and view them alongside the report details"
+        },
+        {
+          "type": "feature",
+          "text": "Follow issue progress from submission and review through testing and completion"
+        },
+        {
+          "type": "feature",
+          "text": "Explore release history in Settings with a dedicated timeline for app updates"
+        },
+        {
+          "type": "improve",
+          "text": "Fixed a welcome-tour issue that could prevent returning readers from reaching the app"
+        },
+        {
+          "type": "feature",
+          "text": "Added website analytics to help us understand visits and improve Reading Companion"
+        }
+      ]
+    },
+    {
       "version": "1.0.0",
       "date": "2026-10-02",
       "title": "Reading Companion is live",

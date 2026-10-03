@@ -16,11 +16,138 @@ import { MOTIF_IDS, SCRIPT_MOODS, SCRIPT_TRANSITIONS } from "./validateScript.js
 dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), ".env") });
 
 const app = express();
+app.set("trust proxy", 1);
 app.use(cors());
+app.use("/api/bug-reports/screenshots", express.json({ limit: "7mb" }));
 app.use(express.json());
+
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const REPORT_SCREENSHOTS_BUCKET = "bug-report-screenshots";
+const MAX_REPORT_SCREENSHOTS = 4;
+const MAX_REPORT_SCREENSHOTS_BYTES = 5 * 1024 * 1024;
+const REPORT_SCREENSHOT_UPLOAD_WINDOW_MS = 60 * 60 * 1000;
+const REPORT_SCREENSHOT_UPLOAD_LIMIT = 10;
+const reportScreenshotUploadWindows = new Map();
+
+function limitReportScreenshotUploads(req, res, next) {
+  const now = Date.now();
+  const clientIp = req.ip || req.socket.remoteAddress || "unknown";
+  const window = reportScreenshotUploadWindows.get(clientIp);
+  if (window && now - window.startedAt < REPORT_SCREENSHOT_UPLOAD_WINDOW_MS) {
+    if (window.count >= REPORT_SCREENSHOT_UPLOAD_LIMIT) {
+      return res.status(429).json({ error: "screenshot_upload_rate_limited" });
+    }
+    window.count += 1;
+  } else {
+    reportScreenshotUploadWindows.set(clientIp, { startedAt: now, count: 1 });
+  }
+  if (reportScreenshotUploadWindows.size > 2000) {
+    for (const [ip, entry] of reportScreenshotUploadWindows) {
+      if (now - entry.startedAt >= REPORT_SCREENSHOT_UPLOAD_WINDOW_MS) reportScreenshotUploadWindows.delete(ip);
+    }
+  }
+  return next();
+}
+
+function storageObjectUrl(path) {
+  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+  return `${SUPABASE_URL}/storage/v1/object/${REPORT_SCREENSHOTS_BUCKET}/${encodedPath}`;
+}
+
+function storageHeaders(contentType) {
+  return {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    ...(contentType ? { "Content-Type": contentType } : {}),
+  };
+}
+
+function decodeReportScreenshot(dataUrl) {
+  const match = /^data:(image\/(?:jpeg|png));base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl);
+  if (!match) throw new Error("invalid_screenshot_format");
+  const buffer = Buffer.from(match[2], "base64");
+  const validJpeg = match[1] === "image/jpeg" && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const validPng = match[1] === "image/png" && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (!validJpeg && !validPng) throw new Error("invalid_screenshot_content");
+  return { buffer, contentType: match[1], extension: validJpeg ? "jpg" : "png" };
+}
+
+function validReportScreenshotPath(reportId, path) {
+  return typeof path === "string" && new RegExp(`^${reportId}/[1-${MAX_REPORT_SCREENSHOTS}]\\.(?:jpg|png)$`).test(path);
+}
 
 app.get("/api/health", (req, res) => {
   res.send("ok");
+});
+
+app.post("/api/bug-reports/screenshots", limitReportScreenshotUploads, async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return res.status(503).json({ error: "supabase_storage_not_configured" });
+  }
+  const { reportId, screenshots } = req.body || {};
+  if (!/^r-\d+$/.test(reportId || "") || !Array.isArray(screenshots) || screenshots.length > MAX_REPORT_SCREENSHOTS) {
+    return res.status(400).json({ error: "invalid_screenshot_request" });
+  }
+  if (screenshots.some((screenshot) => typeof screenshot !== "string")) {
+    return res.status(400).json({ error: "invalid_screenshot_request" });
+  }
+
+  try {
+    const decoded = screenshots.map(decodeReportScreenshot);
+    const totalBytes = decoded.reduce((total, image) => total + image.buffer.length, 0);
+    if (totalBytes > MAX_REPORT_SCREENSHOTS_BYTES) {
+      return res.status(413).json({ error: "screenshots_too_large" });
+    }
+
+    const paths = [];
+    for (const [index, image] of decoded.entries()) {
+      const path = `${reportId}/${index + 1}.${image.extension}`;
+      const response = await fetch(storageObjectUrl(path), {
+        method: "POST",
+        headers: { ...storageHeaders(image.contentType), "x-upsert": "true" },
+        body: image.buffer,
+      });
+      if (!response.ok) {
+        console.error(`[REPORT SCREENSHOT] Upload failed (${response.status}):`, await response.text());
+        return res.status(502).json({ error: "screenshot_upload_failed" });
+      }
+      paths.push(path);
+    }
+    return res.json({ screenshots: paths });
+  } catch (error) {
+    return res.status(400).json({ error: error?.message || "invalid_screenshot" });
+  }
+});
+
+app.post("/api/bug-reports/screenshot-urls", async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return res.status(503).json({ error: "supabase_storage_not_configured" });
+  }
+  const { reportId, paths } = req.body || {};
+  if (!/^r-\d+$/.test(reportId || "") || !Array.isArray(paths) || paths.length > MAX_REPORT_SCREENSHOTS
+    || paths.some((path) => !validReportScreenshotPath(reportId, path))) {
+    return res.status(400).json({ error: "invalid_screenshot_request" });
+  }
+
+  try {
+    const signedScreenshots = await Promise.all(paths.map(async (path) => {
+      const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+      const response = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${REPORT_SCREENSHOTS_BUCKET}/${encodedPath}`, {
+        method: "POST",
+        headers: { ...storageHeaders("application/json") },
+        body: JSON.stringify({ expiresIn: 3600 }),
+      });
+      if (!response.ok) throw new Error(`signing_failed_${response.status}`);
+      const result = await response.json();
+      const signedPath = result.signedURL.startsWith("/") ? result.signedURL : `/${result.signedURL}`;
+      return { path, url: `${SUPABASE_URL}/storage/v1${signedPath}` };
+    }));
+    return res.json({ screenshots: signedScreenshots });
+  } catch (error) {
+    console.error("[REPORT SCREENSHOT] URL signing failed:", error?.message || error);
+    return res.status(502).json({ error: "screenshot_signing_failed" });
+  }
 });
 
 const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "")

@@ -70,9 +70,9 @@ import {
 } from "lucide-react";
 import { Component, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { apiUrl } from "./api.js";
 import { AudioCapture } from "./audioCapture.js";
 import { AudioPlayback } from "./audioPlayback.js";
-import { apiUrl } from "./api.js";
 import { CameraCapture } from "./cameraCapture.js";
 import MascotCharacter from "./components/MascotCharacter.jsx";
 import { GeminiLiveClient } from "./geminiLiveClient.js";
@@ -564,7 +564,6 @@ export default function App() {
     goReport: () => navigateTo("report"),
     openNewBook,
     openOverlay,
-    replayOnboarding: () => setShowOnboarding(true),
     openChapterGrid: (bookId) => navigateTo("chapterGrid", { activeBookId: bookId }),
     openChapterDetail: (bookId, chapterNumber) => navigateTo("chapterDetail", { activeBookId: bookId, activeChapterNumber: chapterNumber }),
     openRecap,

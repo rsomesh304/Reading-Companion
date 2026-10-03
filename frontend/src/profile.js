@@ -1,4 +1,10 @@
 const STORAGE_KEY = "reading_companion_profile";
+const PRIOR_READER_DATA_KEYS = new Set([
+  "reading_companion_library",
+  "reading_companion_gems",
+  "reading_companion_memory",
+  "rc_reports",
+]);
 
 function load() {
   try {
@@ -52,7 +58,30 @@ export class Profile {
     return streak;
   }
   setName(name) { this.data.name = name; this._save(); }
-  hasCompletedOnboarding() { return !!this.data.hasCompletedOnboarding; }
+  hasCompletedOnboarding() {
+    if (this.data.hasCompletedOnboarding) return true;
+
+    const hasPriorProfile = Boolean(
+      (this.data.name && this.data.name !== "Reader") ||
+      this.data.companionName ||
+      this.data.dailyGoal ||
+      this.data.preferences?.length ||
+      this.data.activeDays?.length ||
+      this.data.avatar ||
+      this.data.avatarPreset !== null && this.data.avatarPreset !== undefined ||
+      this.data.theme && this.data.theme !== "dark"
+    );
+    const hasPriorReaderData = Object.keys(localStorage).some((key) => (
+      PRIOR_READER_DATA_KEYS.has(key) || key.startsWith("rc_convo_")
+    ));
+
+    if (hasPriorProfile || hasPriorReaderData) {
+      this.data.hasCompletedOnboarding = true;
+      this._save();
+      return true;
+    }
+    return false;
+  }
   completeOnboarding({ name, companionName, preferences, dailyGoal } = {}) {
     if (name && name.trim()) this.data.name = name.trim();
     if (companionName && companionName.trim()) this.data.companionName = companionName.trim();
@@ -61,7 +90,6 @@ export class Profile {
     this.data.hasCompletedOnboarding = true;   // saved in localStorage under "reading_companion_profile"
     this._save();
   }
-  resetOnboarding() { this.data.hasCompletedOnboarding = false; this._save(); }
   setVoice(voice) { this.data.voice = voice; this._save(); }
   getTheme() { return this.data.theme || "dark"; }
   setTheme(theme) { this.data.theme = theme; this._save(); }
