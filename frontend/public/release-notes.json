@@ -1,6 +1,62 @@
 {
   "releases": [
     {
+      "version": "1.4.0",
+      "date": "2026-10-03",
+      "major": true,
+      "title": "Read without holding the camera",
+      "items": [
+        {
+          "type": "feature",
+          "text": "New page snapshot mode: share a photo of your page once, keep the phone beside you and just ask about any word, phrase or sentence. Share the next page when you turn it"
+        },
+        {
+          "type": "feature",
+          "text": "A new world-class Library book tile"
+        },
+        {
+          "type": "feature",
+          "text": "Special Major Update style for release notes"
+        },
+        {
+          "type": "improve",
+          "text": "Redesigned Your Reports with a status timeline and a single resolution note"
+        },
+        {
+          "type": "improve",
+          "text": "New designs for the Home cards, the streak card and the Gems this week card, with tighter, even spacing"
+        },
+        {
+          "type": "improve",
+          "text": "Cleaner Home screen when there is no book"
+        },
+        {
+          "type": "improve",
+          "text": "Clear, friendly messages and a checking animation now appear whenever the voice service, microphone, camera or connection has a problem"
+        },
+        {
+          "type": "improve",
+          "text": "The welcome tour is shorter, has a Skip button, and now explains the snapshot option. The tour no longer plays silently if the voice is unavailable"
+        },
+        {
+          "type": "improve",
+          "text": "A redesigned developer card in About, and an app that no longer zooms in and out like a web page"
+        },
+        {
+          "type": "fix",
+          "text": "If one voice key stops working, the app now quietly switches to another one instead of staying silent"
+        },
+        {
+          "type": "fix",
+          "text": "Gem illustrations no longer contain stray, garbled lettering"
+        },
+        {
+          "type": "fix",
+          "text": "Screenshots attached to a report now open full screen when you tap them"
+        }
+      ]
+    },
+    {
       "version": "1.3.1",
       "date": "2026-10-03",
       "title": "Steadier reading sessions",

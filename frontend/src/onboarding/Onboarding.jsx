@@ -1,8 +1,10 @@
 import { AnimatePresence, motion as Motion } from "framer-motion";
-import { Volume2, VolumeX } from "lucide-react";
+import { SkipForward, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import MascotCharacter from "../components/MascotCharacter.jsx";
+import DeveloperCard from "../DeveloperCard.jsx";
 import { getMascot } from "../mascotPreference.js";
+import ServiceNotice from "../ServiceNotice.jsx";
 import { useGeminiVoiceDriver } from "./avatarDriver.js";
 import EmberOrb from "./EmberOrb.jsx";
 import "./Onboarding.css";
@@ -14,26 +16,29 @@ const GOALS = ["10 min", "20 min", "30 min", "1 hour"];
 const MASCOT_NAMES = { owl: "Ullu", robot: "Robo", sprout: "Sprout", fox: "Fox", book: "Kitaab" };
 const TOUR_PROMPT = "You are a warm Indian storyteller speaking naturally to a friend over chai. Speak in Roman Hinglish at a calm, conversational pace, slightly slower than a fast podcast voice, with only tiny natural breaths and very short gaps between thoughts. Every [LINE] message is a complete fixed script: say exactly the text after [LINE], word for word. Keep the delivery smooth and human, with no long pauses after each phrase, no robotic staccato, no dramatic silence, and no extra filler. Do not add an intro, outro, filler, transition, reaction, or extra sentence; do not omit, translate, or paraphrase anything. [PROFILE CARD COMMENTARY] is the only dynamic message and should follow its own instruction. Never speak the message prefixes.";
 const TOUR_COPY = {
-  welcome: "Reading Companion mein swagat hai", subtitle: "Apne reading companion se milo", meet: "Chalo milte hain", mute: "Awaaz band karo", unmute: "Awaaz chalao", connecting: "Awaaz connect ho rahi hai…", voiceUnavailable: "Awaaz abhi available nahi hai. Tour captions ke saath chalega.", companion: "Mujhe kis naam se bulaoge?", companionPlaceholder: "Jaise: Saathi", name: "Tumhara naam", namePlaceholder: "Apna naam likho", genres: "Tumhe kaunsi books pasand hain?", goal: "Roz kitni der padhna chahoge?", next: "Aage chalo", creatorTag: "CREATOR · v1.0", creatorRole: "Data Engineer", creatorQuote: "Data se roz ka kaam, design se roz ke sapne.", creatorStats: [["Data", "Day job"], ["Design", "Interest"], ["AI", "Built with"]], silentMode: "silent buddy", allSet: "Sab taiyaar",
+  welcome: "Reading Companion mein swagat hai", skip: "Skip", skipTour: "Tour skip karein", subtitle: "Apne reading companion se milo", meet: "Chalo milte hain", mute: "Awaaz band karo", unmute: "Awaaz chalao", connecting: "Awaaz connect ho rahi hai…", voiceUnavailable: "Awaaz abhi available nahi hai. Tour captions ke saath chalega.", companion: "Mujhe kis naam se bulaoge?", companionPlaceholder: "Jaise: Saathi", name: "Tumhara naam", namePlaceholder: "Apna naam likho", genres: "Tumhe kaunsi books pasand hain?", goal: "Roz kitni der padhna chahoge?", next: "Aage chalo", creatorTag: "CREATOR · v1.0", creatorRole: "Data Engineer", creatorQuote: "Data se roz ka kaam, design se roz ke sapne.", creatorStats: [["Data", "Day job"], ["Design", "Interest"], ["AI", "Built with"]], silentMode: "silent buddy", allSet: "Sab taiyaar",
 };
 
 const MASCOT_LINES = ["Main chup zaroor rehta hoon... par tumhari har kitab pe meri nazar hai!", "Kitab kholo aur shuru ho jao... main yahin hoon tumhare saath."];
 const FEATURE_LINES = [
-  "Sabse pehle... Live Reading. Aap bas kitab ka panna camera ko dikhaiye aur mujhse baat kijiye, bilkul ek dost ki tarah.",
+  "Sabse pehle... Live Reading. Aap chahein toh kitab ka panna camera ko dikhaiye aur mujhse baat kijiye, bilkul ek dost ki tarah.",
+  "Aur agar har waqt camera pakadna mushkil ho, toh koi baat nahi. Page ka ek snapshot bhej dijiye, phone paas rakh lijiye, aur jahan atko, bas mujhse poochhiye. Page khatam ho, toh agla snapshot.",
   "Doosra... agar koi mushkil word atak jaaye, toh dictionary mat kholiye. Mujhse poochhiye, main aapko aapki bhasha mein samjha doonga.",
   "Teesra hai Gems... koi line dil ko chhoo jaaye, toh use save kijiye. Main uska ek khoobsurat, premium visual card bana doonga jise aap yaad rakh sakein.",
   "Aur aakhir mein, Memory... kitab khatam hone ke baad main poori kahani aur concepts ka ek chamakta hua Mind Map bana doonga, taaki aap kuchh na bhoolein.",
 ];
+// Scene index (OnboardingScenes) shown with each FEATURE_LINES entry
+const FEATURE_SCENES = [3, 19, 4, 5, 6];
 const FEATURE_INTRO = "Ab jo sunne wale hain na... woh is app ki chaar khaas taakatein hain. Chaliye, ek-ek karke, aaram se samajhte hain.";
 const VISUAL_RECAP_LINE = "Aur agar aap chahein, chapter padhne se pehle uski pichhli kahani ek chhoti si animation mein dekh sakte hain. Agar Start Reading button press karoge toh aap seedha reading session screen mein pahunch jayenge.";
 const WHY_US_LINES = [
-  "Ab aap soch rahe honge... ye sab toh ChatGPT ya Gemini jaise AI se bhi ho jaata hai. Word ka matlab wahan bhi pooch sakte hain. Aur ye baat bilkul sach hai. Isliye main aapko batata hoon, ki farak kahan hai.",
-  "Pehla farak... yaaddasht. Wahan kal ka poocha hua word aaj kahin nahi milta. Yahan har word aapki kitab, chapter aur page ke saath hamesha ke liye save rehta hai. Ek mahine baad bhi dekh sakte hain, ki aapne kitna seekha.",
-  "Doosra... continuity. Wahan har baar nayi shuruaat hoti hai, aur aapko khud batana padta hai ki kaunsi kitab, kaunsa chapter. Yahan main yaad rakhta hoon, ki kal aap kahan ruke the, aur wahin se baat shuru karta hoon.",
-  "Teesra... aadat. Wo ek chat hai, jo aapse kabhi nahi poochhti ki aaj padha ya nahi. Yahan streak hai, daily goal hai, session ka timer hai... jo aapko roz wapas aane ki wajah deta hai.",
-  "Chautha... aapki apni bhasha. Wahan aapko sahi sawaal likhna aata hona chahiye. Yahan aap bas bolte hain, aur meaning Hindi aur Odia mein, example ke saath, bina kuch type kiye milta hai.",
-  "Aur paanchva... jo aap padhte hain, wo kaam bhi aata hai. Har Gem ke saath ek real-life application aur ek khoobsurat poster milta hai, aur Mind Map mein aapki saari kitabein ek saath jud jaati hain. Wo ek chat hai... ye aapka apna reading saathi hai.",
+  "Ab aap soch rahe honge... ye sab toh ChatGPT ya Gemini bhi kar leta hai. Sach hai... par wahan har baar nayi shuruaat hoti hai, aur kal ka kuch yaad nahi rehta.",
+  "Yahan main aapki kitab, chapter aur har word yaad rakhta hoon... streak aur goal ke saath, aur aapki apni bhasha mein samjhata hoon. Ye chat nahi... aapka apna reading saathi hai.",
 ];
+// scene 13 = AI vs your book, 14 = words that stay
+const WHY_US_SCENES = [13, 14];
+const SKIP_ASK_LINE = "Theek hai, tour chhod dete hain. Bas apna naam, mere liye ek naam, aur apni pasand ki books batayein.";
+const VOICE_CHECK_ATTEMPTS = 4;
 
 const TOUR_STORIES = [
   {
@@ -42,7 +47,7 @@ const TOUR_STORIES = [
     creator: "Is khoobsurat app ko kisi badi company ne nahi... balki sirf ek insaan ke sapne ne janam diya hai - Soumyaranjan ne. Din mein Accenture mein Data Engineer... aur raat mein aapke liye ye khoobsurat cheezein banate hain.",
     mascotIntro: "Aur haan... yeh chhota sa pyara dost chup-chaap apne text bubbles se aapki padhai mein jaan dalega.",
     mascotSecret: "Aur ek chhota sa raaz... nabbe din tak roz padhoge, toh yeh bolna bhi seekh jaayega.",
-    ask: "Chaliye, is safar ki shuruaat karte hain. Apna naam, mere liye ek naam... aur apni pasand ki books ke baare mein batayein.",
+    ask: "Chaliye, is safar ki shuruaat karte hain. mere liye ek naam, Apna naam ... aur apni pasand ki books ke baare mein batayein.",
   },
 ];
 
@@ -50,9 +55,9 @@ function buildBeats(story) {
   return [
     { s: 1, f: 11, t: story.open },
     { s: 1, f: 10, t: story.why },
-    ...WHY_US_LINES.map((text, index) => ({ s: 1, f: index + 13, t: text })),
+    ...WHY_US_LINES.map((text, index) => ({ s: 1, f: WHY_US_SCENES[index], t: text })),
     { s: 1, f: 2, t: FEATURE_INTRO },
-    ...FEATURE_LINES.map((text, index) => ({ s: 1, f: index + 3, t: text })),
+    ...FEATURE_LINES.map((text, index) => ({ s: 1, f: FEATURE_SCENES[index], t: text })),
     { s: 1, f: 12, t: VISUAL_RECAP_LINE },
     { s: 2, card: true, t: story.creator },
     { s: 2, card: false, mascot: true, bubble: "Padhai mein main bhi tumhare saath hoon!", wait: 11000, t: story.mascotIntro },
@@ -78,6 +83,10 @@ export default function Onboarding({ initialName = "", voiceName = "Leda", onFin
 
   const [started, setStarted] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [voiceAttempt, setVoiceAttempt] = useState(1);
+  const [voiceFailed, setVoiceFailed] = useState(false);
+  const [silentOk, setSilentOk] = useState(false);
+  const modeRef = useRef("tour");
   const [step, setStep] = useState(0);
   const [caption, setCaption] = useState("");
   const [feature, setFeature] = useState(-1);
@@ -172,12 +181,60 @@ export default function Onboarding({ initialName = "", voiceName = "Leda", onFin
     onFinish(payload({ ...form, prefs: mergedPrefs }));
   }
 
-  async function begin() {
-    setStarted(true);
+  async function begin() { await launch("tour"); }
+
+  // Tries the voice a few times, showing a checking animation instead of silently falling back to captions.
+  async function connectVoice(my) {
+    setVoiceFailed(false);
     setConnecting(true);
-    await api.current.connect(TOUR_PROMPT);
+    for (let attempt = 1; attempt <= VOICE_CHECK_ATTEMPTS; attempt += 1) {
+      setVoiceAttempt(attempt);
+      const ok = await api.current.connect(TOUR_PROMPT);
+      if (runRef.current !== my) return null;
+      if (ok) { setConnecting(false); return true; }
+      if (attempt < VOICE_CHECK_ATTEMPTS) await sleep(1800);
+      if (runRef.current !== my) return null;
+    }
     setConnecting(false);
-    runIntro();
+    setVoiceFailed(true);
+    return false;
+  }
+
+  async function launch(mode) {
+    modeRef.current = mode;
+    const my = ++runRef.current;
+    setStarted(true);
+    setSilentOk(false);
+    api.current.reset();
+    const ok = await connectVoice(my);
+    if (ok) await (mode === "skip" ? runSkipAsk() : runIntro());
+  }
+
+  async function runSkipAsk() {
+    const my = ++runRef.current;
+    await play([{ s: 3, card: false, mascot: false, bubble: null, t: SKIP_ASK_LINE }], my);
+  }
+
+  function skipTour() {
+    if (connecting || sending || step >= 3) return;
+    setMascotOn(false); setBubble(null); setCard(false); setFeature(-1); setCaption("");
+    setStep(3);
+    if (voiceFailed) {
+      modeRef.current = "skip";
+      setVoiceFailed(false);
+      setSilentOk(true);
+      runSkipAsk();
+      return;
+    }
+    launch("skip");
+  }
+
+  function retryVoice() { launch(modeRef.current); }
+
+  function continueWithCaptions() {
+    setVoiceFailed(false);
+    setSilentOk(true);
+    if (modeRef.current === "skip") runSkipAsk(); else runIntro();
   }
 
   const canContinue = form.name.trim() && form.companionName.trim() && !sending;
@@ -193,13 +250,18 @@ export default function Onboarding({ initialName = "", voiceName = "Leda", onFin
       <div className="ob-top">
         <div className="ob-dots">{[0, 1, 2, 3, 4].map((i) => <span key={i} className={i === dotIdx ? "on" : i < dotIdx ? "done" : ""} />)}</div>
         <div className="ob-top-actions">
+          {started && step < 3 && (
+            <button type="button" className="ob-skip" onClick={skipTour} disabled={connecting} aria-label={copy.skip}>
+              {copy.skip} <SkipForward size={13} />
+            </button>
+          )}
           <button type="button" className="ob-round" onClick={() => setMuted((m) => !m)} aria-label={muted ? copy.unmute : copy.mute}>
             {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
           </button>
         </div>
       </div>
 
-      {started && !connecting && !driver.voiceOk && (
+      {silentOk && !driver.voiceOk && (
         <div className="ob-notice">{copy.voiceUnavailable}</div>
       )}
 
@@ -214,20 +276,10 @@ export default function Onboarding({ initialName = "", voiceName = "Leda", onFin
 
         <AnimatePresence>
           {step === 2 && card && (
-            <Motion.div className="ob-id"
-              initial={{ opacity: 0, y: 50, scale: 0.9, rotate: -3 }} animate={{ opacity: 1, y: 0, scale: 1, rotate: -1 }}
+            <Motion.div className="ob-devcard"
+              initial={{ opacity: 0, y: 50, scale: 0.9, rotate: -3 }} animate={{ opacity: 1, y: 0, scale: 1, rotate: 0 }}
               exit={{ opacity: 0, y: -30, scale: 0.92 }} transition={{ type: "spring", stiffness: 150, damping: 16 }}>
-              <div className="ob-id-ava">
-                <b>S</b>
-                <img src="/developer.jpg" alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />
-              </div>
-              <div className="ob-id-tag">{copy.creatorTag}</div>
-              <div className="ob-id-name">Soumyaranjan</div>
-              <div className="ob-id-role">{copy.creatorRole}</div>
-              <div className="ob-id-quote">“{copy.creatorQuote}”</div>
-              <div className="ob-id-stats">
-                {copy.creatorStats.map(([label, detail]) => <div key={label}><b>{label}</b><small>{detail}</small></div>)}
-              </div>
+              <DeveloperCard compact />
             </Motion.div>
           )}
         </AnimatePresence>
@@ -305,13 +357,32 @@ export default function Onboarding({ initialName = "", voiceName = "Leda", onFin
         </div>
       )}
 
-      {connecting && <div className="ob-connecting">{copy.connecting}</div>}
+      {connecting && (
+        <div className="ob-check">
+          <ServiceNotice
+            kind="checking"
+            title={voiceAttempt > 1 ? "Voice model abhi busy hai" : "Companion ki awaaz check ho rahi hai"}
+            detail={voiceAttempt > 1 ? `Dobara check kar raha hoon (${voiceAttempt}/${VOICE_CHECK_ATTEMPTS}). Tour awaaz ke saath hi chalega.` : "Bas ek pal. Voice service ko jaga raha hoon."}
+          />
+        </div>
+      )}
+      {voiceFailed && (
+        <div className="ob-check">
+          <ServiceNotice
+            kind="error"
+            title="Voice abhi available nahi hai"
+            detail="Service thodi busy ho sakti hai. Thodi der baad try kijiye, ya bina awaaz ke captions ke saath aage badhiye."
+            actions={[{ label: "Dobara try karein", onClick: retryVoice, primary: true }, { label: "Captions ke saath chalein", onClick: continueWithCaptions }]}
+          />
+        </div>
+      )}
 
       {!started && (
         <Motion.div className="ob-start" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
           <h1>{copy.welcome}</h1>
           <p>{copy.subtitle}</p>
           <button type="button" className="ob-cta" onClick={begin}>{copy.meet}</button>
+          <button type="button" className="ob-skip-link" onClick={skipTour}>{copy.skipTour}</button>
         </Motion.div>
       )}
 

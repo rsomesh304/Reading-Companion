@@ -1,0 +1,22 @@
+.svc-notice { display: flex; align-items: center; gap: 14px; width: min(92vw, 380px); padding: 14px 16px; border-radius: 20px; text-align: left; color: var(--text); background: color-mix(in srgb, var(--surface) 90%, transparent); border: 1px solid var(--border); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: var(--shadow); }
+.svc-notice.error { border-color: rgba(244, 63, 94, .4); }
+.svc-notice.compact { gap: 10px; padding: 9px 12px; border-radius: 16px; }
+.svc-visual { position: relative; display: grid; place-items: center; width: 46px; height: 46px; flex-shrink: 0; }
+.svc-notice.compact .svc-visual { width: 30px; height: 30px; }
+.svc-core { width: 10px; height: 10px; border-radius: 50%; background: radial-gradient(circle, #fff3ce, #f59e0b); box-shadow: 0 0 12px rgba(245, 158, 11, .8); animation: svc-breathe 1.6s ease-in-out infinite; }
+.svc-ring { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--primary) 60%, transparent); animation: svc-ping 2.2s ease-out infinite; }
+.svc-ring.r2 { animation-delay: 1.1s; }
+.svc-arc { position: absolute; inset: 3px; border-radius: 50%; border: 2.5px solid transparent; border-top-color: var(--accent, #22d3ee); border-right-color: var(--primary); animation: svc-spin 1.1s linear infinite; }
+.svc-warn { display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%; color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.svc-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.svc-text b { font-size: 13.5px; font-weight: 800; }
+.svc-notice.compact .svc-text b { font-size: 12px; }
+.svc-text > span { font-size: 12px; line-height: 1.45; color: var(--muted); }
+.svc-notice.compact .svc-text > span { font-size: 11px; }
+.svc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.svc-actions button { cursor: pointer; padding: 8px 14px; border-radius: 12px; font: inherit; font-size: 12px; font-weight: 800; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); }
+.svc-actions button.primary { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
+@keyframes svc-spin { to { transform: rotate(360deg); } }
+@keyframes svc-ping { 0% { transform: scale(.45); opacity: .9; } 100% { transform: scale(1.15); opacity: 0; } }
+@keyframes svc-breathe { 50% { transform: scale(1.4); } }
+@media (prefers-reduced-motion: reduce) { .svc-ring, .svc-arc, .svc-core { animation-duration: 4s; } }

@@ -49,3 +49,28 @@ test("labels report lifecycle states for users", () => {
   assert.equal(getReportStatusLabel({ status: "in_progress" }), "Work in progress");
   assert.equal(getReportStatusLabel({ status: "done", resolved_in_version: "1.2.0" }), "Completed · v1.2.0");
 });
+
+test("timeline lists every status note once and keeps the resolution note out", async () => {
+  const { buildReportTimeline } = await import("./reportIssueHelpers.js");
+  const steps = buildReportTimeline({
+    status: "done",
+    createdAt: "2026-10-01T10:00:00Z",
+    resolutionNote: "Fixed in the new build",
+    statusHistory: [
+      { status: "seen", note: "Looking at it", at: "2026-10-02T09:00:00Z" },
+      { status: "seen", note: "Reproduced it", at: "2026-10-02T11:00:00Z" },
+      { status: "done", note: "Fixed in the new build", at: "2026-10-03T09:00:00Z" },
+    ],
+  });
+  assert.equal(steps.find((s) => s.key === "seen").notes.length, 2);
+  assert.equal(steps.find((s) => s.key === "done").notes.length, 0);
+  assert.equal(steps.at(-1).state, "current");
+  assert.equal(steps[0].state, "done");
+});
+
+test("rejected reports end the timeline at Rejected", async () => {
+  const { buildReportTimeline } = await import("./reportIssueHelpers.js");
+  const steps = buildReportTimeline({ status: "rejected", statusNote: "Out of scope" });
+  assert.equal(steps.at(-1).key, "rejected");
+  assert.equal(steps.at(-1).notes[0].text, "Out of scope");
+});
