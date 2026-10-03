@@ -5,7 +5,7 @@ import { motion as Motion } from "framer-motion";
 import {
   Bug,
   ChevronLeft, ChevronRight, Code, Download, HardDrive, Heart, ImagePlus, Lightbulb, Moon, RefreshCw,
-  Send, Shield, Sparkles, Sun, Target, Trash2, Upload, User, Volume2, X as XIcon, Zap
+  Send, Shield, Sparkles, Sun, Target, Trash2, Upload, User, Volume2, Wrench, X as XIcon, Zap
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { apiUrl } from "./api.js";
@@ -89,6 +89,50 @@ function ReleaseNotesScreen({ releases, onBack }) {
   );
 }
 
+function UpdateDetailsScreen({ releases, onBack, onApply, applying }) {
+  const updates = releases.flatMap((release) => (release.items || []).map((item, index) => ({
+    ...item,
+    key: `${release.version}-${index}`,
+    version: release.version,
+    date: release.date,
+  })));
+  return (
+    <div className="screen st-screen">
+      <div className="aurora-bg" />
+      <Head title="Update available" sub="A fresh version is ready" onBack={onBack} />
+      <Group title="What’s new">
+        {updates.length ? (
+          <div className="st-update-cards">
+            {updates.map((item, index) => {
+              const Icon = item.type === "fix" ? Bug : item.type === "improve" ? Wrench : Sparkles;
+              return (
+                <Motion.article
+                  key={item.key}
+                  className={`st-update-card st-release-card-${index % 4}`}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(index * 0.06, 0.3), duration: 0.25 }}
+                >
+                  <span className="st-update-icon"><Icon size={17} /></span>
+                  <div><b>{item.type === "fix" ? "Fixed" : item.type === "improve" ? "Improved" : "New"}</b><p>{item.text}</p></div>
+                  <span className="st-update-card-version">v{item.version}</span>
+                </Motion.article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="st-update-card"><span className="st-update-icon"><Sparkles size={17} /></span><p>A newer app version is ready to install.</p></div>
+        )}
+      </Group>
+      <Group>
+        <button className="primary-button st-update-install" onClick={onApply} disabled={applying}>
+          <Download size={16} /> {applying ? "Updating…" : "Update now"}
+        </button>
+      </Group>
+    </div>
+  );
+}
+
 // ======================= SETTINGS =======================
 export function SettingsScreen({ nav, stores }) {
   const { profile, library, memory, gems } = stores;
@@ -97,6 +141,9 @@ export function SettingsScreen({ nav, stores }) {
   const [voice, setVoice] = useState(profile.data.voice || "Leda");
   const [theme, setThemeState] = useState(profile.getTheme());
   const [previewing, setPreviewing] = useState(false);
+  const [updateDetailsOpen, setUpdateDetailsOpen] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [applyingUpdate, setApplyingUpdate] = useState(false);
   const { triggerLightTap } = useHaptic();
   const drv = useGeminiVoiceDriver({ voiceName: voice });
   const fileRef = useRef(null);
@@ -162,9 +209,21 @@ export function SettingsScreen({ nav, stores }) {
     localStorage.clear(); window.location.reload();
   }
   async function checkUpdate() {
-    const reg = await navigator.serviceWorker?.getRegistration?.();
-    if (!reg) return flash("Updates are checked automatically once the app is installed from its web link");
-    await reg.update(); flash("You are on the latest version");
+    if (nav.updateAvailable) {
+      setUpdateDetailsOpen(true);
+      return;
+    }
+    if (checkingUpdate) return;
+    setCheckingUpdate(true);
+    try {
+      const available = await nav.checkForUpdates?.();
+      if (available || nav.updateAvailable) setUpdateDetailsOpen(true);
+      else flash("There is currently no update available for the app.");
+    } catch {
+      flash("Could not check for updates right now.");
+    } finally {
+      setCheckingUpdate(false);
+    }
   }
 
   const [releaseHistory, setReleaseHistory] = useState([]);
@@ -179,6 +238,21 @@ export function SettingsScreen({ nav, stores }) {
       .catch(() => {});
     return () => { active = false; };
   }, []);
+
+  if (updateDetailsOpen) {
+    return (
+      <UpdateDetailsScreen
+        releases={nav.updateReleases || []}
+        onBack={() => setUpdateDetailsOpen(false)}
+        onApply={async () => {
+          setApplyingUpdate(true);
+          try { await nav.applyUpdate?.(); }
+          finally { setApplyingUpdate(false); }
+        }}
+        applying={applyingUpdate}
+      />
+    );
+  }
 
   if (releaseNotesOpen) {
     return <ReleaseNotesScreen releases={releaseHistory} onBack={() => setReleaseNotesOpen(false)} />;
@@ -241,7 +315,9 @@ export function SettingsScreen({ nav, stores }) {
       </Group>
 
       <Group title="App">
-        <Item icon={<RefreshCw size={17} />} label="Check for updates" hint={`Version ${APP_VERSION}`} onClick={checkUpdate} />
+        <Item icon={<RefreshCw size={17} />} label="Check for updates" hint={checkingUpdate ? "Checking for a newer version…" : `Version ${APP_VERSION}`} onClick={checkUpdate}>
+          {nav.updateAvailable && <span className="st-update-badge" aria-label="1 update available">1</span>}
+        </Item>
         <button
           type="button"
           className="st-item elevated tap st-release-trigger"
@@ -338,31 +414,6 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const FORMSPREE_ENDPOINT = import.meta.env.VITE_FORMSPREE_ENDPOINT;
 
-async function uploadReportScreenshots(report) {
-  const existing = Array.isArray(report.screenshots) ? report.screenshots : [];
-  const images = existing.filter((screenshot) => typeof screenshot === "string" && screenshot.startsWith("data:image/"));
-  if (images.length === 0) return existing;
-
-  try {
-    const response = await fetch(apiUrl("/api/bug-reports/screenshots"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reportId: report.id, screenshots: images }),
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    if (!Array.isArray(data.screenshots) || data.screenshots.length !== images.length) return null;
-    let uploadedIndex = 0;
-    return existing.map((screenshot) => (
-      typeof screenshot === "string" && screenshot.startsWith("data:image/")
-        ? data.screenshots[uploadedIndex++]
-        : screenshot
-    ));
-  } catch {
-    return null;
-  }
-}
-
 async function signReportScreenshots(report) {
   const screenshots = Array.isArray(report.screenshots) ? report.screenshots : [];
   const paths = screenshots.filter((screenshot) => typeof screenshot === "string" && !/^(?:data:image\/|https?:\/\/)/i.test(screenshot));
@@ -389,40 +440,22 @@ async function signReportScreenshots(report) {
 }
 
 async function deliver(report) {
-  const screenshots = SUPABASE_URL && SUPABASE_KEY
-    ? await uploadReportScreenshots(report)
-    : report.screenshots || [];
-  if (screenshots === null) return null;
-  const deliveries = [];
+  let storedReport = null;
   if (SUPABASE_URL && SUPABASE_KEY) {
-    deliveries.push(fetch(`${SUPABASE_URL}/rest/v1/bug_reports`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-        Prefer: "return=minimal",
-      },
-      body: JSON.stringify({
-        id: report.id,
-        type: report.type,
-        area: report.area,
-        severity: report.severity,
-        title: report.title,
-        description: report.description,
-        steps: report.steps,
-        screenshots,
-        reporter: report.reporter,
-        app_version: report.appVersion,
-        device: report.device,
-        created_at: report.createdAt,
-        status: "sent",
-        resolved_at: report.resolvedAt || null,
-        resolved_in_version: report.resolvedInVersion || null,
-        resolution_note: report.resolutionNote || null,
-      }),
-    }).then((res) => res.ok || res.status === 409).catch(() => false));
+    try {
+      const response = await fetch(apiUrl("/api/bug-reports"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ report }),
+      });
+      if (!response.ok) return null;
+      storedReport = await response.json();
+    } catch {
+      return null;
+    }
   }
+  const screenshots = storedReport?.screenshots || report.screenshots || [];
+  const deliveries = [];
   if (FORMSPREE_ENDPOINT) {
     deliveries.push(fetch(FORMSPREE_ENDPOINT, {
       method: "POST",
@@ -438,6 +471,7 @@ async function deliver(report) {
         steps: report.steps || "Not provided",
         reporter: report.reporter,
         app_version: report.appVersion,
+        ticket_number: storedReport?.ticketNumber || report.ticketNumber || "Pending",
         device: JSON.stringify(report.device),
         created_at: report.createdAt,
         screenshot_count: screenshots.length,
@@ -445,11 +479,15 @@ async function deliver(report) {
       }),
     }).then((res) => res.ok).catch(() => false));
   }
-  if (deliveries.length === 0) return null;
+  if (!storedReport && deliveries.length === 0) return null;
   const results = await Promise.all(deliveries);
   if (!results.every(Boolean)) return null;
   const displayReport = await signReportScreenshots({ ...report, screenshots });
-  return { screenshots, screenshotUrls: displayReport.screenshotUrls };
+  return {
+    ticketNumber: storedReport?.ticketNumber || report.ticketNumber || null,
+    screenshots,
+    screenshotUrls: displayReport.screenshotUrls,
+  };
 }
 
 async function syncReportsFromSupabase(reporterName) {
@@ -596,6 +634,7 @@ export function ReportScreen({ nav, stores }) {
         next[i] = {
           ...next[i],
           status: "sent",
+          ticketNumber: delivered.ticketNumber,
           screenshots: delivered.screenshots,
           screenshotUrls: delivered.screenshotUrls,
         };
@@ -717,6 +756,7 @@ export function ReportScreen({ nav, stores }) {
                 </div>
 
                 <div className="rp-detail-grid">
+                  {selectedReport.ticketNumber || selectedReport.ticket_number ? <div><span>Ticket</span><strong>{`RC-${String(selectedReport.ticketNumber || selectedReport.ticket_number).padStart(6, "0")}`}</strong></div> : null}
                   <div><span>Area</span><strong>{selectedReport.area}</strong></div>
                   <div><span>Severity</span><strong>{selectedReport.severity || "Not set"}</strong></div>
                   <div><span>Created</span><strong>{new Date(selectedReport.createdAt || selectedReport.created_at).toLocaleDateString()}</strong></div>
@@ -819,6 +859,7 @@ export function ReportScreen({ nav, stores }) {
                       <h3>{report.title}</h3>
                       <p>{report.description}</p>
                       <div className="rp-card-meta">
+                        {report.ticketNumber || report.ticket_number ? <span>{`RC-${String(report.ticketNumber || report.ticket_number).padStart(6, "0")}`}</span> : null}
                         <span>{report.area}</span>
                         <span>{new Date(report.createdAt || report.created_at).toLocaleDateString()}</span>
                         {report.screenshots?.length ? <span>{report.screenshots.length} photo(s)</span> : null}

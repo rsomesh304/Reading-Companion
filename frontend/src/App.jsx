@@ -448,6 +448,8 @@ export default function App() {
   const [storyRequest, setStoryRequest] = useState(null);
   const [resetKey, setResetKey] = useState(0);
   const [showOnboarding, setShowOnboarding] = useState(() => !profileStore.hasCompletedOnboarding());
+  const [updateState, setUpdateState] = useState({ available: false, releases: [] });
+  const updateActionsRef = useRef(null);
   const routeRef = useRef({ screen: "dashboard", activeBookId: null, activeChapterNumber: null });
   const overlayStackRef = useRef([]);
 
@@ -564,6 +566,10 @@ export default function App() {
     goReport: () => navigateTo("report"),
     openNewBook,
     openOverlay,
+    updateAvailable: updateState.available,
+    updateReleases: updateState.releases,
+    checkForUpdates: () => updateActionsRef.current?.checkForUpdates?.() || false,
+    applyUpdate: () => updateActionsRef.current?.applyUpdate?.(),
     openChapterGrid: (bookId) => navigateTo("chapterGrid", { activeBookId: bookId }),
     openChapterDetail: (bookId, chapterNumber) => navigateTo("chapterDetail", { activeBookId: bookId, activeChapterNumber: chapterNumber }),
     openRecap,
@@ -604,7 +610,11 @@ export default function App() {
         />
       )}
       {newBookModalOpen && <NewBookModal onCreate={createBookAndOpenSession} onClose={nav.goBack} />}
-      <UpdateManager paused={screen === "session" || showOnboarding} />
+      <UpdateManager
+        paused={screen === "session" || showOnboarding}
+        onUpdateState={setUpdateState}
+        actionsRef={updateActionsRef}
+      />
       <ToastHost />
       <AnimatePresence>
         {storyRequest && (
@@ -1118,6 +1128,7 @@ const donutItems = restWords > 0 ? [...topItems, { label: "Other books", value: 
     <div className="screen dashboard-screen">
       <div className="aurora-bg" />
 
+      <div className="dash-sticky-header">
         <div className="dash-hero">
         <div className="dash-hero-text">
           <div className="dash-greeting">{getGreeting()}</div>
@@ -1135,7 +1146,9 @@ const donutItems = restWords > 0 ? [...topItems, { label: "Other books", value: 
         <span className="say-dot d2" />
         <div className="say-bubble">{mascotLine.line}</div>
       </div>
+      </div>
 
+      <div className="dashboard-content">
       <StreakHero />
 
       <div className="kpi-grid">
@@ -1214,6 +1227,7 @@ const donutItems = restWords > 0 ? [...topItems, { label: "Other books", value: 
           <button className="primary-button" onClick={nav.goLibrary}>Go to Library</button>
         </div>
       )}
+      </div>
     </div>
   );
 }
