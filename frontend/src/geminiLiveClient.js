@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { apiFetch } from "./api.js";
+import { isModelUnavailable, isQuotaError } from "./liveErrors.js";
 
 const WATCH_LOUD_MS = 9000;      // reader has spoken this long with no server message
 const WATCH_SILENT_MS = 18000;   // and the server has been completely silent this long
@@ -10,22 +11,6 @@ function getDeviceDate() {
   const now = new Date();
   const pad = (value) => String(value).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
-function errorDetails(error) {
-  let serialized = "";
-  try { serialized = JSON.stringify(error); } catch { /* not serializable */ }
-  return `${error?.message || ""} ${error?.status || ""} ${error?.code || ""} ${error?.error?.message || ""} ${error?.error?.status || ""} ${error?.error?.code || ""} ${serialized}`;
-}
-
-function isQuotaError(error) {
-  const details = errorDetails(error);
-  return /429|RESOURCE_EXHAUSTED|quota|rate limit|exceeded your current quota/i.test(details);
-}
-
-function isModelUnavailable(error) {
-  const details = errorDetails(error);
-  return Number(error?.status ?? error?.code ?? error?.error?.code) === 503 || /503|UNAVAILABLE|high demand|overloaded/i.test(details);
 }
 
 export class GeminiLiveClient {
@@ -284,11 +269,14 @@ export class GeminiLiveClient {
         await this.connect();
         return;
       }
+      let quotaSwitches = 0;
       while (!this.stopped && this.connectionRetries < 5) {
-        this.connectionRetries += 1;
+        const quotaHit = Boolean(this.pendingFailedKeyIndex) && quotaSwitches < 8;
+        // A quota hit is not a flaky link: the next token comes from another key, so it must not eat the retry budget.
+        if (quotaHit) quotaSwitches += 1; else this.connectionRetries += 1;
         if (this.connectionRetries >= 2) this.resumptionHandle = null;   // stale handle: drop it
-        this.handlers.onStatus?.(`reconnecting (${this.connectionRetries}/5)`);
-        const delay = e?.soft && this.connectionRetries === 1 ? 0 : Math.min(2 ** this.connectionRetries * 1000, 10000);
+        this.handlers.onStatus?.(quotaHit ? "switching to another key" : `reconnecting (${this.connectionRetries}/5)`);
+        const delay = quotaHit ? 500 : e?.soft && this.connectionRetries === 1 ? 0 : Math.min(2 ** this.connectionRetries * 1000, 10000);
         if (delay) await new Promise((r) => setTimeout(r, delay));
         if (this.stopped) return;
         try {
