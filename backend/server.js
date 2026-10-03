@@ -143,7 +143,7 @@ app.post("/api/bug-reports", limitReportScreenshotUploads, async (req, res) => {
     });
     if (!ticketResponse.ok) {
       console.error(`[REPORT] Ticket allocation failed (${ticketResponse.status}):`, await ticketResponse.text());
-      return res.status(503).json({ error: "ticket_number_unavailable" });
+      return res.status(500).json({ error: "ticket_number_unavailable" });
     }
     const ticketNumber = Number(await ticketResponse.json());
     formatTicketNumber(ticketNumber);
@@ -171,7 +171,7 @@ app.post("/api/bug-reports", limitReportScreenshotUploads, async (req, res) => {
       if (!response.ok) {
         console.error(`[REPORT SCREENSHOT] Upload failed (${response.status}):`, await response.text());
         await deleteReportScreenshotObjects(createdPaths);
-        return res.status(502).json({ error: "screenshot_upload_failed" });
+        return res.status(500).json({ error: "screenshot_upload_failed" });
       }
       createdPaths.push(path);
     }
@@ -209,7 +209,7 @@ app.post("/api/bug-reports", limitReportScreenshotUploads, async (req, res) => {
           return res.json({ id: concurrentReport.id, ticketNumber: concurrentReport.ticket_number, screenshots: concurrentReport.screenshots || [] });
         }
       }
-      return res.status(502).json({ error: "bug_report_insert_failed" });
+      return res.status(500).json({ error: "bug_report_insert_failed" });
     }
     return res.json({ id: report.id, ticketNumber, screenshots: createdPaths });
   } catch (error) {
@@ -221,7 +221,7 @@ app.post("/api/bug-reports", limitReportScreenshotUploads, async (req, res) => {
       return res.status(400).json({ error: error.message });
     }
     console.error("[REPORT] Submission failed:", error?.message || error);
-    return res.status(502).json({ error: "bug_report_submission_failed" });
+    return res.status(500).json({ error: "bug_report_submission_failed" });
   }
 });
 

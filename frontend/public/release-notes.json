@@ -1,6 +1,21 @@
 {
   "releases": [
     {
+      "version": "1.2.1",
+      "date": "2026-10-03",
+      "title": "More reliable connections",
+      "items": [
+        {
+          "type": "fix",
+          "text": "Fixed the welcome tour voice and reading sessions failing to connect when the app had been idle"
+        },
+        {
+          "type": "fix",
+          "text": "Issue reports now keep retrying until they are delivered instead of staying queued"
+        }
+      ]
+    },
+    {
       "version": "1.2.0",
       "date": "2026-10-03",
       "title": "Clearer issue tickets and smoother navigation",

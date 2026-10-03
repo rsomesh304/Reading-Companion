@@ -8,7 +8,7 @@ import {
   Send, Shield, Sparkles, Sun, Target, Trash2, Upload, User, Volume2, Wrench, X as XIcon, Zap
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { apiUrl } from "./api.js";
+import { apiFetch } from "./api.js";
 import { INTERACTION_SPRING } from "./motionConfig.js";
 import { useGeminiVoiceDriver } from "./onboarding/avatarDriver.js";
 import { buildResolutionSummary, getReleaseHistory, getReportStatusLabel, normalizeReportStatus } from "./reportIssueHelpers.js";
@@ -420,7 +420,7 @@ async function signReportScreenshots(report) {
   if (paths.length === 0 || !report.id) return { ...report, screenshotUrls: screenshots };
 
   try {
-    const response = await fetch(apiUrl("/api/bug-reports/screenshot-urls"), {
+    const response = await apiFetch("/api/bug-reports/screenshot-urls", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reportId: report.id, paths }),
@@ -443,7 +443,7 @@ async function deliver(report) {
   let storedReport = null;
   if (SUPABASE_URL && SUPABASE_KEY) {
     try {
-      const response = await fetch(apiUrl("/api/bug-reports"), {
+      const response = await apiFetch("/api/bug-reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ report }),

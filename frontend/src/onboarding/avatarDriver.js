@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiUrl } from "../api.js";
+import { apiFetch } from "../api.js";
 
 const MODELS = ["gemini-3.1-flash-live-preview", "gemini-2.5-flash-native-audio-preview-12-2025"];
 
@@ -103,7 +103,7 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
       gain.connect(ctx.destination);
       ctxRef.current = ctx; analyserRef.current = analyser; gainRef.current = gain;
 
-      const res = await fetch(apiUrl("/api/token"), { method: "POST" });
+      const res = await apiFetch("/api/token", { method: "POST" });
       if (!res.ok) throw new Error("token_failed");
       const { token } = await res.json();
       const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: "v1alpha" } });
