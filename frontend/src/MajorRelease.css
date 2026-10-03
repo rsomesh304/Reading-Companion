@@ -22,3 +22,23 @@
 @keyframes mjFlow { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
 @keyframes mjDrift { 50% { transform: translate(-14px, 14px) scale(1.12); } }
 @media (prefers-reduced-motion: reduce) { .mj-card, .mj-orb { animation: none; } }
+
+/* ===== UI enhancement variant: aurora teal/pink with floating design swatches ===== */
+.mj-card.ui { background: linear-gradient(125deg, #0f172a, #134e4a 26%, #5b21b6 58%, #be185d 84%, #0f172a); background-size: 260% 260%; }
+.mj-card.ui .mj-badge { color: #fff; background: linear-gradient(135deg, #14b8a6, #ec4899); box-shadow: 0 6px 18px -4px rgba(236, 72, 153, .7); }
+.mj-card.ui .mj-version { background: linear-gradient(120deg, #fff 15%, #99f6e4 55%, #f9a8d4); -webkit-background-clip: text; background-clip: text; }
+.mj-card.ui .mj-orb.a { background: rgba(244, 114, 182, .5); }
+.mj-card.ui .mj-orb.b { background: rgba(45, 212, 191, .4); }
+.mj-card.ui .mj-group li::before { background: #5eead4; box-shadow: 0 0 8px #5eead4; }
+.mj-deco { position: absolute; top: 44px; right: 14px; width: 120px; height: 84px; z-index: -1; pointer-events: none; opacity: .9; }
+.mj-swatch { position: absolute; width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .5); animation: mjFloat 5s ease-in-out infinite; }
+.mj-swatch.s1 { top: 4px; left: 10px; background: #f472b6; }
+.mj-swatch.s2 { top: 30px; left: 44px; background: #2dd4bf; animation-delay: -1.2s; }
+.mj-swatch.s3 { top: 6px; right: 12px; background: #fbbf24; animation-delay: -2.4s; width: 16px; height: 16px; }
+.mj-swatch.s4 { bottom: 2px; right: 30px; background: #a78bfa; animation-delay: -3.4s; width: 14px; height: 14px; }
+.mj-curve { position: absolute; left: 0; bottom: -2px; width: 120px; height: 60px; fill: none; stroke: rgba(255, 255, 255, .5); stroke-width: 2; stroke-linecap: round; stroke-dasharray: 160; stroke-dashoffset: 160; animation: mjDraw 4s ease-in-out infinite; }
+.mj-brush { position: absolute; right: 2px; bottom: 6px; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 14px; color: #fff; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .3); animation: mjWobble 4.5s ease-in-out infinite; }
+@keyframes mjFloat { 50% { transform: translateY(-8px) scale(1.08); } }
+@keyframes mjDraw { 0% { stroke-dashoffset: 160; } 55%, 85% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -160; } }
+@keyframes mjWobble { 50% { transform: rotate(10deg) translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .mj-swatch, .mj-curve, .mj-brush { animation: none; } .mj-curve { stroke-dashoffset: 0; } }

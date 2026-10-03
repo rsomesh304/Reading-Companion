@@ -74,3 +74,17 @@ test("rejected reports end the timeline at Rejected", async () => {
   assert.equal(steps.at(-1).key, "rejected");
   assert.equal(steps.at(-1).notes[0].text, "Out of scope");
 });
+
+test("IST formatting converts UTC and compares calendar days in IST", async () => {
+  const { formatIstDateTime, istDayKey } = await import("./reportIssueHelpers.js");
+  assert.equal(formatIstDateTime("2026-10-03T18:45:00Z"), "4 Oct 2026, 12:15 AM IST");
+  assert.equal(istDayKey("2026-10-03T18:45:00Z"), "2026-10-04");
+  assert.equal(istDayKey("2026-10-03 10:00:00"), "2026-10-03");
+});
+
+test("per-stage timestamps are read from stage columns", async () => {
+  const { buildReportTimeline } = await import("./reportIssueHelpers.js");
+  const steps = buildReportTimeline({ status: "testing", created_at: "2026-10-01T10:00:00Z", seen_at: "2026-10-02T10:00:00Z", review_at: "2026-10-04T10:00:00Z" });
+  assert.equal(steps.find((s) => s.key === "seen").date, "2026-10-02T10:00:00Z");
+  assert.equal(steps.find((s) => s.key === "review").date, "2026-10-04T10:00:00Z");
+});

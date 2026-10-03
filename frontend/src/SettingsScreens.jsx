@@ -5,7 +5,7 @@ import { motion as Motion } from "framer-motion";
 import {
     Bug,
     ChevronLeft, ChevronRight, Download, HardDrive, ImagePlus, Lightbulb, Moon, RefreshCw,
-    Send, Shield, Sparkles, Sun, Target, Trash2, Upload, User, Volume2, Wrench, X as XIcon, Zap
+    Send, Shield, Sparkles, Sun, Target, Trash2, Upload, Volume2, Wrench, X as XIcon, Zap
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -37,22 +37,14 @@ function Head({ title, sub, onBack }) {
 function Group({ title, children }) {
   return <section className="st-group"><div className="st-group-title">{title}</div>{children}</section>;
 }
-function Item({ icon, label, hint, children, onClick, danger }) {
-  return (
-    <div className={`st-item elevated ${onClick ? "tap" : ""} ${danger ? "danger" : ""}`} onClick={onClick} role={onClick ? "button" : undefined}>
-      <span className="st-ic">{icon}</span>
-      <span className="st-tx"><b>{label}</b>{hint && <small>{hint}</small>}</span>
-      {children}
-    </div>
-  );
-}
 
 function ReleaseNotesScreen({ releases, onBack }) {
   return (
-    <div className="screen st-screen">
+    <div className="screen set-screen">
       <div className="aurora-bg" />
-      <Head title="Version & release notes" sub={`Current version ${APP_VERSION}`} onBack={onBack} />
-      <Group title="Release history">
+      <PfHead title="Version & release notes" sub={`Current version ${APP_VERSION}`} onBack={onBack} />
+      <div className="set-body">
+      <SetSec title="Release history">
         {releases.length === 0 ? (
           <div className="st-note"><Sparkles size={15} /><span>Release notes are loading or not available yet.</span></div>
         ) : (
@@ -66,7 +58,7 @@ function ReleaseNotesScreen({ releases, onBack }) {
                 transition={{ delay: Math.min(releaseIndex * 0.07, 0.35), duration: 0.28, ease: "easeOut" }}
               >
                 <span className="st-release-node" aria-hidden="true" />
-                {release.major ? <MajorReleaseCard release={release} /> : (
+                {release.major || release.ui ? <MajorReleaseCard release={release} variant={release.ui ? "ui" : "major"} /> : (
                 <div className="st-release elevated">
                   <div className="st-release-head">
                     <div>
@@ -89,7 +81,8 @@ function ReleaseNotesScreen({ releases, onBack }) {
             ))}
           </div>
         )}
-      </Group>
+      </SetSec>
+      </div>
     </div>
   );
 }
@@ -102,10 +95,11 @@ function UpdateDetailsScreen({ releases, onBack, onApply, applying }) {
     date: release.date,
   })));
   return (
-    <div className="screen st-screen">
+    <div className="screen set-screen">
       <div className="aurora-bg" />
-      <Head title="Update available" sub="A fresh version is ready" onBack={onBack} />
-      <Group title="What’s new">
+      <PfHead title="Update available" sub="A fresh version is ready" onBack={onBack} />
+      <div className="set-body">
+      <SetSec title="What’s new">
         {updates.length ? (
           <div className="st-update-cards">
             {updates.map((item, index) => {
@@ -128,13 +122,41 @@ function UpdateDetailsScreen({ releases, onBack, onApply, applying }) {
         ) : (
           <div className="st-update-card"><span className="st-update-icon"><Sparkles size={17} /></span><p>A newer app version is ready to install.</p></div>
         )}
-      </Group>
-      <Group>
+      </SetSec>
+      <SetSec>
         <button className="primary-button st-update-install" onClick={onApply} disabled={applying}>
           <Download size={16} /> {applying ? "Updating…" : "Update now"}
         </button>
-      </Group>
+      </SetSec>
+      </div>
     </div>
+  );
+}
+
+function PfHead({ title, sub, onBack }) {
+  return (
+    <header className="pf-head">
+      <button type="button" className="pf-head-back" onClick={onBack} aria-label="Back"><ChevronLeft size={20} /></button>
+      <div><h1>{title}</h1>{sub && <p>{sub}</p>}</div>
+    </header>
+  );
+}
+function SetSec({ title, children }) {
+  return (
+    <Motion.section className="set-sec" initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-30px" }} transition={{ duration: 0.4, ease: "easeOut" }}>
+      {title && <h2><i />{title}</h2>}
+      {children}
+    </Motion.section>
+  );
+}
+function SetRow({ icon, label, hint, onClick, danger, trailing, chevron }) {
+  return (
+    <button type="button" className={`set-row ${danger ? "danger" : ""}`} onClick={onClick}>
+      <span className="set-row-ic">{icon}</span>
+      <span className="set-row-tx"><b>{label}</b>{hint && <small>{hint}</small>}</span>
+      {trailing}
+      {chevron && <ChevronRight size={16} />}
+    </button>
   );
 }
 
@@ -263,83 +285,104 @@ export function SettingsScreen({ nav, stores }) {
     return <ReleaseNotesScreen releases={releaseHistory} onBack={() => setReleaseNotesOpen(false)} />;
   }
 
+  const usedPct = Math.min(100, Math.round((kb / 5120) * 100));
+
   return (
-    <div className="screen st-screen">
+    <div className="screen set-screen">
       <div className="aurora-bg" />
-      <Head title="Settings" sub={`Version ${APP_VERSION}`} onBack={nav.goBack} />
+      <PfHead title="Settings" sub={`Version ${APP_VERSION}`} onBack={nav.goBack} />
 
-      <Group title="You & your companion">
-        <Item icon={<User size={17} />} label="Your name">
-          <input className="st-input" defaultValue={profile.data.name} maxLength={30} onBlur={(e) => e.target.value.trim() && save("name", e.target.value.trim())} />
-        </Item>
-        <Item icon={<Sparkles size={17} />} label="Companion's name" hint="What you call your reading friend">
-          <input className="st-input" defaultValue={profile.data.companionName || ""} maxLength={20} placeholder="e.g. Sathi" onBlur={(e) => save("companionName", e.target.value.trim())} />
-        </Item>
-        <div className="st-item elevated col">
-          <div className="st-row"><span className="st-ic"><Target size={17} /></span><span className="st-tx"><b>Daily reading goal</b></span></div>
-          <div className="st-chips">
-            {GOALS.map((g) => <Motion.button key={g} whileTap={{ scale: 0.96 }} transition={INTERACTION_SPRING} className={profile.data.dailyGoal === g ? "on" : ""} onClick={() => { triggerLightTap(); save("dailyGoal", g); }}>{g}</Motion.button>)}
+      <div className="set-body">
+        <SetSec title="You & your companion">
+          <div className="set-card">
+            <label className="set-field"><span>Your name</span>
+              <input className="set-input" defaultValue={profile.data.name} maxLength={30} onBlur={(e) => e.target.value.trim() && save("name", e.target.value.trim())} />
+            </label>
+            <label className="set-field"><span>Companion's name</span>
+              <input className="set-input" defaultValue={profile.data.companionName || ""} maxLength={20} placeholder="e.g. Sathi" onBlur={(e) => save("companionName", e.target.value.trim())} />
+              <small>What you call your reading friend</small>
+            </label>
+            <div className="set-field">
+              <div className="set-label"><Target size={16} /> Daily reading goal</div>
+              <div className="set-pills">
+                {GOALS.map((g) => (
+                  <Motion.button key={g} type="button" whileTap={{ scale: 0.94 }} transition={INTERACTION_SPRING} className={`set-pill ${profile.data.dailyGoal === g ? "on" : ""}`} onClick={() => { triggerLightTap(); save("dailyGoal", g); }}>{g}</Motion.button>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
-      </Group>
+        </SetSec>
 
-      <Group title="Appearance">
-        <div className="st-item elevated">
-          <span className="st-ic">{theme === "dark" ? <Moon size={17} /> : <Sun size={17} />}</span>
-          <span className="st-tx"><b>Theme</b></span>
-          <div className="st-seg">
-            <Motion.button whileTap={{ scale: 0.96 }} transition={INTERACTION_SPRING} className={theme === "light" ? "on" : ""} onClick={() => setTheme("light")}><Sun size={14} /> Light</Motion.button>
-            <Motion.button whileTap={{ scale: 0.96 }} transition={INTERACTION_SPRING} className={theme === "dark" ? "on" : ""} onClick={() => setTheme("dark")}><Moon size={14} /> Dark</Motion.button>
+        <SetSec title="Appearance">
+          <div className="set-card">
+            <div className="set-themes" role="group" aria-label="Theme">
+              <Motion.button type="button" whileTap={{ scale: 0.97 }} transition={INTERACTION_SPRING} className={`set-theme ${theme === "light" ? "on" : ""}`} onClick={() => setTheme("light")}>
+                <span className="set-theme-art light"><i /><i /><b /></span>
+                <span><Sun size={14} /> Light</span>
+              </Motion.button>
+              <Motion.button type="button" whileTap={{ scale: 0.97 }} transition={INTERACTION_SPRING} className={`set-theme ${theme === "dark" ? "on" : ""}`} onClick={() => setTheme("dark")}>
+                <span className="set-theme-art dark"><i /><i /><b /></span>
+                <span><Moon size={14} /> Dark</span>
+              </Motion.button>
+            </div>
           </div>
-        </div>
-      </Group>
+        </SetSec>
 
-      <Group title="Voice">
-        <Item icon={<Volume2 size={17} />} label="Companion voice" hint="Applies from your next session">
-          <select className="st-input sm" value={voice} onChange={(e) => { setVoice(e.target.value); save("voice", e.target.value); }}>
-            {VOICES.map((v) => <option key={v} value={v}>{v}</option>)}
-          </select>
-        </Item>
-        <button className="st-btn" onClick={preview} disabled={previewing}>{previewing ? "Playing…" : "Preview this voice"}</button>
-      </Group>
+        <SetSec title="Voice">
+          <div className="set-card">
+            <div className="set-label"><Volume2 size={16} /> Companion voice</div>
+            <div className="set-voices" role="radiogroup" aria-label="Companion voice">
+              {VOICES.map((v) => (
+                <button key={v} type="button" role="radio" aria-checked={voice === v} className={`set-pill ${voice === v ? "on" : ""}`} onClick={() => { triggerLightTap(); setVoice(v); save("voice", v); }}>{v}</button>
+              ))}
+            </div>
+            <small className="set-hint">Applies from your next session</small>
+            <button type="button" className="set-btn" onClick={preview} disabled={previewing}><Volume2 size={15} /> {previewing ? "Playing…" : "Preview this voice"}</button>
+          </div>
+        </SetSec>
 
-      <Group title="Privacy & storage">
-        <div className="st-note"><Shield size={15} />
-          <span>Your books, gems, words and memories are stored only on this device. During a session your voice, camera frames and page snapshots are sent to Google Gemini to generate replies, and nowhere else.</span>
-        </div>
-        <Item icon={<HardDrive size={17} />} label="Storage used" hint="On this device"><span className="st-val">{kb} KB</span></Item>
-        <Item icon={<Trash2 size={17} />} label="Clear conversation history" hint="Recaps used for continuity" onClick={clearChats} />
-        <Item icon={<Trash2 size={17} />} label="Clear saved preferences" onClick={clearMemory} />
-        <Item icon={<Trash2 size={17} />} label="Delete all gems" onClick={clearGems} />
-      </Group>
+        <SetSec title="Privacy & storage">
+          <div className="set-card">
+            <div className="set-note"><Shield size={16} />
+              <span>Your books, gems, words and memories are stored only on this device. During a session your voice, camera frames and page snapshots are sent to Google Gemini to generate replies, and nowhere else.</span>
+            </div>
+            <div className="set-meter">
+              <div className="set-meter-top"><b><HardDrive size={14} style={{ verticalAlign: "-2px" }} /> Storage used</b><span>{kb} KB on this device</span></div>
+              <div className="set-bar"><i style={{ width: `${Math.max(usedPct, 3)}%` }} /></div>
+            </div>
+            <div className="set-rows">
+              <SetRow icon={<Trash2 size={16} />} label="Clear conversation history" hint="Recaps used for continuity" onClick={clearChats} />
+              <SetRow icon={<Trash2 size={16} />} label="Clear saved preferences" onClick={clearMemory} />
+              <SetRow icon={<Trash2 size={16} />} label="Delete all gems" onClick={clearGems} />
+            </div>
+          </div>
+        </SetSec>
 
-      <Group title="Backup">
-        <Item icon={<Download size={17} />} label="Export backup" hint="Everything, as one JSON file" onClick={exportAll} />
-        <Item icon={<Upload size={17} />} label="Restore from backup" onClick={() => fileRef.current?.click()} />
-        <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ""; }} />
-      </Group>
+        <SetSec title="Backup">
+          <div className="set-duo">
+            <SetRow icon={<Download size={18} />} label="Export backup" hint="One JSON file" onClick={exportAll} />
+            <SetRow icon={<Upload size={18} />} label="Restore" hint="From a backup file" onClick={() => fileRef.current?.click()} />
+          </div>
+          <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ""; }} />
+        </SetSec>
 
-      <Group title="App">
-        <Item icon={<RefreshCw size={17} />} label="Check for updates" hint={checkingUpdate ? "Checking for a newer version…" : `Version ${APP_VERSION}`} onClick={checkUpdate}>
-          {nav.updateAvailable && <span className="st-update-badge" aria-label="1 update available">1</span>}
-        </Item>
-        <button
-          type="button"
-          className="st-item elevated tap st-release-trigger"
-          onClick={() => setReleaseNotesOpen(true)}
-        >
-          <span className="st-ic"><Sparkles size={17} /></span>
-          <span className="st-tx"><b>Version & release notes</b><small>See what’s new in Reading Companion</small></span>
-          <span className="st-release-version">v{APP_VERSION}</span>
-          <ChevronRight className="st-release-arrow" size={17} />
-        </button>
-      </Group>
+        <SetSec title="App">
+          <div className="set-card">
+            <div className="set-rows">
+              <SetRow icon={<RefreshCw size={16} />} label="Check for updates" hint={checkingUpdate ? "Checking for a newer version…" : `Version ${APP_VERSION}`} onClick={checkUpdate}
+                trailing={nav.updateAvailable ? <span className="set-update-dot" aria-label="1 update available">1</span> : null} />
+              <SetRow icon={<Sparkles size={16} />} label="Version & release notes" hint="See what’s new in Reading Companion" onClick={() => setReleaseNotesOpen(true)}
+                trailing={<span className="set-version">v{APP_VERSION}</span>} chevron />
+            </div>
+          </div>
+        </SetSec>
 
-      <Group title="Danger zone">
-        <Item icon={<Trash2 size={17} />} label="Delete all my data" hint="Books, gems, memory and profile" onClick={wipe} danger />
-      </Group>
+        <SetSec title="Danger zone">
+          <SetRow icon={<Trash2 size={16} />} label="Delete all my data" hint="Books, gems, memory and profile" onClick={wipe} danger />
+        </SetSec>
+      </div>
 
-      {msg && <div className="st-toast">{msg}</div>}
+      {msg && <div className="set-toast">{msg}</div>}
     </div>
   );
 }
@@ -428,6 +471,18 @@ async function deliver(report) {
   };
 }
 
+async function fetchReportFromSupabase(reportId) {
+  if (!SUPABASE_URL || !SUPABASE_KEY || !reportId) return null;
+  const url = new URL(`${SUPABASE_URL}/rest/v1/bug_reports`);
+  url.searchParams.set("select", "*");
+  url.searchParams.set("id", `eq.${reportId}`);
+  url.searchParams.set("limit", "1");
+  const res = await fetch(url.toString(), { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+  if (!res.ok) throw new Error(`report_fetch_failed_${res.status}`);
+  const rows = await res.json();
+  return Array.isArray(rows) && rows[0] ? signReportScreenshots(rows[0]) : null;
+}
+
 async function syncReportsFromSupabase(reporterName) {
   if (!SUPABASE_URL || !SUPABASE_KEY) return [];
   try {
@@ -480,6 +535,20 @@ function toDataUrl(file, max = 1000) {
 }
 function loadReports() { try { return JSON.parse(localStorage.getItem(REPORT_KEY) || "[]"); } catch { return []; } }
 
+// Grows with the text up to a cap, so the page scrolls instead of the box.
+function autoGrow(el) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight + 2, 240)}px`;
+}
+
+// Keeps the focused field clear of the fixed bottom bar and the on-screen keyboard.
+function keepFieldVisible(event) {
+  const field = event.target;
+  if (!/^(INPUT|TEXTAREA|SELECT)$/.test(field?.tagName || "")) return;
+  setTimeout(() => field.scrollIntoView({ block: "center", behavior: "smooth" }), 280);
+}
+
 function ImageLightbox({ images, index, onClose, onIndex }) {
   useEffect(() => {
     const onKey = (e) => {
@@ -521,6 +590,7 @@ export function ReportScreen({ nav, stores }) {
   const [list, setList] = useState(loadReports);
   const [msg, setMsg] = useState("");
   const [refreshingReports, setRefreshingReports] = useState(false);
+  const [refreshingOne, setRefreshingOne] = useState(false);
   const fileRef = useRef(null);
   const isFault = type === "bug" || type === "issue";
 
@@ -557,6 +627,27 @@ export function ReportScreen({ nav, stores }) {
       flash("Could not refresh reports right now");
     } finally {
       setRefreshingReports(false);
+    }
+  }
+
+  async function refreshOneReport(reportId) {
+    if (!SUPABASE_URL || !SUPABASE_KEY || refreshingOne) return;
+    setRefreshingOne(true);
+    try {
+      // keep the spinner visible long enough to notice
+      const [row] = await Promise.all([fetchReportFromSupabase(reportId), new Promise((resolve) => setTimeout(resolve, 600))]);
+      if (row) {
+        const local = loadReports();
+        const exists = local.some((item) => item.id === reportId);
+        persist(exists ? local.map((item) => (item.id === reportId ? { ...item, ...row } : item)) : [row, ...local].slice(0, 25));
+        flash("Report updated");
+      } else {
+        flash("This report was not found online yet");
+      }
+    } catch {
+      flash("Could not refresh this report right now");
+    } finally {
+      setRefreshingOne(false);
     }
   }
 
@@ -632,16 +723,17 @@ export function ReportScreen({ nav, stores }) {
   return (
     <div className="screen st-screen">
       <div className="aurora-bg" />
-      <Head title="Report an issue" sub="Bugs, ideas and improvements" onBack={nav.goBack} />
-
-      <Group>
-        <div className="rp-slider-wrap">
-          <div className="rp-slider">
-            <button className={view === "compose" ? "on" : ""} onClick={() => setView("compose")}>Raise an issue</button>
-            <button className={view === "reports" ? "on" : ""} onClick={() => setView("reports")}>Your reports</button>
+      <div className="rp-pin">
+        <Head title="Report an issue" sub="Bugs, ideas and improvements" onBack={nav.goBack} />
+        <div className="rp-pin-tabs">
+          <div className="rp-slider-wrap">
+            <div className="rp-slider">
+              <button className={view === "compose" ? "on" : ""} onClick={() => setView("compose")}>Raise an issue</button>
+              <button className={view === "reports" ? "on" : ""} onClick={() => setView("reports")}>Your reports</button>
+            </div>
           </div>
         </div>
-      </Group>
+      </div>
 
       {view === "compose" && (
         <>
@@ -659,7 +751,7 @@ export function ReportScreen({ nav, stores }) {
           </Group>
 
           <Group title="Details">
-            <div className="st-form elevated">
+            <div className="st-form elevated" onFocusCapture={keepFieldVisible}>
               <label>Where did it happen?
                 <select className="st-input full" value={area} onChange={(e) => setArea(e.target.value)}>{AREAS.map((a) => <option key={a}>{a}</option>)}</select>
               </label>
@@ -671,9 +763,9 @@ export function ReportScreen({ nav, stores }) {
               )}
               <label>Title<input className="st-input full" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} placeholder={type === "feature" ? "e.g. Dark reading mode" : "e.g. Mind map does not load"} /></label>
               <label>{type === "feature" || type === "enhance" ? "Describe your idea" : "What went wrong?"}
-                <textarea className="st-input full" rows={4} value={desc} maxLength={1500} onChange={(e) => setDesc(e.target.value)} placeholder="Write as much as you like" />
+                <textarea className="st-input full rp-grow" ref={(el) => autoGrow(el)} rows={4} value={desc} maxLength={1500} onChange={(e) => setDesc(e.target.value)} placeholder="Write as much as you like" />
               </label>
-              {isFault && <label>Steps to reproduce (optional)<textarea className="st-input full" rows={3} value={steps} maxLength={800} onChange={(e) => setSteps(e.target.value)} placeholder="1. Open Memory  2. Tap Mind Map  3. ..." /></label>}
+              {isFault && <label>Steps to reproduce (optional)<textarea className="st-input full rp-grow" ref={(el) => autoGrow(el)} rows={3} value={steps} maxLength={800} onChange={(e) => setSteps(e.target.value)} placeholder="1. Open Memory  2. Tap Mind Map  3. ..." /></label>}
               <div>
                 <div className="st-lbl">Screenshots ({shots.length}/4)</div>
                 <div className="rp-shots">
@@ -698,9 +790,9 @@ export function ReportScreen({ nav, stores }) {
               types={TYPES}
               appVersion={APP_VERSION}
               canRefresh={Boolean(SUPABASE_URL && SUPABASE_KEY)}
-              refreshing={refreshingReports}
+              refreshing={refreshingOne}
               onBack={() => setSelectedId(null)}
-              onRefresh={refreshReports}
+              onRefresh={() => refreshOneReport(selectedReport.id)}
               onOpenImage={(images, index) => setLightbox({ images, index })}
             />
           ) : (

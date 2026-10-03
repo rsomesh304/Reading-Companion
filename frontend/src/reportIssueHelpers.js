@@ -107,6 +107,29 @@ export function getReportStatusShortLabel(report) {
 
 const text = (value) => String(value ?? "").trim();
 
+const STAGE_FIELDS = {
+  seen: ["seen_at", "seenAt", "acknowledged_at"],
+  review: ["review_at", "in_review_at", "reviewed_at", "reviewAt"],
+  approved: ["approved_at", "approvedAt"],
+  in_progress: ["in_progress_at", "inProgressAt", "started_at"],
+  testing: ["testing_at", "testingAt"],
+  done: ["done_at", "doneAt", "completed_at", "resolved_at", "resolvedAt"],
+  rejected: ["rejected_at", "rejectedAt"],
+};
+
+// Looks for a per-stage timestamp in the shapes the backend might store it: a map, or one `<stage>_at` column per stage.
+function stageTimestamp(report, key, currentStatus) {
+  const maps = [report?.stageDates, report?.stage_dates, report?.statusDates, report?.status_dates];
+  for (const map of maps) {
+    if (map && typeof map === "object" && map[key]) return map[key];
+  }
+  for (const field of STAGE_FIELDS[key] || []) {
+    if (report?.[field]) return report[field];
+  }
+  if (key === currentStatus) return report?.statusUpdatedAt || report?.status_updated_at || report?.updatedAt || report?.updated_at || null;
+  return null;
+}
+
 // Presentation only: lays the report's existing status data out as timeline steps.
 // Several notes per status are supported when the report carries a history list; the resolution note is never included.
 export function buildReportTimeline(report) {
@@ -148,7 +171,34 @@ export function buildReportTimeline(report) {
   return flow.map(([key, label], index) => {
     const notes = notesByStage.get(key) || [];
     const stateName = index < currentIndex ? "done" : index === currentIndex ? "current" : "upcoming";
-    const date = notes[0]?.date || (key === "sent" || key === "queued" ? created : key === "done" ? resolvedAt : null);
+    const date = notes[0]?.date || stageTimestamp(report, key, status) || (key === "sent" || key === "queued" ? created : key === "done" ? resolvedAt : null);
     return { key, label, state: stateName, notes, date: stateName === "upcoming" ? null : date };
   });
+}
+
+// Supabase timestamps are UTC; a value without an offset is treated as UTC too.
+export function parseUtc(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  const date = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text.replace(" ", "T")}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+const IST = "Asia/Kolkata";
+
+export function istDayKey(value) {
+  const date = parseUtc(value);
+  return date ? date.toLocaleDateString("en-CA", { timeZone: IST }) : "";
+}
+
+export function formatIstDate(value) {
+  const date = parseUtc(value);
+  return date ? date.toLocaleDateString("en-GB", { timeZone: IST, day: "numeric", month: "short", year: "numeric" }) : "";
+}
+
+export function formatIstDateTime(value) {
+  const date = parseUtc(value);
+  if (!date) return "";
+  const time = date.toLocaleTimeString("en-US", { timeZone: IST, hour: "numeric", minute: "2-digit", hour12: true });
+  return `${formatIstDate(value)}, ${time} IST`;
 }

@@ -1875,3 +1875,38 @@ img { -webkit-user-drag: none; }
   .sh-pulse, .sh-sparks i, .sh-day.today, .gw-gem, .gw-glow, .gw-spark, .es-art, .es-glow, .es-spark { animation: none !important; }
   .gw-col.has .gw-gem { opacity: 1; }
 }
+
+/* ===== Home: always scroll the last card clear of the bottom bar ===== */
+.dashboard-content { padding-bottom: 8px; }
+.dashboard-content::after { content: ""; display: block; flex: 0 0 auto; height: calc(120px + env(safe-area-inset-bottom, 0px)); }
+
+/* ===== Reader: actions sheet opened from the mascot ===== */
+.sess-sheet-backdrop { position: fixed; inset: 0; z-index: 90; display: flex; align-items: flex-end; justify-content: center; background: rgba(4, 4, 12, .55); }
+.sess-sheet { width: min(100%, 520px); max-height: 62dvh; overflow-y: auto; overscroll-behavior: contain; padding: 8px 16px calc(18px + env(safe-area-inset-bottom, 0px)); border-radius: 26px 26px 0 0; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-bottom: 0; box-shadow: 0 -20px 50px rgba(0, 0, 0, .4); }
+.sess-sheet-grip { display: block; width: 40px; height: 4px; margin: 4px auto 12px; border-radius: 99px; background: color-mix(in srgb, var(--muted) 45%, transparent); }
+.sess-sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.sess-sheet-head b { display: block; font-family: 'Fraunces', serif; font-size: 18px; }
+.sess-sheet-head span { font-size: 12px; color: var(--muted); }
+.sess-sheet-head button { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; color: var(--text); cursor: pointer; background: var(--surface-2); border: 1px solid var(--border); }
+.sess-sheet-empty { padding: 18px 4px 8px; font-size: 13px; line-height: 1.55; color: var(--muted); }
+.sess-sheet-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.sess-sheet-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--border); }
+.sess-sheet-ic { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; border-radius: 10px; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, var(--surface)); }
+.sess-sheet-text { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.sess-sheet-list time { flex-shrink: 0; font-size: 11px; font-weight: 600; color: var(--muted); }
+
+/* ===== Streak card: corner flame ===== */
+.sh-corner { position: absolute; top: 12px; right: 14px; width: 48px; height: 54px; pointer-events: none; opacity: .55; filter: grayscale(.7); }
+.sh-corner.lit { opacity: 1; filter: none; }
+.sh-corner-halo { position: absolute; left: 50%; bottom: 4px; width: 46px; height: 46px; translate: -50% 0; border-radius: 50%; background: radial-gradient(circle, rgba(249, 115, 22, .5), transparent 68%); animation: shHalo 2.4s ease-in-out infinite; }
+.sh-corner-flame { position: absolute; left: 7px; bottom: 5px; width: 34px; height: 34px; transform-origin: 50% 100%; animation: shFlame 1.9s ease-in-out infinite; filter: drop-shadow(0 0 7px rgba(249, 115, 22, .7)); }
+.sh-corner-core { transform-box: fill-box; transform-origin: 50% 100%; animation: shCore 1.3s ease-in-out infinite; }
+.sh-corner i { position: absolute; bottom: 30px; width: 3px; height: 3px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 5px #f59e0b; opacity: 0; animation: shEmber 2.6s ease-out infinite; }
+.sh-corner i:nth-of-type(1) { left: 14px; }
+.sh-corner i:nth-of-type(2) { left: 26px; animation-delay: .9s; }
+.sh-corner i:nth-of-type(3) { left: 20px; animation-delay: 1.7s; background: #fb7185; }
+@keyframes shFlame { 0%, 100% { transform: scale(1) rotate(-2deg) skewX(0deg); } 30% { transform: scale(1.06, 1.12) rotate(2deg) skewX(-3deg); } 60% { transform: scale(.97, 1.04) rotate(-1deg) skewX(2deg); } }
+@keyframes shCore { 50% { transform: scale(.85, 1.15); opacity: .85; } }
+@keyframes shHalo { 50% { transform: scale(1.25); opacity: .6; } }
+@keyframes shEmber { 0% { transform: translate(0, 4px) scale(.5); opacity: 0; } 20% { opacity: 1; } 100% { transform: translate(var(--ex, 4px), -26px) scale(1); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sh-corner-halo, .sh-corner-flame, .sh-corner-core, .sh-corner i { animation: none !important; } }
