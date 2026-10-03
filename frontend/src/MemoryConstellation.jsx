@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ForceGraph2D from "react-force-graph-2d";
 import { AnimatePresence, motion as Motion, useDragControls } from "framer-motion";
 import { BookOpen, Gem, Info, Link2, Maximize2, Shuffle, X as XIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ForceGraph2D from "react-force-graph-2d";
 import { apiUrl } from "./api.js";
 import "./MemoryConstellation.css";
 
