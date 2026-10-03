@@ -1,5 +1,5 @@
 import { AnimatePresence, motion as Motion } from "framer-motion";
-import { Bug, RefreshCw, Sparkles, Wrench } from "lucide-react";
+import { Bug, Sparkles, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import "./UpdateManager.css";
@@ -48,7 +48,7 @@ function Notes({ releases }) {
   ));
 }
 
-export default function UpdateManager({ paused = false }) {
+export default function UpdateManager({ paused = false, onUpdateState, actionsRef }) {
   const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({
     onRegisteredSW(_url, reg) {
       if (!reg) return;
@@ -62,13 +62,40 @@ export default function UpdateManager({ paused = false }) {
 
   const [incoming, setIncoming] = useState([]);
   const [whatsNew, setWhatsNew] = useState([]);
-  const [later, setLater] = useState(false);
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!needRefresh) return;
     loadNotes().then((all) => setIncoming(all.filter((release) => cmp(release.version, APP_VERSION) > 0)));
   }, [needRefresh]);
+
+  useEffect(() => {
+    onUpdateState?.({ available: needRefresh, releases: incoming });
+  }, [needRefresh, incoming, onUpdateState]);
+
+  useEffect(() => {
+    if (!actionsRef) return undefined;
+    const actions = {
+      async checkForUpdates() {
+        const registration = await navigator.serviceWorker?.getRegistration?.();
+        if (!registration) return false;
+        if (registration.waiting) return true;
+        let updateFound = false;
+        const onUpdateFound = () => { updateFound = true; };
+        registration.addEventListener("updatefound", onUpdateFound, { once: true });
+        try {
+          await registration.update();
+        } finally {
+          registration.removeEventListener("updatefound", onUpdateFound);
+        }
+        return Boolean(updateFound || registration.waiting || registration.installing);
+      },
+      applyUpdate: () => updateServiceWorker(true),
+    };
+    actionsRef.current = actions;
+    return () => {
+      if (actionsRef.current === actions) actionsRef.current = null;
+    };
+  }, [actionsRef, updateServiceWorker]);
 
   useEffect(() => {
     let prior = null;
@@ -83,33 +110,8 @@ export default function UpdateManager({ paused = false }) {
     }
   }, []);
 
-  const showUpdate = needRefresh && !later && !paused;
-
   return (
     <>
-      <AnimatePresence>
-        {showUpdate && (
-          <Motion.div
-            className="um-card"
-            initial={{ y: 80, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 80, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 260, damping: 26 }}
-          >
-            <div className="um-title"><RefreshCw size={16} /> Update available</div>
-            <div className="um-scroll">
-              {incoming.length ? <Notes releases={incoming} /> : <p className="um-plain">A newer version is ready with improvements.</p>}
-            </div>
-            <div className="um-actions">
-              <button className="um-ghost" onClick={() => setLater(true)}>Later</button>
-              <button className="um-primary" disabled={busy} onClick={() => { setBusy(true); updateServiceWorker(true); }}>
-                {busy ? "Updating…" : "Update now"}
-              </button>
-            </div>
-          </Motion.div>
-        )}
-      </AnimatePresence>
-
       <AnimatePresence>
         {whatsNew.length > 0 && !paused && (
           <Motion.div className="um-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
