@@ -111,6 +111,66 @@ async function deleteReportScreenshotObjects(paths) {
   }
 }
 
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const REPORT_EMAIL_TO = process.env.REPORT_EMAIL_TO || "";
+const REPORT_EMAIL_FROM = process.env.REPORT_EMAIL_FROM || "Reading Companion <onboarding@resend.dev>";
+const REPORT_TYPE_LABELS = { bug: "Bug", issue: "Issue", feature: "New feature", enhance: "Improvement" };
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
+function buildReportEmailHtml(report, ticket, imageCount) {
+  const created = new Date(report.createdAt || Date.now()).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" });
+  const device = report.device || {};
+  const rows = [
+    ["Ticket", ticket],
+    ["Type", REPORT_TYPE_LABELS[report.type] || report.type],
+    ["Area", report.area || "-"],
+    ["Severity", report.severity || "Not applicable"],
+    ["Reporter", report.reporter || "Reader"],
+    ["App version", report.appVersion || "-"],
+    ["Raised (IST)", created],
+    ["Screenshots", String(imageCount)],
+    ["Device", `${device.screen || "-"} \u00b7 ${device.lang || "-"} \u00b7 ${device.theme || "-"}${device.standalone ? " \u00b7 installed app" : ""}`],
+  ];
+  const block = (label, body) => body
+    ? `<h3 style="margin:18px 0 6px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#6b7280">${label}</h3><div style="white-space:pre-wrap;font-size:14px;line-height:1.6;color:#111827">${escapeHtml(body)}</div>`
+    : "";
+  return `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#111827">
+  <div style="padding:18px 20px;border-radius:16px;background:linear-gradient(135deg,#6d28d9,#4338ca);color:#fff">
+    <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.8">New report \u00b7 ${escapeHtml(ticket)}</div>
+    <div style="margin-top:6px;font-size:20px;font-weight:700">${escapeHtml(report.title)}</div>
+  </div>
+  <table style="width:100%;margin-top:16px;border-collapse:collapse;font-size:13px">${rows.map(([k, v]) => `<tr><td style="padding:6px 0;color:#6b7280;width:120px">${escapeHtml(k)}</td><td style="padding:6px 0;font-weight:600">${escapeHtml(v)}</td></tr>`).join("")}</table>
+  ${block("Description", report.description)}
+  ${block("Steps to reproduce", report.steps)}
+  <p style="margin-top:22px;font-size:12px;color:#9ca3af">Sent automatically by Reading Companion.</p>
+</div>`;
+}
+
+// Email is a convenience: it never blocks or fails the report, which is already saved.
+async function sendReportEmail(report, ticketNumber, images) {
+  if (!RESEND_API_KEY || !REPORT_EMAIL_TO) return;
+  const ticket = formatTicketNumber(ticketNumber);
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: REPORT_EMAIL_FROM,
+      to: REPORT_EMAIL_TO.split(",").map((address) => address.trim()).filter(Boolean),
+      subject: `[${ticket}] ${REPORT_TYPE_LABELS[report.type] || "Report"}: ${String(report.title).trim().slice(0, 120)}`,
+      html: buildReportEmailHtml(report, ticket, images.length),
+      attachments: images.map((image, index) => ({ filename: `${ticket}-screenshot-${index + 1}.${image.extension}`, content: image.buffer.toString("base64") })),
+    }),
+  });
+  if (!response.ok) {
+    console.warn(`[REPORT EMAIL] Resend rejected the email (${response.status}): ${String(await response.text().catch(() => "")).slice(0, 200)}`);
+    return;
+  }
+  console.info(`[REPORT EMAIL] sent for ${ticket}`);
+}
+
 app.post("/api/bug-reports", limitReportScreenshotUploads, async (req, res) => {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return res.status(503).json({ error: "supabase_storage_not_configured" });
@@ -211,6 +271,7 @@ app.post("/api/bug-reports", limitReportScreenshotUploads, async (req, res) => {
       }
       return res.status(500).json({ error: "bug_report_insert_failed" });
     }
+    sendReportEmail(report, ticketNumber, decoded).catch((error) => console.warn("[REPORT EMAIL] failed:", String(error?.message || error).slice(0, 200)));
     return res.json({ id: report.id, ticketNumber, screenshots: createdPaths });
   } catch (error) {
     await deleteReportScreenshotObjects(createdPaths);

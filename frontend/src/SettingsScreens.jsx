@@ -393,7 +393,6 @@ export { AboutScreen } from "./AboutScreen.jsx";
 const REPORT_KEY = "rc_reports";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const FORMSPREE_ENDPOINT = import.meta.env.VITE_FORMSPREE_ENDPOINT;
 
 async function signReportScreenshots(report) {
   const screenshots = Array.isArray(report.screenshots) ? report.screenshots : [];
@@ -436,33 +435,7 @@ async function deliver(report) {
     }
   }
   const screenshots = storedReport?.screenshots || report.screenshots || [];
-  const deliveries = [];
-  if (FORMSPREE_ENDPOINT) {
-    deliveries.push(fetch(FORMSPREE_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({
-        _subject: `[Reading Companion] ${report.type}: ${report.title}`,
-        report_id: report.id,
-        type: report.type,
-        area: report.area,
-        severity: report.severity || "Not applicable",
-        title: report.title,
-        description: report.description,
-        steps: report.steps || "Not provided",
-        reporter: report.reporter,
-        app_version: report.appVersion,
-        ticket_number: storedReport?.ticketNumber || report.ticketNumber || "Pending",
-        device: JSON.stringify(report.device),
-        created_at: report.createdAt,
-        screenshot_count: screenshots.length,
-        status: "sent",
-      }),
-    }).then((res) => res.ok).catch(() => false));
-  }
-  if (!storedReport && deliveries.length === 0) return null;
-  const results = await Promise.all(deliveries);
-  if (!results.every(Boolean)) return null;
+  if (!storedReport) return null;
   const displayReport = await signReportScreenshots({ ...report, screenshots });
   return {
     ticketNumber: storedReport?.ticketNumber || report.ticketNumber || null,

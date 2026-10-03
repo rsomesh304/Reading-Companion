@@ -139,6 +139,7 @@ export function buildReportTimeline(report) {
     .find((value) => Array.isArray(value)) || [];
 
   const notesByStage = new Map();
+  const historyDates = new Map();
   const addNote = (stage, note, date) => {
     const body = text(note);
     if (!body || body.toLowerCase() === resolution) return;
@@ -147,11 +148,10 @@ export function buildReportTimeline(report) {
     notesByStage.set(stage, list);
   };
   history.forEach((entry) => {
-    addNote(
-      normalizeReportStatus({ status: entry?.status }),
-      entry?.note ?? entry?.status_note ?? entry?.message,
-      entry?.at || entry?.date || entry?.created_at || entry?.updated_at,
-    );
+    const stage = normalizeReportStatus({ status: entry?.status });
+    const at = entry?.at || entry?.date || entry?.created_at || entry?.updated_at;
+    if (at && !historyDates.has(stage)) historyDates.set(stage, at);
+    addNote(stage, entry?.note ?? entry?.status_note ?? entry?.message, at);
   });
   if (!history.length) {
     addNote(
@@ -171,7 +171,7 @@ export function buildReportTimeline(report) {
   return flow.map(([key, label], index) => {
     const notes = notesByStage.get(key) || [];
     const stateName = index < currentIndex ? "done" : index === currentIndex ? "current" : "upcoming";
-    const date = notes[0]?.date || stageTimestamp(report, key, status) || (key === "sent" || key === "queued" ? created : key === "done" ? resolvedAt : null);
+    const date = historyDates.get(key) || notes[0]?.date || stageTimestamp(report, key, status) || (key === "sent" || key === "queued" ? created : key === "done" ? resolvedAt : null);
     return { key, label, state: stateName, notes, date: stateName === "upcoming" ? null : date };
   });
 }

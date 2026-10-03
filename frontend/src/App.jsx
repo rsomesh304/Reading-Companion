@@ -123,6 +123,7 @@ import {
     UPDATE_MEMORY_DECLARATION,
 } from "./persona.js";
 import { Profile } from "./profile.js";
+import "./ProfileUI.css";
 import ServiceNotice from "./ServiceNotice.jsx";
 import { getRecap, saveTurn } from "./sessionMemory.js";
 import { AboutScreen, ReportScreen, SettingsScreen } from "./SettingsScreens.jsx";
@@ -134,7 +135,6 @@ import UpdateManager from "./UpdateManager.jsx";
 import { useBookAura } from "./useBookAura.js";
 import { useButtonHaptics, useHaptic } from "./useHaptic.js";
 import { APP_VERSION } from "./version.js";
-import "./ProfileUI.css";
 
 const MODEL_NAME = "gemini-3.1-flash-live-preview";
 const FALLBACK_MODEL_NAME = "gemini-2.5-flash-native-audio-preview-12-2025";
