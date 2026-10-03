@@ -1,8 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiFetch } from "../api.js";
+import { failureSummary } from "../liveErrors.js";
+import { mintLiveToken } from "../tokenClient.js";
 
 const MODELS = ["gemini-3.1-flash-live-preview", "gemini-2.5-flash-native-audio-preview-12-2025"];
+const MAX_KEY_TRIES = 4;
+const SILENT_LINE_MS = 9000;
 
 // Gemini Live speaks; the orb level comes from the REAL audio.
 // say() returns a promise that resolves when the line has FINISHED PLAYING.
@@ -24,6 +27,11 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
   const fakeUntilRef = useRef(0);
   const speakingRef = useRef(false);
   const mutedRef = useRef(muted);
+  const silentHandlerRef = useRef(null);
+  const keyInfoRef = useRef(null);
+  const systemTextRef = useRef("");
+  const silentSwitchesRef = useRef(0);
+  const recoveringRef = useRef(false);
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -40,6 +48,7 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
     if (l.playedDone) return;
     l.playedDone = true;
     clearTimeout(l.hard);
+    clearTimeout(l.silentTimer);
     clearTimeout(l.playTimer);
     clearTimeout(l.startTimer);
     activeRef.current.delete(l);
@@ -90,25 +99,33 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
   }, []);
 
   // Call from a tap (browser audio rule). systemText = the personality prompt.
-  const connect = useCallback(async (systemText) => {
+  const connect = useCallback(async (systemText, { blame = {} } = {}) => {
+    systemTextRef.current = systemText;
     try {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      const ctx = new AC({ sampleRate: 24000 });
-      await ctx.resume();
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 512;
-      const gain = ctx.createGain();
-      gain.gain.value = mutedRef.current ? 0 : 1;
-      analyser.connect(gain);
-      gain.connect(ctx.destination);
-      ctxRef.current = ctx; analyserRef.current = analyser; gainRef.current = gain;
-
-      const res = await apiFetch("/api/token", { method: "POST" });
-      if (!res.ok) throw new Error("token_failed");
-      const { token } = await res.json();
-      const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: "v1alpha" } });
+      let ctx = ctxRef.current;
+      if (!ctx || ctx.state === "closed") {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        ctx = new AC({ sampleRate: 24000 });
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        const gain = ctx.createGain();
+        gain.gain.value = mutedRef.current ? 0 : 1;
+        analyser.connect(gain);
+        gain.connect(ctx.destination);
+        ctxRef.current = ctx; analyserRef.current = analyser; gainRef.current = gain;
+      }
+      // a retry may run without a fresh tap, so never wait forever for the browser
+      await Promise.race([ctx.resume(), new Promise((r) => setTimeout(r, 1500))]);
 
       let session = null;
+      let failed = blame;
+      let activeToken = null;
+      // a key that cannot start a voice session is skipped quietly; the backend rests it
+      for (let keyTry = 0; keyTry < MAX_KEY_TRIES && !session; keyTry += 1) {
+      const tokenInfo = await mintLiveToken(failed);
+      activeToken = tokenInfo;
+      const ai = new GoogleGenAI({ apiKey: tokenInfo.token, httpOptions: { apiVersion: "v1alpha" } });
+      let lastError = null;
       for (const model of MODELS) {
         try {
           session = await ai.live.connect({
@@ -121,8 +138,10 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
             },
             callbacks: {
               onmessage: (m) => {
+                if (session && sessionRef.current !== session) return;   // stale session after reset()
                 const l = queueRef.current[0];
                 if (m.data) {
+                  if (l) l.gotAudio = true;
                   const at = playChunk(m.data);
                   if (l && !l.started && at != null) {
                     l.started = true;
@@ -141,14 +160,18 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
                   finishGen(l);
                 }
               },
-              onerror: () => setVoiceOk(false),
-              onclose: () => { sessionRef.current = null; },
+              onerror: () => { if (!session || sessionRef.current === session) setVoiceOk(false); },
+              onclose: () => { if (!session || sessionRef.current === session) sessionRef.current = null; },
             },
           });
           break;
-        } catch { /* try the fallback model */ }
+        } catch (e) { lastError = e; /* try the fallback model */ }
+      }
+      if (session || !(tokenInfo.keyCount > 1)) break;
+      failed = { failedKeyIndex: tokenInfo.keyIndex, failedKeyDay: tokenInfo.deviceDay, reason: failureSummary(lastError) || "no_reply" };
       }
       if (!session) throw new Error("no_model");
+      keyInfoRef.current = activeToken;
       sessionRef.current = session;
       setVoiceOk(true);
       return true;
@@ -213,6 +236,8 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
     } else {
       queueRef.current.push(l);
       l.hard = setTimeout(() => finishGen(l), timeoutMs);   // never hang
+      // connected but no sound at all: this key/session is not answering, so move to another key
+      l.silentTimer = setTimeout(() => { if (!l.gotAudio) silentHandlerRef.current?.(); }, SILENT_LINE_MS);
       if (startTimeoutMs > 0) {
         l.startTimer = setTimeout(() => {
           if (!l.started) { l.started = true; onStart?.(0); }
@@ -232,6 +257,15 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
 
   const stop = useCallback(() => { stopAudio(); flush(); }, [stopAudio, flush]);
 
+  // Drops the current voice session (and anything it was still saying) but keeps the audio context for a fresh connect().
+  const reset = useCallback(() => {
+    stopAudio();
+    flush();
+    const old = sessionRef.current;
+    sessionRef.current = null;
+    try { old?.close(); } catch { /* already closed */ }
+  }, [stopAudio, flush]);
+
   const close = useCallback(() => {
     stopAudio();
     flush();
@@ -243,7 +277,21 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
 
   useEffect(() => close, [close]);
 
-  return { connect, say, stop, close, speaking, voiceOk, levelRef };
+  // A session that connected but never produced sound: rest that key and reconnect on the next one (at most twice).
+  useEffect(() => {
+    silentHandlerRef.current = () => {
+      const info = keyInfoRef.current;
+      if (recoveringRef.current || !info || !(info.keyCount > 1) || silentSwitchesRef.current >= 2) return;
+      recoveringRef.current = true;
+      silentSwitchesRef.current += 1;
+      reset();
+      connect(systemTextRef.current, {
+        blame: { failedKeyIndex: info.keyIndex, failedKeyDay: info.deviceDay, reason: "no_reply (voice session stayed silent)" },
+      }).finally(() => { recoveringRef.current = false; });
+    };
+  }, [reset, connect]);
+
+  return { connect, say, stop, reset, close, speaking, voiceOk, levelRef };
 }
 export const MASCOT_VOICE_PROMPT =
   "You are the tiny mascot of a reading app, and you are speaking aloud for the very first time. " +

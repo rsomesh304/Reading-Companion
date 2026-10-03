@@ -1,0 +1,24 @@
+.mj-card { position: relative; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; gap: 6px; padding: 20px 18px 18px; margin-left: -4px; border-radius: 26px; color: #f6f3ff; border: 1px solid rgba(255, 255, 255, .22); box-shadow: 0 26px 56px -20px rgba(91, 33, 182, .6), inset 0 1px 0 rgba(255, 255, 255, .25);
+  background: linear-gradient(125deg, #2e1065, #4c1d95 28%, #1e3a8a 55%, #0e7490 78%, #4c1d95); background-size: 260% 260%; animation: mjFlow 14s ease-in-out infinite; }
+.mj-aurora { position: absolute; inset: 0; z-index: -1; background: radial-gradient(80% 60% at 85% 0%, rgba(251, 191, 36, .28), transparent 60%), radial-gradient(70% 60% at 0% 100%, rgba(244, 114, 182, .25), transparent 60%); }
+.mj-orb { position: absolute; z-index: -1; border-radius: 50%; filter: blur(30px); pointer-events: none; animation: mjDrift 9s ease-in-out infinite; }
+.mj-orb.a { width: 130px; height: 130px; top: -40px; right: -20px; background: rgba(251, 191, 36, .45); }
+.mj-orb.b { width: 120px; height: 120px; bottom: -40px; left: -30px; background: rgba(34, 211, 238, .35); animation-delay: -4s; }
+.mj-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mj-badge { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 12px; border-radius: 99px; font-size: 10.5px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; color: #3b1d00; background: linear-gradient(135deg, #fde68a, #f59e0b); box-shadow: 0 6px 18px -4px rgba(245, 158, 11, .7); }
+.mj-date { font-size: 11.5px; font-weight: 700; color: rgba(236, 232, 255, .75); }
+.mj-version { margin-top: 10px; font-family: 'Fraunces', serif; font-size: 46px; font-weight: 600; line-height: 1; letter-spacing: -.03em; background: linear-gradient(120deg, #fff 20%, #fde68a 60%, #a5f3fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.mj-title { margin: 2px 0 8px; font-family: 'Fraunces', serif; font-size: 19px; font-weight: 600; line-height: 1.25; text-align: left; color: #fff; }
+.mj-groups { display: flex; flex-direction: column; gap: 10px; }
+.mj-group { padding: 12px 13px; border-radius: 18px; background: rgba(255, 255, 255, .09); border: 1px solid rgba(255, 255, 255, .14); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.mj-group h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 11px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; color: #fff; }
+.mj-group h4 span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 8px; color: #1e1b4b; background: #a5f3fc; }
+.mj-group.feature h4 span { background: #fde68a; }
+.mj-group.fix h4 span { background: #fda4af; }
+.mj-group ul { display: flex; flex-direction: column; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.mj-group li { position: relative; padding-left: 16px; font-size: 13px; line-height: 1.5; text-align: left; overflow-wrap: anywhere; color: rgba(246, 243, 255, .94); }
+.mj-group li::before { content: ""; position: absolute; left: 2px; top: 7px; width: 6px; height: 6px; border-radius: 50%; background: #fcd34d; box-shadow: 0 0 8px #fcd34d; }
+
+@keyframes mjFlow { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+@keyframes mjDrift { 50% { transform: translate(-14px, 14px) scale(1.12); } }
+@media (prefers-reduced-motion: reduce) { .mj-card, .mj-orb { animation: none; } }

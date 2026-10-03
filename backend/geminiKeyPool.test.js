@@ -45,3 +45,12 @@ test("a rate-limited key becomes usable again after its cooldown", () => {
   clock += 2;
   assert.equal(pool.currentIndex("2026-10-02"), 0);
 });
+test("a failure can set its own, shorter cooldown", () => {
+  let clock = 0;
+  const pool = new DailyGeminiKeyPool(2, { cooldownMs: 900000, now: () => clock });
+
+  assert.equal(pool.markExhausted(0, "2026-10-02", 1000), 1);
+  assert.equal(pool.markExhausted(1, "2026-10-02", 1000), null);
+  clock += 1001;
+  assert.equal(pool.currentIndex("2026-10-02"), 0);
+});

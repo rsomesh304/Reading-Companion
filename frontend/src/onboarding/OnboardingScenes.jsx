@@ -1,5 +1,5 @@
 import { AnimatePresence, motion as Motion } from "framer-motion";
-import { BookOpen, Brain, CalendarDays, Check, Flame, Gem, Languages, Play, RotateCcw, Sparkles, Zap } from "lucide-react";
+import { BookOpen, Brain, CalendarDays, Camera, Check, Flame, Gem, Languages, Play, RotateCcw, Smartphone, Sparkles, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const LOOP = { repeat: Infinity, ease: "easeInOut" };
@@ -544,6 +544,46 @@ function WhyApplicationScene() {
   );
 }
 
+// ===== Snapshot reading: photograph the page once, keep the phone aside, just ask =====
+function SnapshotScene() {
+  const T = { duration: 7, repeat: Infinity, ease: "easeInOut" };
+  const widths = [90, 100, 70, 96, 62];
+  return (
+    <div className="sc-snap">
+      <div className="sc-snap-book">
+        <div className="sc-page sc-snap-page">
+          {widths.map((w, i) => <span key={i} className={`sc-line ${i === 2 ? "hot" : ""}`} style={{ width: `${w}%` }} />)}
+          <Motion.i className="sc-snap-flash" animate={{ opacity: [0, 0, 0.95, 0, 0] }} transition={{ ...T, times: [0, 0.08, 0.14, 0.3, 1] }} />
+        </div>
+        <Motion.span className="sc-snap-shot" animate={{ opacity: [0, 0, 1, 1, 0], scale: [0.7, 0.7, 1, 1, 0.9] }} transition={{ ...T, times: [0, 0.12, 0.2, 0.8, 1] }}>
+          <Camera size={12} /> Snapshot
+        </Motion.span>
+      </div>
+
+      <Motion.div className="sc-snap-fly" animate={{ opacity: [0, 0, 1, 1, 0], x: [0, 0, 8, 86, 86], y: [0, 0, -6, 4, 4], scale: [1, 1, 0.9, 0.62, 0.62] }} transition={{ ...T, times: [0, 0.2, 0.3, 0.5, 1] }}>
+        {[80, 100, 66].map((w, i) => <span key={i} className="sc-line" style={{ width: `${w}%` }} />)}
+      </Motion.div>
+
+      <div className="sc-snap-phone">
+        <Smartphone size={34} />
+        <Motion.b animate={{ opacity: [0.35, 1, 0.35] }} transition={{ ...LOOP, duration: 1.6 }}>near you</Motion.b>
+      </div>
+
+      <Motion.span className="sc-snap-ask" animate={{ opacity: [0, 0, 0, 1, 1, 0], y: [8, 8, 8, 0, 0, 8] }} transition={{ ...T, times: [0, 0.4, 0.5, 0.58, 0.88, 1] }}>
+        “Ye <b>ephemeral</b> kya hai?”
+      </Motion.span>
+      <Motion.div className="sc-snap-wave" animate={{ opacity: [0, 0, 0, 1, 1, 0] }} transition={{ ...T, times: [0, 0.4, 0.5, 0.58, 0.88, 1] }}>
+        {Array.from({ length: 9 }, (_, i) => (
+          <Motion.span key={i} animate={{ scaleY: [0.25, 1, 0.35, 0.8, 0.25] }} transition={{ ...LOOP, duration: 1.2 + (i % 3) * 0.15, delay: i * 0.07 }} />
+        ))}
+      </Motion.div>
+      <Motion.span className="sc-snap-next" animate={{ opacity: [0, 0, 0, 0, 0, 1, 1, 0], x: [10, 10, 10, 10, 10, 0, 0, 10] }} transition={{ ...T, times: [0, 0.3, 0.5, 0.7, 0.8, 0.86, 0.96, 1] }}>
+        Page done → agla snapshot
+      </Motion.span>
+    </div>
+  );
+}
+
 const SCENES = [
   { title: "Reading Companion", sub: "Tumhara padhne wala saathi", C: BrandScene },
   { title: "Kis ke liye?", sub: "Hindi aur Odia readers", C: WhoScene },
@@ -564,6 +604,7 @@ const SCENES = [
   { title: "A habit that builds", sub: "Goal, streak aur session", C: WhyHabitScene },
   { title: "Your language", sub: "Hindi · Odia · just speak", C: WhyLanguageScene },
   { title: "Ideas you can use", sub: "Gems, steps aur Mind Map", C: WhyApplicationScene },
+  { title: "Camera ya snapshot", sub: "Page ek baar dikhao, phir bas poochho", C: SnapshotScene },
 ];
 
 export default function FeatureScene({ index }) {

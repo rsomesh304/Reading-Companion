@@ -17,10 +17,10 @@ export class DailyGeminiKeyPool {
     return this.activeIndex;
   }
 
-  markExhausted(index, day) {
+  markExhausted(index, day, cooldownMs = this.cooldownMs) {
     this._useDay(day);
     if (!Number.isInteger(index) || index < 0 || index >= this.keyCount) return this.currentIndex(day);
-    if (!this._isExhausted(index)) this.exhausted.set(index, this.now() + this.cooldownMs);
+    if (!this._isExhausted(index)) this.exhausted.set(index, this.now() + cooldownMs);
     if (this.activeIndex === index || this.activeIndex === null || this._isExhausted(this.activeIndex)) {
       this.activeIndex = this._findAvailable(index + 1);
     }

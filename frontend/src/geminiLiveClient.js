@@ -1,17 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
-import { apiFetch } from "./api.js";
-import { isModelUnavailable, isQuotaError } from "./liveErrors.js";
+import { failureSummary, isKeyFailure, isModelUnavailable } from "./liveErrors.js";
+import { mintLiveToken } from "./tokenClient.js";
 
 const WATCH_LOUD_MS = 9000;      // reader has spoken this long with no server message
 const WATCH_SILENT_MS = 18000;   // and the server has been completely silent this long
 const WATCH_COOLDOWN_MS = 90000; // never reconnect from the watchdog more than once per minute and a half
 const STABLE_MS = 30000;         // a session this old counts as healthy: retries reset
-
-function getDeviceDate() {
-  const now = new Date();
-  const pad = (value) => String(value).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
+const MAX_SILENT_KEY_SWITCHES = 2; // a key that connects but never answers is blamed at most this often per session
 
 export class GeminiLiveClient {
   constructor({ modelName, fallbackModelName, config, handlers }) {
@@ -50,6 +45,9 @@ export class GeminiLiveClient {
     this.activeKeyDay = null;
     this.pendingFailedKeyIndex = null;
     this.pendingFailedKeyDay = null;
+    this.pendingFailedReason = "";
+    this.keyCount = 1;
+    this.silentKeySwitches = 0;
   }
 
   async connect(existingHandle = null) {
@@ -76,9 +74,12 @@ export class GeminiLiveClient {
     const tokenInfo = await this._mintToken({
       failedKeyIndex: this.pendingFailedKeyIndex,
       failedKeyDay: this.pendingFailedKeyDay,
+      reason: this.pendingFailedReason,
     });
     this.pendingFailedKeyIndex = null;
     this.pendingFailedKeyDay = null;
+    this.pendingFailedReason = "";
+    this.keyCount = tokenInfo.keyCount || 1;
     this.activeKeyIndex = tokenInfo.keyIndex;
     this.activeKeyDay = tokenInfo.deviceDay;
     const maxAttempts = Math.max(1, Math.min(tokenInfo.keyCount || 1, 10));
@@ -111,11 +112,12 @@ export class GeminiLiveClient {
         break;
       } catch (error) {
         connectionError = error;
-        if (!isQuotaError(error) || attempt + 1 >= maxAttempts) throw error;
-        console.warn(`[LIVE] quota rejected key ${tokenInfo.keyIndex || attempt + 1}/${maxAttempts}; requesting another token`);
+        if (!isKeyFailure(error) || attempt + 1 >= maxAttempts) throw error;
+        console.warn(`[LIVE] key ${tokenInfo.keyIndex || attempt + 1}/${maxAttempts} rejected (${failureSummary(error)}); requesting another token`);
         const nextTokenInfo = await this._mintToken({
           failedKeyIndex: tokenInfo.keyIndex,
           failedKeyDay: tokenInfo.deviceDay,
+          reason: failureSummary(error),
         });
         tokenInfo.token = nextTokenInfo.token;
         tokenInfo.keyIndex = nextTokenInfo.keyIndex;
@@ -203,10 +205,14 @@ export class GeminiLiveClient {
   }
 
   _rememberFailedKey(error) {
-    if (!isQuotaError(error) || !this.activeKeyIndex) return;
+    if (!isKeyFailure(error) || !this.activeKeyIndex) return;
     this.pendingFailedKeyIndex = this.activeKeyIndex;
     this.pendingFailedKeyDay = this.activeKeyDay;
+    this.pendingFailedReason = failureSummary(error);
   }
+
+  // Lets the app hand over a failed first connect so the normal retry and key-switch loop takes it from there.
+  recover(error) { return this._handleTransportError(error); }
 
   _watch() {
     if (this.stopped || this.reconnecting || !this.ready || !this.session) return;
@@ -261,7 +267,13 @@ export class GeminiLiveClient {
       const message = String(e?.message || e).toLowerCase();
       const unsupportedModel = /not found|not supported for bidi|does not exist|unknown model/.test(message);
       const silentService = /watchdog|stuck-turn/.test(message);
-      if (this.activeModel === this.modelName && this.fallbackModelName && (unsupportedModel || isModelUnavailable(e) || silentService)) {
+      if (silentService && this.activeKeyIndex && this.keyCount > 1 && this.silentKeySwitches < MAX_SILENT_KEY_SWITCHES) {
+        // connected but never answered: try another key before blaming the model
+        this.silentKeySwitches += 1;
+        this.pendingFailedKeyIndex = this.activeKeyIndex;
+        this.pendingFailedKeyDay = this.activeKeyDay;
+        this.pendingFailedReason = "no_reply (connected but the model stayed silent)";
+      } else if (this.activeModel === this.modelName && this.fallbackModelName && (unsupportedModel || isModelUnavailable(e) || silentService)) {
         this.activeModel = this.fallbackModelName;
         this.resumptionHandle = null;
         this.handlers.onStatus?.("switching to backup model");
@@ -284,7 +296,11 @@ export class GeminiLiveClient {
           await this.connect(this.resumptionHandle);
           return;
         } catch (err) {
-          console.warn("[LIVE] reconnect failed", err);
+          console.warn("[LIVE] reconnect failed", failureSummary(err));
+          if (/all_keys_unavailable/.test(String(err?.message))) {
+            this.handlers.onStatus?.("voice service busy - try again later", true);
+            return;
+          }
         }
       }
       if (!this.stopped) this.handlers.onStatus?.(`error: ${e?.message || e} - tap End and restart`, true);
@@ -293,23 +309,8 @@ export class GeminiLiveClient {
     }
   }
 
-  async _mintToken({ failedKeyIndex, failedKeyDay } = {}) {
-    const deviceDay = getDeviceDate();
-    const headers = { "X-Device-Date": deviceDay };
-    const requestBody = failedKeyIndex && failedKeyDay === deviceDay
-      ? JSON.stringify({ failedKeyIndex, failedKeyDate: failedKeyDay })
-      : undefined;
-    if (requestBody) headers["Content-Type"] = "application/json";
-    const res = await apiFetch("/api/token", {
-      method: "POST",
-      headers,
-      body: requestBody,
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || `token_mint_failed (${res.status})`);
-    if (!body.token) throw new Error("token_missing_from_backend_response");
-    if (typeof body.token !== "string") throw new Error("backend_returned_non_string_token");
-    return { token: body.token, keyCount: body.keyCount, keyIndex: body.keyIndex, deviceDay };
+  async _mintToken(args = {}) {
+    return mintLiveToken(args);
   }
 
   async sendAudio(base64Pcm) {

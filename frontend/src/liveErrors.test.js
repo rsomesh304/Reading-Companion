@@ -29,3 +29,12 @@ test("recognises an overloaded model separately from quota", () => {
   assert.equal(isModelUnavailable(new FakeCloseEvent(1011, "The model is overloaded")), true);
   assert.equal(isModelUnavailable(new FakeCloseEvent(1000, "")), false);
 });
+
+test("key failures cover limits, rejected keys and policy closes", async () => {
+  const { isKeyFailure, failureSummary } = await import("./liveErrors.js");
+  assert.equal(isKeyFailure({ code: 1008, reason: "policy" }), true);
+  assert.equal(isKeyFailure(new Error("API key expired. Please renew the API key.")), true);
+  assert.equal(isKeyFailure(new Error("network down")), false);
+  const text = failureSummary({ code: 1008, reason: "bad AIzaSyA1234567890abcdefghijklmnopqrstuv key" });
+  assert.doesNotMatch(text, /AIzaSy/);
+});

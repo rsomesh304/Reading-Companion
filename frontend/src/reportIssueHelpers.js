@@ -77,3 +77,78 @@ export function buildResolutionSummary(report) {
   const detail = report.resolutionNote || report.resolution_note ? ` — ${report.resolutionNote || report.resolution_note}` : "";
   return `Completed in ${version}${detail}`;
 }
+
+export const REPORT_STAGE_FLOW = [
+  ["sent", "Sent"],
+  ["seen", "Seen"],
+  ["review", "In review"],
+  ["approved", "Approved"],
+  ["in_progress", "In progress"],
+  ["testing", "Testing"],
+  ["done", "Done"],
+];
+
+const SHORT_LABELS = {
+  queued: "Queued",
+  sent: "Sent",
+  seen: "Seen",
+  review: "In review",
+  rejected: "Rejected",
+  approved: "Approved",
+  in_progress: "In progress",
+  testing: "Testing",
+  done: "Done",
+};
+
+// Short text that fits inside a badge; the full label stays available from getReportStatusLabel.
+export function getReportStatusShortLabel(report) {
+  return SHORT_LABELS[normalizeReportStatus(report)];
+}
+
+const text = (value) => String(value ?? "").trim();
+
+// Presentation only: lays the report's existing status data out as timeline steps.
+// Several notes per status are supported when the report carries a history list; the resolution note is never included.
+export function buildReportTimeline(report) {
+  const status = normalizeReportStatus(report);
+  const resolution = text(report?.resolutionNote || report?.resolution_note).toLowerCase();
+  const history = [report?.statusHistory, report?.status_history, report?.statusUpdates, report?.status_updates]
+    .find((value) => Array.isArray(value)) || [];
+
+  const notesByStage = new Map();
+  const addNote = (stage, note, date) => {
+    const body = text(note);
+    if (!body || body.toLowerCase() === resolution) return;
+    const list = notesByStage.get(stage) || [];
+    if (!list.some((entry) => entry.text === body)) list.push({ text: body, date: date || null });
+    notesByStage.set(stage, list);
+  };
+  history.forEach((entry) => {
+    addNote(
+      normalizeReportStatus({ status: entry?.status }),
+      entry?.note ?? entry?.status_note ?? entry?.message,
+      entry?.at || entry?.date || entry?.created_at || entry?.updated_at,
+    );
+  });
+  if (!history.length) {
+    addNote(
+      status,
+      report?.statusNote || report?.status_note || report?.rejectionNote || report?.rejection_note,
+      report?.statusUpdatedAt || report?.status_updated_at || report?.updatedAt || report?.updated_at,
+    );
+  }
+
+  const flow = status === "rejected"
+    ? [...REPORT_STAGE_FLOW.slice(0, 3).map(([key, label]) => [key, label]), ["rejected", "Rejected"]]
+    : status === "queued" ? [["queued", "Queued"], ...REPORT_STAGE_FLOW] : REPORT_STAGE_FLOW;
+  const currentIndex = flow.findIndex(([key]) => key === status);
+  const created = report?.createdAt || report?.created_at || null;
+  const resolvedAt = report?.resolvedAt || report?.resolved_at || null;
+
+  return flow.map(([key, label], index) => {
+    const notes = notesByStage.get(key) || [];
+    const stateName = index < currentIndex ? "done" : index === currentIndex ? "current" : "upcoming";
+    const date = notes[0]?.date || (key === "sent" || key === "queued" ? created : key === "done" ? resolvedAt : null);
+    return { key, label, state: stateName, notes, date: stateName === "upcoming" ? null : date };
+  });
+}

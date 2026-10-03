@@ -163,3 +163,14 @@
 .ab-quote { font-style: italic; font-size: 13px; color: var(--muted); margin: 8px 0 4px; }
 .ab-story { font-size: 13px; line-height: 1.65; }
 .ab-foot { text-align: center; font-size: 12px; color: var(--muted); padding: 20px; position: relative; z-index: 1; }
+/* screenshot lightbox */
+.rp-image-btn { display: block; padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 14px; }
+.rp-image-btn:active img { transform: scale(.98); }
+.rp-image-btn img { transition: transform .15s ease; }
+.rp-lightbox { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: calc(56px + env(safe-area-inset-top, 0px)) 12px calc(72px + env(safe-area-inset-bottom, 0px)); background: rgba(5, 6, 12, .92); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); animation: rp-lb-in .18s ease-out; }
+.rp-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+.rp-lightbox-close { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; border: 1px solid rgba(255,255,255,.2); color: #fff; background: rgba(255,255,255,.12); cursor: pointer; }
+.rp-lightbox-nav { position: absolute; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 14px; padding: 6px 10px; border-radius: 99px; color: #fff; font-size: 12px; font-weight: 700; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); }
+.rp-lightbox-nav button { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 0; color: #fff; background: rgba(255,255,255,.14); cursor: pointer; }
+.rp-lightbox-nav button:disabled { opacity: .35; cursor: default; }
+@keyframes rp-lb-in { from { opacity: 0; } to { opacity: 1; } }
