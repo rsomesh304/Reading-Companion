@@ -66,6 +66,10 @@ function normalizeGem(raw) {
     quoteSource: raw.quoteSource || "",
     attributedTo: raw.attributedTo || authorName || "",
     authorName,
+    themes: Array.isArray(raw.themes) ? raw.themes.map((theme) => String(theme).toLowerCase().trim()).filter(Boolean).slice(0, 4) : [],
+    coreIdea: typeof raw.coreIdea === "string" ? raw.coreIdea : "",
+    embedding: Array.isArray(raw.embedding) && raw.embedding.every(Number.isFinite) ? raw.embedding : null,
+    insightHash: typeof raw.insightHash === "string" ? raw.insightHash : "",
   };
 }
 
@@ -115,6 +119,16 @@ export class Gems {
   }
   getById(id) {
     return this.gems.find((g) => g.id === id) || null;
+  }
+  updateInsight(id, insight) {
+    const gem = this.getById(id);
+    if (!gem || !insight || typeof insight !== "object") return false;
+    gem.themes = Array.isArray(insight.themes) ? insight.themes.map((theme) => String(theme).toLowerCase().trim()).filter(Boolean).slice(0, 4) : [];
+    gem.coreIdea = typeof insight.coreIdea === "string" ? insight.coreIdea.slice(0, 260) : "";
+    gem.embedding = Array.isArray(insight.embedding) && insight.embedding.every(Number.isFinite) ? insight.embedding : null;
+    gem.insightHash = typeof insight.insightHash === "string" ? insight.insightHash : "";
+    this._save();
+    return true;
   }
   remove(id) {
     const idx = this.gems.findIndex((g) => g.id === id);

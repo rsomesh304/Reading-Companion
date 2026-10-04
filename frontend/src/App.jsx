@@ -1,4 +1,5 @@
 const OPENER_KEY = "reading_companion_openers";
+const APP_STARTED_AT = Date.now();
 const OPENING_ANGLES = [
   "a quick warm hello and one light question about where they want to pick up",
   "a playful remark about the time of day, then ask what they're diving into",
@@ -35,6 +36,7 @@ function buildOpeningNote(cont) {
 import { AnimatePresence, motion as Motion } from "framer-motion";
 import {
     AlertTriangle,
+    BookMarked,
     BookOpen,
     Brain,
     Bug,
@@ -60,10 +62,12 @@ import {
     PhoneOff,
     Play,
     Plus,
+    Quote,
     RefreshCw,
     ScanText,
     Search,
     Settings as SettingsIcon,
+    Sparkles,
     // Sun,
     Trash2,
     TrendingDown,
@@ -73,7 +77,7 @@ import {
     Volume2,
     X as XIcon
 } from "lucide-react";
-import { Component, useEffect, useRef, useState } from "react";
+import { Component, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiUrl } from "./api.js";
 import { computeBadges } from "./appBadges.js";
@@ -84,6 +88,7 @@ import { CameraCapture } from "./cameraCapture.js";
 import MascotCharacter from "./components/MascotCharacter.jsx";
 import { describeLiveStatus, friendlyErrorMessage } from "./friendlyErrors.js";
 import { GeminiLiveClient } from "./geminiLiveClient.js";
+import { ensureGemInsights } from "./gemInsightClient.js";
 import { Gems } from "./gems.js";
 import GemStoryCard from "./GemStoryCard.jsx";
 import JourneyRecap from "./JourneyRecap.jsx";
@@ -93,13 +98,14 @@ import { getMascot, setMascot } from "./mascotPreference.js";
 import { CompanionMemory } from "./memory.js";
 import MemoryConstellation from "./MemoryConstellation.jsx";
 import { INTERACTION_SPRING } from "./motionConfig.js";
-import { notify } from "./notify.js";
+import { dismissNotice, notify, notifyPersistent } from "./notify.js";
 import { MASCOT_VOICE_PROMPT, useGeminiVoiceDriver } from "./onboarding/avatarDriver.js";
 import EmberOrb from "./onboarding/EmberOrb.jsx";
 import Onboarding from "./onboarding/Onboarding.jsx";
 import {
     CLOSE_CAMERA_TRIGGER,
     COMPLETE_CHAPTER_DECLARATION,
+    DELETE_CHAPTER_DECLARATION,
     DELETE_GEM_DECLARATION,
     DELETE_MEMORY_DECLARATION,
     DELETE_VOCABULARY_DECLARATION,
@@ -112,6 +118,7 @@ import {
     OPEN_CAMERA_TRIGGER,
     READER_PROFILE,
     RENAME_CHAPTER_DECLARATION,
+    REQUEST_DELETE_DECLARATION,
     SAVE_GEM_DECLARATION,
     SAVE_GEM_TRIGGER,
     SAVE_MEMORY_DECLARATION,
@@ -124,6 +131,7 @@ import {
 } from "./persona.js";
 import { Profile } from "./profile.js";
 import "./ProfileUI.css";
+import { findApproxSpokenVariant } from "./pronunciationObservation.js";
 import ServiceNotice from "./ServiceNotice.jsx";
 import { getRecap, saveTurn } from "./sessionMemory.js";
 import { AboutScreen, ReportScreen, SettingsScreen } from "./SettingsScreens.jsx";
@@ -186,13 +194,6 @@ function badgeGradient(seed) {
   const [a, b] = BADGE_GRADIENTS[seed % BADGE_GRADIENTS.length];
   return `linear-gradient(135deg, ${a}, ${b})`;
 }
-function formatDateTime(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const datePart = d.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
-  const timePart = d.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
-  return `${datePart} · ${timePart}`;
-}
 function formatLastRead(iso) {
   if (!iso) return { date: "—", time: "" };
   const d = new Date(iso);
@@ -224,6 +225,13 @@ const GEM_ART_STYLE_OPTIONS = [
   { id: "cinematic-silhouette", label: "Cinematic Silhouette", desc: "Moody backlit, photo-style" },
   { id: "white-ink-sketch", label: "White Ink Sketch", desc: "White pen on black journal page" },
 ];
+
+function gemPaletteIndex(gem) {
+  const id = String(gem?.bookId || gem?.bookTitle || "unassigned");
+  let value = 0;
+  for (const char of id) value = (value * 31 + char.charCodeAt(0)) >>> 0;
+  return value % BADGE_GRADIENTS.length;
+}
 
 function pickGemArtStyle(gem) {
   const haystack = `${gem?.bookTitle || ""} ${gem?.quote || ""}`.toLowerCase();
@@ -509,6 +517,10 @@ export default function App() {
     setRecapModal(null);
     navigateTo("session", { activeBookId: bookId });
   }
+  function restartReadingSession(bookId) {
+    navigateTo("dashboard");
+    window.setTimeout(() => navigateTo("session", { activeBookId: bookId }), 80);
+  }
   function openStoryFromRecap(bookId) {
     overlayStackRef.current.pop();
     window.history.replaceState(routeRef.current, "");
@@ -580,7 +592,7 @@ export default function App() {
   return (
     <ErrorBoundary key={resetKey} onReset={() => { setResetKey((k) => k + 1); navigateTo("dashboard"); }}>
       {screen === "session" ? (
-        <SessionScreen bookId={activeBookId} onEnd={nav.goBack} />
+        <SessionScreen bookId={activeBookId} onEnd={nav.goBack} onRestart={() => restartReadingSession(activeBookId)} />
       ) : (
         <div className="app-shell">
           <div className="app-content">
@@ -621,7 +633,7 @@ export default function App() {
         paused={screen === "session" || showOnboarding}
         onUpdate={nav.applyUpdate}
       />
-      <ToastHost />
+      <NotificationHost />
       <AnimatePresence>
         {storyRequest && (
           <StoryTheatre
@@ -682,8 +694,9 @@ function ScreenHeader({ title, subtitle, right }) {
 
 // ==================== GLOBAL TOASTS ====================
 
-function ToastHost() {
+function NotificationHost() {
   const [items, setItems] = useState([]);
+  const [notices, setNotices] = useState([]);
   useEffect(() => {
     const onNotify = (e) => {
       const t = e.detail;
@@ -691,25 +704,50 @@ function ToastHost() {
       setItems((list) => [...list.slice(-2), t]);
       setTimeout(() => setItems((list) => list.filter((x) => x.id !== t.id)), t.ms || 4200);
     };
+    const onNotice = (e) => {
+      const notice = e.detail;
+      if (!notice?.message) return;
+      setNotices((current) => [...current.filter((item) => item.code !== notice.code), notice]);
+    };
+    const onDismiss = (e) => setNotices((current) => current.filter((item) => item.id !== e.detail?.id));
     window.addEventListener("app:notify", onNotify);
-    return () => window.removeEventListener("app:notify", onNotify);
+    window.addEventListener("app:notice", onNotice);
+    window.addEventListener("app:notice-dismiss", onDismiss);
+    return () => {
+      window.removeEventListener("app:notify", onNotify);
+      window.removeEventListener("app:notice", onNotice);
+      window.removeEventListener("app:notice-dismiss", onDismiss);
+    };
   }, []);
   const ICONS = { info: Info, error: AlertTriangle, success: Check };
   return createPortal(
-    <div className="toast-host" role="status" aria-live="polite">
-      <AnimatePresence>
-        {items.map((t) => {
-          const IconC = ICONS[t.kind] || Info;
-          return (
-            <Motion.div key={t.id} className={`toast-item ${t.kind}`}
-              initial={{ opacity: 0, y: 24, scale: 0.94 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.95 }}
-              transition={INTERACTION_SPRING}>
-              <IconC size={15} /><span>{t.text}</span>
+    <>
+      <div className="notice-host" role="status" aria-live="assertive">
+        <AnimatePresence>
+          {notices.map((notice) => (
+            <Motion.div key={notice.id} className={`notice-banner ${notice.level || "error"}`} initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={INTERACTION_SPRING}>
+              <div className="notice-banner-copy"><b>{notice.title}</b><span>{notice.message}</span></div>
+              {notice.action && <button type="button" className="notice-action" onClick={notice.action.onClick}>{notice.action.label}</button>}
+              <button type="button" className="notice-dismiss" aria-label="Dismiss" onClick={() => dismissNotice(notice.id)}>×</button>
             </Motion.div>
-          );
-        })}
-      </AnimatePresence>
-    </div>,
+          ))}
+        </AnimatePresence>
+      </div>
+      <div className="toast-host" role="status" aria-live="polite">
+        <AnimatePresence>
+          {items.map((t) => {
+            const IconC = ICONS[t.kind] || Info;
+            return (
+              <Motion.div key={t.id} className={`toast-item ${t.kind}`}
+                initial={{ opacity: 0, y: 24, scale: 0.94 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.95 }}
+                transition={INTERACTION_SPRING}>
+                <IconC size={15} /><span>{t.text}</span>
+              </Motion.div>
+            );
+          })}
+        </AnimatePresence>
+      </div>
+    </>,
     document.body
   );
 }
@@ -1017,6 +1055,45 @@ function KpiTile({ kind, icon, label, value, delta, series = [], index }) {
   );
 }
 
+function WeeklyRecallCard({ books }) {
+  const [, refresh] = useState(0);
+  const [revealed, setRevealed] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const now = APP_STARTED_AT;
+  const due = now ? books.flatMap((book) => Object.values(book.chapters || {}).flatMap((chapter) =>
+    (chapter.vocabLog || []).map((entry) => ({ entry, bookId: book.id, bookTitle: book.title, chapterNumber: chapter.number }))
+  )).filter(({ entry }) => {
+    const savedAt = new Date(entry.timestamp || 0).getTime();
+    const lastRecall = new Date(entry.lastRecallAt || 0).getTime();
+    return savedAt && now - savedAt >= 24 * 60 * 60 * 1000
+      && (Number(entry.recallSuccesses) || 0) < 2
+      && (!lastRecall || now - lastRecall >= 5 * 24 * 60 * 60 * 1000);
+  }).sort((a, b) => {
+    const everyday = Number(b.entry.usageRegister === "everyday") - Number(a.entry.usageRegister === "everyday");
+    return everyday || new Date(a.entry.timestamp).getTime() - new Date(b.entry.timestamp).getTime();
+  }).slice(0, 3) : [];
+  if (!due.length || dismissed) return null;
+  const current = due[0];
+  const remember = (recalled) => {
+    library.markVocabularyRecall(current.bookId, current.chapterNumber, current.entry.term, recalled);
+    setRevealed(false);
+    refresh((value) => value + 1);
+  };
+  return (
+    <Motion.section className="recall-card" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={INTERACTION_SPRING}>
+      <div className="recall-head"><span><Sparkles size={14} /> Revisit these</span><button type="button" onClick={() => setDismissed(true)} aria-label="Dismiss recall card"><XIcon size={14} /></button></div>
+      <div className="recall-meta">{current.bookTitle}{Number.isFinite(Number(current.chapterNumber)) ? ` · Chapter ${current.chapterNumber}` : ""}</div>
+      <h3>{current.entry.term}</h3>
+      {revealed && <p className="recall-meaning">{current.entry.contextMeaning || current.entry.meaning || "Is word ka meaning abhi saved nahi hai."}</p>}
+      <div className="recall-actions">
+        <button type="button" className="recall-primary" onClick={() => remember(true)}><Check size={14} /> Yaad tha</button>
+        <button type="button" className="recall-secondary" onClick={() => revealed ? remember(false) : setRevealed(true)}>{revealed ? "Agli baar" : "Hint dekhein"}</button>
+      </div>
+      <p className="recall-soft">Bas ek chhota reminder, koi test nahi.</p>
+    </Motion.section>
+  );
+}
+
 function VocabAreaChart({ data }) {
   const [active, setActive] = useState(null);
   const W = 320, H = 160, padX = 10, padTop = 26, padBottom = 22;
@@ -1284,6 +1361,8 @@ const donutItems = restWords > 0 ? [...topItems, { label: "Other books", value: 
         <KpiTile index={3} kind="week" label="Words this week" value={thisWeek} delta={thisWeek - prevWeek} series={last14.slice(7).map((d) => d.count)} icon={<Flame size={16} />} />
         <KpiTile index={4} kind="gems" label="Gems saved" value={gemsList.length} icon={<Gem size={16} />} />
       </div>
+
+      <WeeklyRecallCard books={books.map((book) => library.getBook(book.id)).filter(Boolean)} />
 
       <div className="dash-card elevated" style={{ "--i": 5 }}>
         <div className="dash-card-head">
@@ -1864,6 +1943,15 @@ function ChapterDetailScreen({ bookId, chapterNumber, nav }) {
             )}
           </div>
           <div className="tab-panel">
+            {chapter.vocabLog.some((entry) => (entry.pronunciationHints || []).some((hint) => hint.count >= 2)) && (
+              <section className="pronunciation-notes">
+                <div className="pronunciation-notes-head"><Volume2 size={15} /><b>Words you might want to practice saying</b></div>
+                <p>Yeh ek informal nudge hai, exact pronunciation score nahi.</p>
+                {chapter.vocabLog.filter((entry) => (entry.pronunciationHints || []).some((hint) => hint.count >= 2)).map((entry) => (
+                  <div key={entry.term} className="pronunciation-note"><b>{entry.term}</b><span>{entry.pronunciationHints.find((hint) => hint.count >= 2)?.observed}</span></div>
+                ))}
+              </section>
+            )}
             <div className="vocab-list">
               {chapter.vocabLog.length === 0 && <p className="empty-hint">No words logged for this chapter yet.</p>}
               {chapter.vocabLog.slice().reverse().map((v, i) => {
@@ -1881,6 +1969,11 @@ function ChapterDetailScreen({ bookId, chapterNumber, nav }) {
                     <div className="vocab-term-row">
                       <div className="vocab-term">{v.term}</div>
                       {v.grammar && <span className="vocab-grammar">{v.grammar}</span>}
+                    </div>
+                    <div className="vocab-learning-tags">
+                      {v.usageRegister === "everyday" && <span className="vocab-register everyday">Everyday</span>}
+                      {v.usageRegister === "formal-literary" && <span className="vocab-register formal">Formal / literary</span>}
+                      {Number(v.practiceCount) > 0 && <span className="vocab-practiced"><Check size={11} /> Practiced</span>}
                     </div>
 
                     {contextualMeaning && <div className="vocab-context"><strong>Context:</strong> {contextualMeaning}</div>}
@@ -1921,14 +2014,27 @@ function ChapterDetailScreen({ bookId, chapterNumber, nav }) {
 
 function GemsScreen({ nav }) {
   const [filterBook, setFilterBook] = useState("all");
+  const [searchText, setSearchText] = useState("");
   const [selectedGemId, setSelectedGemId] = useState(null);
   const [stylePicking, setStylePicking] = useState(false);
   const [storyGem, setStoryGem] = useState(null);
   const [, forceTick] = useState(0);
   const mascot = useMascotPreference();
   const allGems = gemsStore.list();
-  const bookTitles = [...new Set(allGems.map((g) => g.bookTitle).filter(Boolean))];
-  const gems = filterBook === "all" ? allGems : allGems.filter((g) => g.bookTitle === filterBook);
+  const bookOptions = [...allGems.reduce((map, gem) => {
+    const key = String(gem.bookId || gem.bookTitle || "unknown");
+    const current = map.get(key) || { key, title: gem.bookTitle || "Untitled book", count: 0 };
+    current.count += 1;
+    map.set(key, current);
+    return map;
+  }, new Map()).values()];
+  const search = searchText.trim().toLowerCase();
+  const gems = allGems.filter((gem) => {
+    const key = String(gem.bookId || gem.bookTitle || "unknown");
+    const matchesBook = filterBook === "all" || key === filterBook;
+    const matchesSearch = !search || `${gem.quote || ""} ${gem.bookTitle || ""} ${gem.takeawaySituation || ""}`.toLowerCase().includes(search);
+    return matchesBook && matchesSearch;
+  });
 
   useEffect(() => {
     const onGemsUpdate = () => forceTick((n) => n + 1);
@@ -1992,8 +2098,13 @@ function GemsScreen({ nav }) {
           </div>
         </div>
 
-        <div className="gem-detail-card elevated">
-          <div className="gem-detail-quote">“{String(selectedGem.quote || "A meaningful quote").trim()}”</div>
+        <div className="gem-detail-card elevated gem-gallery-detail" style={{ "--gem-accent": BADGE_GRADIENTS[gemPaletteIndex(selectedGem)][0], "--gem-accent-2": BADGE_GRADIENTS[gemPaletteIndex(selectedGem)][1] }}>
+          <div className="gem-detail-poster">
+            <span className="gem-detail-crystal" aria-hidden="true"><i /><i /><i /></span>
+            <Quote size={17} className="gem-detail-quote-mark" aria-hidden="true" />
+            <div className="gem-detail-quote">“{String(selectedGem.quote || "A meaningful quote").trim()}”</div>
+            <div className="gem-detail-source">{selectedGem.bookTitle || "Saved idea"}{Number.isFinite(Number(selectedGem.chapterNumber)) ? ` · Chapter ${selectedGem.chapterNumber}` : ""}</div>
+          </div>
 
           <div className="gem-detail-art-wrap">
             {selectedGem.sketch === "pending" && (
@@ -2040,7 +2151,7 @@ function GemsScreen({ nav }) {
           {/* <button className="icon-button ghost illustration-cta" style={{ marginBottom: 16 }} onClick={() => setStoryGem(selectedGem)}>
             <Share2 size={14} /> Create story card
           </button>    */}
-          <div className="gem-application-block">
+          <div className="gem-application-block gem-detail-application">
             <div className="gem-application-label">Real-life application</div>
             {selectedGem.takeawaySituation || selectedGem.takeawaySteps?.length ? (
               <div className="gem-takeaway-structured">
@@ -2086,26 +2197,27 @@ function GemsScreen({ nav }) {
       {storyGem && <GemStoryCard gem={storyGem} author={getGemAuthor(storyGem)} onClose={() => window.history.back()} />}
       <ScreenHeader title="Gems" subtitle={`${gems.length} saved`} onProfile={nav.goProfile} />
 
-      {bookTitles.length > 0 && (
-        <div className="gems-filter-row">
-          <select className="book-select" value={filterBook} onChange={(e) => setFilterBook(e.target.value)}>
-            <option value="all">All books</option>
-            {bookTitles.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-      )}
+      <div className="gem-gallery-controls">
+        <label className="gem-gallery-search"><Search size={16} /><input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Search quotes or books" aria-label="Search gems" />{searchText && <button type="button" onClick={() => setSearchText("")} aria-label="Clear search"><XIcon size={14} /></button>}</label>
+        {bookOptions.length > 0 && (
+          <div className="gem-book-chips" aria-label="Filter gems by book">
+            <button type="button" className={`gem-book-chip ${filterBook === "all" ? "on" : ""}`} onClick={() => setFilterBook("all")}>All <span>{allGems.length}</span></button>
+            {bookOptions.map((book) => <button type="button" key={book.key} className={`gem-book-chip ${filterBook === book.key ? "on" : ""}`} onClick={() => setFilterBook(book.key)}>{book.title} <span>{book.count}</span></button>)}
+          </div>
+        )}
+      </div>
 
       <div className="gems-list">
         {gems.length === 0 && (
           <div className="empty-state-card elevated tiny-mascot-card">
             <MascotCorner mascot={mascot} size={80} context="no gems saved yet" />
-            <p className="empty-hint">No quotes saved yet. During a session, say "save this quote".</p>
+            <p className="empty-hint">{allGems.length === 0 ? "No quotes saved yet. Your kept ideas will find a home here." : "Koi saved quote nahi mila. Search ya book filter badal kar dekhiye."}</p>
           </div>
         )}
         {gems.map((g, i) => (
-          <div className="gem-card elevated compact" key={g.id} style={{ "--badge": badgeGradient(i) }}>
+          <Motion.article className="gem-card elevated compact gem-gallery-card" key={g.id} style={{ "--badge": badgeGradient(gemPaletteIndex(g)), "--gem-accent": BADGE_GRADIENTS[gemPaletteIndex(g)][0], "--gem-accent-2": BADGE_GRADIENTS[gemPaletteIndex(g)][1], "--gem-i": i }} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .32, delay: Math.min(i * .045, .32) }}>
             <div className="gem-card-toolbar">
-              <div className="gem-badge"><Gem size={16} /></div>
+              <div className="gem-badge"><span className="gem-crystal-mini" aria-hidden="true"><i /><i /></span><Gem size={14} /></div>
               <div className="gem-toolbar-actions">
                 <button className="gem-download-btn" onClick={(e) => { e.stopPropagation(); nav.openOverlay(() => setStoryGem(null)); setStoryGem(g); }} aria-label="Download gem card">
                   <Download size={14} />
@@ -2117,17 +2229,16 @@ function GemsScreen({ nav }) {
             </div>
 
             <Motion.button className="gem-card-toggle" whileHover={{ y: -3, scale: 1.01 }} whileTap={{ scale: 0.985 }} transition={INTERACTION_SPRING} onClick={() => { nav.openOverlay(() => { setSelectedGemId(null); setStylePicking(false); }); setSelectedGemId(g.id); }}>
-              <div className="gem-preview-block">
+                <div className="gem-preview-block">
                 {g.bookTitle && (
-                  <div className="gem-book-title">
-                    {g.bookTitle}{Number.isFinite(Number(g.chapterNumber)) ? ` · Ch. ${g.chapterNumber}` : ""}
-                  </div>
+                  <div className="gem-book-title"><BookMarked size={12} /> {g.bookTitle}{Number.isFinite(Number(g.chapterNumber)) ? ` · Ch. ${g.chapterNumber}` : ""}</div>
                 )}
-                <div className="gem-preview-quote">{getGemPreview(g)}</div>
+                <div className="gem-preview-quote">“{getGemPreview(g)}”</div>
+                <span className="gem-open-cue">Open saved idea <ChevronRight size={13} /></span>
               </div>
               <div className="gem-chevron-wrap"><ChevronRight size={18} /></div>
             </Motion.button>
-          </div>
+          </Motion.article>
         ))}
       </div>
     </div>
@@ -2137,6 +2248,7 @@ function GemsScreen({ nav }) {
 function MemoryTab({ nav }) {
   const [data, setData] = useState(() => ({ books: library.listBooks(), gems: gemsStore.list() }));
   const [tab, setTab] = useState("list");
+  const saveGemInsight = useCallback((id, insight) => gemsStore.updateInsight(id, insight), []);
   const tabs = [
     { id: "list", label: "Preferences", Icon: Brain },
     { id: "map", label: "Mind Map", Icon: Network },
@@ -2169,7 +2281,7 @@ function MemoryTab({ nav }) {
       <div className="mem-viewport">
         <Motion.div className="mem-track" initial={false} animate={{ x: tab === "list" ? "0%" : "-50%" }} transition={spring}>
           <div className="mem-pane scroll"><MemoryScreen nav={nav} /></div>
-          <div className="mem-pane"><MemoryConstellation books={data.books} gems={data.gems} paused={tab !== "map"} /></div>
+          <div className="mem-pane"><MemoryConstellation books={data.books} gems={data.gems} paused={tab !== "map"} onGemInsight={saveGemInsight} /></div>
         </Motion.div>
       </div>
     </div>
@@ -2182,8 +2294,30 @@ function MemoryScreen() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [editingText, setEditingText] = useState(null);
   const [editDraft, setEditDraft] = useState("");
-  const mascot = useMascotPreference();
+  const now = APP_STARTED_AT;
   const memories = memoryStore?.memories || [];
+  const orderedMemories = memories.slice().reverse();
+  const memoryGroups = orderedMemories.length > 8 && now
+    ? [
+      { title: "This week", entries: orderedMemories.filter((m) => m.timestamp && now - new Date(m.timestamp).getTime() < 7 * 86400000) },
+      { title: "Earlier", entries: orderedMemories.filter((m) => !m.timestamp || now - new Date(m.timestamp).getTime() >= 7 * 86400000 && now - new Date(m.timestamp).getTime() < 30 * 86400000) },
+      { title: "Saved before", entries: orderedMemories.filter((m) => m.timestamp && now - new Date(m.timestamp).getTime() >= 30 * 86400000) },
+    ].filter((group) => group.entries.length)
+    : [{ title: "Your preferences", entries: orderedMemories }];
+
+  function iconForMemory(text) {
+    const value = String(text || "").toLowerCase();
+    if (/book|read|chapter|story/.test(value)) return BookOpen;
+    if (/goal|daily|time|minute|hour/.test(value)) return Clock;
+    if (/language|hindi|odia|english/.test(value)) return Volume2;
+    if (/work|job|study|exam/.test(value)) return User;
+    return Brain;
+  }
+  function memoryAge(timestamp) {
+    if (!timestamp) return "Saved earlier";
+    const age = describeTimeGap(timestamp);
+    return age ? `Saved ${age}` : "Saved earlier";
+  }
 
   function handleDeleteConfirmed() {
     if (confirmDelete !== null) { memoryStore.remove(confirmDelete); setConfirmDelete(null); setTick((n) => n + 1); }
@@ -2202,13 +2336,19 @@ function MemoryScreen() {
     <div className="memory-screen">
       <div className="memory-list">
         {memories.length === 0 && (
-          <div className="empty-state-card elevated tiny-mascot-card">
-            <MascotCorner mascot={mascot} size={80} context="no memories saved yet" />
-            <p className="empty-hint">No preferences saved yet.</p>
+          <div className="pref-empty">
+            <span className="pref-empty-orbit"><Brain size={25} /></span>
+            <b>Your reading style, remembered</b>
+            <p>Preferences you ask your companion to remember will appear here.</p>
           </div>
         )}
-        {memories.slice().reverse().map((m, i) => (
-          <Motion.div className="memory-card elevated" key={i} whileHover={{ y: -2 }} transition={INTERACTION_SPRING}>
+        {memoryGroups.map((group) => (
+          <section className="pref-group" key={group.title}>
+            {memories.length > 8 && <h3>{group.title}<span>{group.entries.length}</span></h3>}
+            {group.entries.map((m, i) => {
+              const Icon = iconForMemory(m.text);
+              return (
+          <Motion.div className="memory-card elevated pref-card" key={`${m.timestamp || "legacy"}-${i}`} whileHover={{ y: -2 }} transition={INTERACTION_SPRING}>
             {editingText === m.text ? (
               <div className="memory-edit-row">
                 <input
@@ -2223,17 +2363,21 @@ function MemoryScreen() {
               </div>
             ) : (
               <>
+                <span className="pref-card-icon"><Icon size={17} /></span>
                 <div className="memory-text-block">
                   <span className="memory-text">{m.text}</span>
-                  {m.timestamp && <span className="memory-timestamp">{formatDateTime(m.timestamp)}</span>}
+                  <span className="memory-timestamp">{memoryAge(m.timestamp)}</span>
                 </div>
                 <div className="memory-card-actions">
-                  <button className="memory-edit" onClick={() => startEdit(m.text)} aria-label="Edit memory"><Pencil size={13} /></button>
-                  <button className="memory-delete" onClick={() => setConfirmDelete(m.text)} aria-label="Delete memory"><Trash2 size={14} /></button>
+                  <button className="pref-action" onClick={() => startEdit(m.text)} aria-label="Edit memory"><Pencil size={14} /></button>
+                  <button className="pref-action danger" onClick={() => setConfirmDelete(m.text)} aria-label="Delete memory"><Trash2 size={14} /></button>
                 </div>
               </>
             )}
           </Motion.div>
+              );
+            })}
+          </section>
         ))}
       </div>
       {confirmDelete !== null && (
@@ -2365,7 +2509,7 @@ function ProfileScreen({ nav }) {
   );
 }
 
-function SessionScreen({ bookId, onEnd }) {
+function SessionScreen({ bookId, onEnd, onRestart }) {
   const book = library.getBook(bookId);
   const [lookedUpCover, setLookedUpCover] = useState({ bookId: null, dataUrl: "" });
   const auraImageUrl = book?.coverImage || (lookedUpCover.bookId === bookId ? lookedUpCover.dataUrl : "") || book?.coverUrl || book?.authorPortrait || "";
@@ -2434,6 +2578,7 @@ function SessionScreen({ bookId, onEnd }) {
   const orbLevelRef = useRef(0);
   const darkFramesRef = useRef(0);
   const lastDarkNoteRef = useRef(0);
+  const keyVersionRef = useRef("");
 
   const clientRef = useRef(null);
   const audioCaptureRef = useRef(null);
@@ -2443,6 +2588,11 @@ function SessionScreen({ bookId, onEnd }) {
   const userTurnCountRef = useRef(0);
   const lastUserTurnRef = useRef("");
   const pendingVocabularyRef = useRef(null);
+  const [pendingDeletion, setPendingDeletion] = useState(null);
+  const pendingDeletionRef = useRef(null);
+    const pendingPracticeRef = useRef(null);
+    const vocabSavedCountRef = useRef(0);
+    const lastPracticePromptAtRef = useRef(0);
   const companionTurnBufRef = useRef("");
   const turnActedRef = useRef(false);
   const chapterNumberRef = useRef(book?.currentChapterNumber || 1);
@@ -2493,6 +2643,39 @@ function SessionScreen({ bookId, onEnd }) {
       cameraRef.current?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer = null;
+    const checkVersion = async () => {
+      if (disposed) return;
+      if (document.visibilityState === "visible") {
+        try {
+          const response = await fetch(apiUrl("/api/health"), { cache: "no-store" });
+          if (response.ok) {
+            const health = await response.json();
+            if (health?.keyVersion) {
+              if (keyVersionRef.current && health.keyVersion !== keyVersionRef.current) {
+                clientRef.current?.abortForKeyRotation();
+              } else {
+                keyVersionRef.current = health.keyVersion;
+              }
+            }
+          }
+        } catch { /* a health-check network miss does not interrupt an active session */ }
+      }
+      if (!disposed) timer = setTimeout(checkVersion, 60000);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        clearTimeout(timer);
+        void checkVersion();
+      }
+    };
+    timer = setTimeout(checkVersion, 60000);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { disposed = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVisibility); };
   }, []);
 
   useEffect(() => {
@@ -2623,6 +2806,35 @@ function SessionScreen({ bookId, onEnd }) {
     else startCameraThenNotify();
   }
   function toggleTranscript() { triggerLightTap(); setTranscriptOpen((value) => !value); }
+  function resyncCompanion() {
+    const recent = transcript.slice(-6).map((line) => `${line.speaker === "reader" ? "Reader" : "Companion"}: ${line.text}`);
+    const latestReaderLine = transcript.slice().reverse().find((line) => line.speaker === "reader")?.text || "";
+    const report = {
+      id: `r-${Date.now()}`,
+      type: "issue",
+      area: "Reading session",
+      severity: null,
+      title: "Companion response went off-topic",
+      description: `Reader requested a re-sync during ${book?.title || "this book"}, Chapter ${chapterNumberRef.current}.\n\nRecent conversation:\n${recent.join("\n") || "No transcript lines were captured."}`,
+      steps: "Use the Re-sync action in the transcript drawer.",
+      screenshots: [],
+      status: "queued",
+      createdAt: new Date().toISOString(),
+      reporter: profileStore.data.name || "Reader",
+      appVersion: APP_VERSION,
+      device: { ua: navigator.userAgent, screen: `${window.innerWidth}x${window.innerHeight}`, lang: navigator.language, theme: profileStore.getTheme(), standalone: window.matchMedia?.("(display-mode: standalone)").matches || false },
+    };
+    try {
+      const existing = JSON.parse(localStorage.getItem("rc_reports") || "[]");
+      localStorage.setItem("rc_reports", JSON.stringify([report, ...(Array.isArray(existing) ? existing : [])].slice(0, 25)));
+    } catch { notify("Re-sync note save nahi ho paya, lekin companion ko dobara context bhej diya.", "info"); }
+    userTurnBufRef.current = "";
+    companionTurnBufRef.current = "";
+    turnActedRef.current = false;
+    const lastContext = latestReaderLine ? `Reader ka last topic: ${JSON.stringify(latestReaderLine)}.` : "Reader ka recent context transcript se dekho.";
+    clientRef.current?.sendText(`[SYSTEM NOTE] RE-SYNC: You drifted off the reader's latest topic. Briefly apologize in warm Hinglish, then continue ONLY from this book and chapter: ${book?.title || "unknown book"}, Chapter ${chapterNumberRef.current}. ${lastContext} Use only visible/supplied reading context. If the intended question is unclear, ask one short clarifying question. Do not invent. Do not mention this system note.`);
+    notify("Theek kar diya. Dobara poochiye.", "success");
+  }
   function toggleGhostMode() {
     const next = !isGhostMode;
     setIsGhostMode(next);
@@ -2643,6 +2855,96 @@ function SessionScreen({ bookId, onEnd }) {
     return saved;
   }
 
+  function stageDeleteRequest(kind, target) {
+    const text = String(target || "").trim();
+    const userRequest = lastUserTurnRef.current || "";
+    if (/\b(?:delete|remove|erase|wipe)\s+(?:everything|all|all the|all my)|\bdelete all\b|\bsab\s+(?:kuch|delete)|\b(?:all|every)\s+(?:chapter|word|gem|memory|preference)s?\b/i.test(userRequest)) {
+      return { status: "refused", message: "Bulk deletion voice se nahi hota. Settings > Delete all my data use kijiye." };
+    }
+    if (!/\b(?:delete|remove|erase|get rid of|hata|nikal|mitao|mita do)\b/i.test(userRequest)) {
+      return { status: "refused", message: "Reader ne delete karne ko nahi kaha. Kuch delete nahi hua." };
+    }
+    if (pendingDeletionRef.current) return { status: "awaiting_confirmation" };
+
+    function queueDeletion(request) {
+      pendingDeletionRef.current = request;
+      setPendingDeletion(request);
+      return { status: "awaiting_confirmation" };
+    }
+
+    const book = library.getBook(bookId);
+    let matches = [];
+    const normalizedTarget = text.toLowerCase();
+    if (kind === "chapter") {
+      const chapterMatch = text.match(/(?:chapter|ch\.?|adhyay)\s*(\d+)/i);
+      const number = chapterMatch ? Number(chapterMatch[1]) : Number(text);
+      const realChapters = library.getChapters(bookId).filter((chapter) => !chapter.isPlaceholder);
+      matches = realChapters.filter((chapter) => Number.isInteger(number) && number > 0
+        ? chapter.number === number
+        : String(chapter.title || "").trim().toLowerCase() === normalizedTarget);
+      if (matches.length === 1) {
+        const chapter = matches[0];
+        const exact = `Chapter ${chapter.number}: ${chapter.title || `Chapter ${chapter.number}`}`;
+        const vocabCount = chapter.vocabLog?.length || 0;
+        const pages = formatPageRange(chapter) || "pages not set";
+        return queueDeletion({
+          kind, exact, identity: `${bookId}:chapter:${chapter.number}`,
+          consequence: `${vocabCount} saved word(s), summary and ${pages} will be removed. The book and other chapters stay untouched.`,
+          remove: () => {
+            const outcome = library.deleteChapter(bookId, chapter.number);
+            if (outcome.ok && chapterNumberRef.current === chapter.number) {
+              chapterNumberRef.current = outcome.currentChapterNumber;
+              setChapterNumber(outcome.currentChapterNumber);
+            }
+            return Boolean(outcome.ok);
+          },
+        });
+      }
+    } else if (kind === "vocabulary") {
+      matches = Object.values(book?.chapters || {}).flatMap((chapter) => (chapter.vocabLog || [])
+        .filter((entry) => String(entry.term || "").trim().toLowerCase() === normalizedTarget)
+        .map((entry) => ({ chapterNumber: chapter.number, entry })));
+      if (matches.length === 1) {
+        const match = matches[0];
+        return queueDeletion({ kind, exact: match.entry.term, identity: `${bookId}:vocabulary:${match.chapterNumber}:${match.entry.term}`, consequence: `This saved word will be removed from Chapter ${match.chapterNumber}.`, remove: () => library.deleteVocab(bookId, match.chapterNumber, match.entry.term) });
+      }
+    } else if (kind === "gem") {
+      matches = gemsStore.list().filter((gem) => gem.bookId === bookId && gem.quote.toLowerCase().includes(normalizedTarget));
+      if (matches.length === 1) {
+        const match = matches[0];
+        return queueDeletion({ kind, exact: match.quote, identity: `gem:${match.id}`, consequence: `This saved quote from ${match.bookTitle || "this book"} will be removed.`, remove: () => gemsStore.remove(match.id) });
+      }
+    } else if (kind === "memory") {
+      matches = (memoryStore.memories || []).filter((memory) => memory.text.toLowerCase().includes(normalizedTarget));
+      if (matches.length === 1) {
+        const match = matches[0];
+        return queueDeletion({ kind, exact: match.text, identity: `memory:${match.text}`, consequence: "This saved personal preference will be removed.", remove: () => memoryStore.remove(match.text) });
+      }
+    }
+    if (!matches.length) return { status: "not_found", message: "Exact item nahi mila. Kuch delete nahi hua." };
+    const candidates = matches.slice(0, 5).map((item) => kind === "chapter"
+      ? `Chapter ${item.number}: ${item.title}`
+      : kind === "vocabulary" ? `${item.entry.term} · Chapter ${item.chapterNumber}`
+        : kind === "gem" ? item.quote : item.text);
+    return { status: "ambiguous", candidates, message: "Ek se zyada match mile. Exact item poochhiye; kuch delete nahi hua." };
+  }
+
+  function finishDeleteRequest(confirmed) {
+    const pending = pendingDeletionRef.current || pendingDeletion;
+    if (!pending) return;
+    pendingDeletionRef.current = null;
+    setPendingDeletion(null);
+    let deleted = false;
+    try { deleted = Boolean(confirmed && pending.remove()); } catch (error) { console.warn("[DELETE] local removal failed:", String(error?.message || error).slice(0, 120)); }
+    const statusText = deleted ? "deleted" : confirmed ? "not_found" : "cancelled";
+    if (deleted) {
+      pushActivity("delete", `${pending.kind} delete ho gaya`);
+      triggerSuccess();
+    }
+    clientRef.current?.sendText(`[SYSTEM NOTE] Delete request for ${JSON.stringify(pending.exact)} completed with status ${statusText}. ${deleted ? "It is deleted." : confirmed ? "It was not found, so nothing was removed." : "The reader cancelled, so nothing was removed."} Do not claim any other item changed.`);
+    if (deleted) notify("Delete ho gaya.", "success");
+  }
+
   function handleUserTurnText(fullText) {
     fullText = fullText.trim();
     if (!fullText) return;
@@ -2652,6 +2954,23 @@ function SessionScreen({ bookId, onEnd }) {
       if (VOCAB_DECLINE_TRIGGER.test(fullText) || !VOCAB_CONFIRM_TRIGGER.test(fullText)) {
         pendingVocabularyRef.current = null;
       }
+    }
+    const pendingPractice = pendingPracticeRef.current;
+    if (pendingPractice && pendingPractice.requestTurn < userTurnCountRef.current) {
+      const phrase = String(pendingPractice.term || "").trim();
+      const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const exact = phrase && new RegExp(`(^|[^\\p{L}\\p{N}])${escapedPhrase}($|[^\\p{L}\\p{N}])`, "iu").test(fullText);
+      if (exact) {
+        if (library.markVocabularyPracticed(bookId, pendingPractice.chapter, phrase)) pushActivity("word", `${phrase} ke saath sentence practice hui`);
+      } else {
+        const variant = findApproxSpokenVariant(phrase, fullText);
+        if (variant) {
+          library.markVocabularyPracticed(bookId, pendingPractice.chapter, phrase);
+          library.recordVocabularyPronunciation(bookId, pendingPractice.chapter, phrase, variant);
+          pushActivity("word", `${phrase} ke saath sentence practice hui`);
+        }
+      }
+      pendingPracticeRef.current = null;
     }
     const explicitPersonalMemory = EXPLICIT_MEMORY_TRIGGER.test(fullText) &&
       !SAVE_GEM_TRIGGER.test(fullText) && !NON_MEMORY_CONTENT_TRIGGER.test(fullText);
@@ -2714,10 +3033,25 @@ function SessionScreen({ bookId, onEnd }) {
   }
   async function handleToolCall(toolCall) {
     const responses = [];
+    let practicePrompt = null;
     for (const fc of toolCall.functionCalls || []) {
       let result = { status: "ignored" };
       try {
-      if (fc.name === "save_memory") {
+      if (["request_delete", "delete_chapter", "delete_gem", "delete_vocabulary", "delete_memory"].includes(fc.name)) {
+        const kind = fc.name === "request_delete" ? fc.args?.kind
+          : fc.name === "delete_chapter" ? "chapter"
+            : fc.name === "delete_gem" ? "gem"
+              : fc.name === "delete_vocabulary" ? "vocabulary" : "memory";
+        const target = fc.name === "request_delete" ? fc.args?.target
+          : fc.name === "delete_chapter" ? String(fc.args?.chapterNumber || "")
+            : fc.name === "delete_gem" ? fc.args?.quoteFragment
+              : fc.name === "delete_vocabulary" ? fc.args?.term : fc.args?.factFragment;
+        if (!pendingDeletion && !["chapter", "vocabulary", "gem", "memory"].includes(kind)) {
+          result = { status: "invalid", message: "Choose one exact chapter, vocabulary word, gem or memory." };
+        } else {
+          result = stageDeleteRequest(kind, target);
+        }
+      } else if (fc.name === "save_memory") {
         const fact = fc.args?.fact;
         const currentUserText = userTurnBufRef.current.trim();
         const explicitPersonalMemory = EXPLICIT_MEMORY_TRIGGER.test(currentUserText) &&
@@ -2726,7 +3060,7 @@ function SessionScreen({ bookId, onEnd }) {
           ? { status: "saved" }
           : { status: "not_explicitly_requested", message: "Do not save this. Reader memory is only for personal facts they explicitly asked to remember; quotes, gems, book facts, and vocabulary belong elsewhere." };
       } else if (fc.name === "log_vocabulary") {
-        const { term, meaning, contextMeaning, example, grammar, pronunciation, synonyms, antonyms, hindiMeaning, odiaMeaning, hindiSentence, odiaSentence, sentence } = fc.args || {};
+        const { term, meaning, contextMeaning, example, grammar, pronunciation, usageRegister, synonyms, antonyms, hindiMeaning, odiaMeaning, hindiSentence, odiaSentence, sentence } = fc.args || {};
         const currentUserText = userTurnBufRef.current.trim();
         const currentTurn = userTurnCountRef.current;
         const entry = {
@@ -2736,6 +3070,7 @@ function SessionScreen({ bookId, onEnd }) {
           example,
           grammar,
           pronunciation,
+          usageRegister,
           synonyms,
           antonyms,
           hindiMeaning,
@@ -2826,6 +3161,7 @@ function SessionScreen({ bookId, onEnd }) {
             attributedTo: finalAuthorName,
             quoteSource: (typeof authorBio === "string" && authorBio.trim()) ? authorBio.trim() : (book?.authorBio || ""),
           });
+          if (saved) void ensureGemInsights([saved], (id, insight) => gemsStore.updateInsight(id, insight)).catch(() => {});
           result = saved ? { status: "saved" } : { status: "skipped" };
         }
       }else if (fc.name === "set_chapter_outline") {
@@ -2885,50 +3221,30 @@ function SessionScreen({ bookId, onEnd }) {
         } else {
           result = { status: "invalid" };
         }
-      }else if (fc.name === "delete_vocabulary") {
-        const term = (fc.args?.term || "").trim();
-        const num = Number(fc.args?.chapterNumber);
-        if (!term) {
-          result = { status: "invalid" };
-        } else {
-          result = library.removeVocab(bookId, term, Number.isFinite(num) ? num : undefined)
-            ? { status: "deleted" }
-            : { status: "not_found", message: "That word is not saved in this book - tell the reader honestly." };
-        }
-      }else if (fc.name === "delete_memory") {
-        const frag = (fc.args?.factFragment || "").trim().toLowerCase();
-        const match = frag ? (memoryStore.memories || []).find((m) => m.text.toLowerCase().includes(frag)) : null;
-        result = match && memoryStore.remove(match.text)
-          ? { status: "deleted" }
-          : { status: "not_found", message: "No saved memory matched - tell the reader honestly." };
-      }else if (fc.name === "update_memory") {
+      } else if (fc.name === "update_memory") {
         const frag = (fc.args?.oldFragment || "").trim().toLowerCase();
         const newText = (fc.args?.newText || "").trim();
         const match = frag ? (memoryStore.memories || []).find((m) => m.text.toLowerCase().includes(frag)) : null;
         result = match && newText && memoryStore.update(match.text, newText)
           ? { status: "saved" }
           : { status: "not_found", message: "No saved memory matched - tell the reader honestly." };
-      }else if (fc.name === "delete_gem") {
-        const fragment = (fc.args?.quoteFragment || "").trim().toLowerCase();
-        if (!fragment) {
-          result = { status: "invalid" };
-        } else {
-          const match = gemsStore.list().find(
-            (g) => g.bookId === bookId && g.quote.toLowerCase().includes(fragment)
-          );
-          if (match) {
-            gemsStore.remove(match.id);
-            result = { status: "deleted" };
-          } else {
-            result = { status: "not_found" };
-          }
-        }
       }
       responses.push({ id: fc.id, name: fc.name, response: result });
           } catch (err) {
         console.warn("[TOOL] failed", fc.name, err);
         result = { status: "error", message: "That could not be saved. Tell the reader briefly and carry on." };
       } if (result.status === "saved") {
+                if (fc.name === "log_vocabulary") {
+                  vocabSavedCountRef.current += 1;
+                  const now = Date.now();
+                  if (vocabSavedCountRef.current % 3 === 0 && now - lastPracticePromptAtRef.current >= 10 * 60 * 1000) {
+                    practicePrompt = String(fc.args?.term || "").trim();
+                    if (practicePrompt) {
+                      lastPracticePromptAtRef.current = now;
+                      pendingPracticeRef.current = { term: practicePrompt, chapter: chapterNumberRef.current, requestTurn: userTurnCountRef.current };
+                    }
+                  }
+        }
         if (fc.name === "save_gem") {
           setSessionStats((s) => ({ ...s, gems: s.gems + 1 }));
           triggerSuccess();
@@ -2944,12 +3260,16 @@ function SessionScreen({ bookId, onEnd }) {
       } else if (result.status === "completed") {
         pushActivity("done", `Chapter ${fc.args?.chapterNumber || chapterNumberRef.current} complete!`);
       } else if (result.status === "deleted") {
+        if (fc.name === "delete_chapter") pushActivity("delete", `Chapter ${fc.args?.chapterNumber} delete ho gaya`);
         if (fc.name === "delete_gem") pushActivity("delete", "Gem delete ho gaya");
         else if (fc.name === "delete_vocabulary") pushActivity("delete", `Word hata diya: ${fc.args?.term || ""}`);
         else if (fc.name === "delete_memory") pushActivity("delete", "Ek memory delete hui");
       }
     }
     if (responses.length) await clientRef.current?.sendToolResponse(responses);
+    if (practicePrompt) {
+      clientRef.current?.sendText(`[SYSTEM NOTE] You just saved the word ${JSON.stringify(practicePrompt)} after explaining it. As a low-pressure optional next step, casually invite the reader to make one short sentence with that word in their own words. Do not make it a quiz, do not grade, and if they skip or change the topic, move on warmly.`);
+    }
   }
 
    useEffect(() => {
@@ -3040,7 +3360,7 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
             silenceDurationMs: 900,
           },
         },
-        tools: [{ functionDeclarations: [SAVE_MEMORY_DECLARATION, LOG_VOCABULARY_DECLARATION, UPDATE_CHAPTER_SUMMARY_DECLARATION, SET_CURRENT_CHAPTER_DECLARATION, RENAME_CHAPTER_DECLARATION, SET_BOOK_AUTHOR_DECLARATION, SET_CHAPTER_PAGES_DECLARATION, SAVE_GEM_DECLARATION, DELETE_GEM_DECLARATION, DELETE_VOCABULARY_DECLARATION, DELETE_MEMORY_DECLARATION, UPDATE_MEMORY_DECLARATION, LIST_SAVED_ITEMS_DECLARATION, GET_READING_STATUS_DECLARATION, GET_SESSION_ACTIVITY_DECLARATION, COMPLETE_CHAPTER_DECLARATION,SET_CHAPTER_OUTLINE_DECLARATION,] }],
+        tools: [{ functionDeclarations: [SAVE_MEMORY_DECLARATION, LOG_VOCABULARY_DECLARATION, UPDATE_CHAPTER_SUMMARY_DECLARATION, SET_CURRENT_CHAPTER_DECLARATION, RENAME_CHAPTER_DECLARATION, SET_BOOK_AUTHOR_DECLARATION, SET_CHAPTER_PAGES_DECLARATION, SAVE_GEM_DECLARATION, REQUEST_DELETE_DECLARATION, DELETE_CHAPTER_DECLARATION, DELETE_GEM_DECLARATION, DELETE_VOCABULARY_DECLARATION, DELETE_MEMORY_DECLARATION, UPDATE_MEMORY_DECLARATION, LIST_SAVED_ITEMS_DECLARATION, GET_READING_STATUS_DECLARATION, GET_SESSION_ACTIVITY_DECLARATION, COMPLETE_CHAPTER_DECLARATION,SET_CHAPTER_OUTLINE_DECLARATION,] }],
       },
       handlers: {
         onStatus: (s) => {
@@ -3048,6 +3368,19 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
           if (s === "connected" && snapBase64Ref.current) {
             setTimeout(() => { resendSnapshot(); clientRef.current?.sendText(SNAPSHOT_REMINDER_NOTE); }, 600);
           }
+        },
+        onKeyVersion: (version) => { keyVersionRef.current = version; },
+        onNotice: (notice) => {
+          audioCaptureRef.current?.setMuted(true);
+          stopCameraNow();
+          audioPlaybackRef.current?.clear();
+          notifyPersistent({
+            ...notice,
+            action: {
+              label: notice.code === "key_rotated" ? "End & restart session" : "End session",
+              onClick: () => handleEnd({ restart: notice.code === "key_rotated" }),
+            },
+          });
         },
         onAudio: (data) => audioPlaybackRef.current?.enqueue(data),
         onText: (text) => { companionTurnBufRef.current += text; },
@@ -3104,14 +3437,19 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
     }
   }
 
-  async function handleEnd() {
+  async function handleEnd({ restart = false } = {}) {
     library.endSession(bookId);
     audioCaptureRef.current?.stop();
     audioPlaybackRef.current?.close();
     stopCameraNow();
     await clientRef.current?.close();
-    onEnd();
-    void finalizeSessionArtifacts();
+    if (restart) {
+      await finalizeSessionArtifacts();
+      onRestart?.();
+    } else {
+      onEnd();
+      void finalizeSessionArtifacts();
+    }
   }
 
     const totalChapters = book ? library.getChapters(bookId).length || 1 : 1;
@@ -3325,10 +3663,20 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
 
       {transcriptOpen && (
         <div className="transcript-drawer elevated">
+          <div className="transcript-drawer-head"><b>Conversation</b><button type="button" onClick={resyncCompanion}><RefreshCw size={13} /> Reply off-topic? Re-sync</button></div>
           {transcript.map((line, i) => (
             <div className="transcript-line" key={i}><b>{line.speaker === "reader" ? "You" : "Companion"}:</b> {line.text}</div>
           ))}
         </div>
+      )}
+
+      {pendingDeletion && (
+        <ConfirmModal
+          title={`Delete ${pendingDeletion.kind}?`}
+          message={`“${pendingDeletion.exact}”\n\n${pendingDeletion.consequence} This cannot be undone.`}
+          onConfirm={() => finishDeleteRequest(true)}
+          onCancel={() => finishDeleteRequest(false)}
+        />
       )}
     </div>
   );

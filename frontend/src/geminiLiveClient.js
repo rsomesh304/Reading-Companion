@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { classifyLiveFailure, userNoticeForFailure } from "./friendlyErrors.js";
 import { failureSummary, isKeyFailure, isModelUnavailable } from "./liveErrors.js";
 import { mintLiveToken } from "./tokenClient.js";
 
@@ -48,6 +49,8 @@ export class GeminiLiveClient {
     this.pendingFailedReason = "";
     this.keyCount = 1;
     this.silentKeySwitches = 0;
+    this.keyVersion = "";
+    this.terminalNoticeSent = false;
   }
 
   async connect(existingHandle = null) {
@@ -75,11 +78,16 @@ export class GeminiLiveClient {
       failedKeyIndex: this.pendingFailedKeyIndex,
       failedKeyDay: this.pendingFailedKeyDay,
       reason: this.pendingFailedReason,
+      expectedKeyVersion: this.keyVersion,
     });
     this.pendingFailedKeyIndex = null;
     this.pendingFailedKeyDay = null;
     this.pendingFailedReason = "";
     this.keyCount = tokenInfo.keyCount || 1;
+    if (tokenInfo.keyVersion) {
+      this.keyVersion = tokenInfo.keyVersion;
+      this.handlers.onKeyVersion?.(this.keyVersion);
+    }
     this.activeKeyIndex = tokenInfo.keyIndex;
     this.activeKeyDay = tokenInfo.deviceDay;
     const maxAttempts = Math.max(1, Math.min(tokenInfo.keyCount || 1, 10));
@@ -101,10 +109,14 @@ export class GeminiLiveClient {
             },
             onclose: (e) => {
               if (gen !== this.gen) return;
-              console.info("[LIVE] closed", e?.code, e?.reason);
-              const reason = e?.reason ? ` (${e.code}: ${e.reason})` : "";
-              this.handlers.onStatus?.(`connection closed${reason}`);
+              console.info("[LIVE] closed", e?.code, failureSummary(e));
               this._rememberFailedKey(e);
+              const failure = classifyLiveFailure(e);
+              if (failure === "key_rotated" || failure === "quota" || failure === "server_error") {
+                this._stopForFailure(failure);
+                return;
+              }
+              this.handlers.onStatus?.("reconnecting (connection ended)");
               if (!this.stopped) this._handleTransportError(e || new Error("connection closed"));
             },
           },
@@ -112,6 +124,11 @@ export class GeminiLiveClient {
         break;
       } catch (error) {
         connectionError = error;
+        const failure = classifyLiveFailure(error);
+        if (failure === "key_rotated" || failure === "quota" || failure === "server_error") {
+          this._stopForFailure(failure);
+          throw error;
+        }
         if (!isKeyFailure(error) || attempt + 1 >= maxAttempts) throw error;
         console.warn(`[LIVE] key ${tokenInfo.keyIndex || attempt + 1}/${maxAttempts} rejected (${failureSummary(error)}); requesting another token`);
         const nextTokenInfo = await this._mintToken({
@@ -214,6 +231,26 @@ export class GeminiLiveClient {
   // Lets the app hand over a failed first connect so the normal retry and key-switch loop takes it from there.
   recover(error) { return this._handleTransportError(error); }
 
+  _stopForFailure(kind) {
+    if (this.terminalNoticeSent) return;
+    this.terminalNoticeSent = true;
+    this.stopped = true;
+    this.ready = false;
+    this.setupDone = false;
+    clearTimeout(this.setupTimer);
+    clearTimeout(this.goAwayTimer);
+    clearInterval(this.watchTimer);
+    this.watchTimer = null;
+    this.gen += 1;
+    try { this.session?.close(); } catch { /* already closed */ }
+    this.session = null;
+    this.resumptionHandle = null;
+    this.handlers.onStatus?.(kind === "key_rotated" ? "restart session required" : kind === "quota" ? "quota exhausted" : "voice server unavailable", true);
+    this.handlers.onNotice?.(userNoticeForFailure(kind));
+  }
+
+  abortForKeyRotation() { this._stopForFailure("key_rotated"); }
+
   _watch() {
     if (this.stopped || this.reconnecting || !this.ready || !this.session) return;
     const now = Date.now();
@@ -258,6 +295,11 @@ export class GeminiLiveClient {
   // One reconnect loop at a time. Everything else is dropped while it runs.
   async _handleTransportError(e) {
     if (this.stopped || this.reconnecting) return;
+    const failure = classifyLiveFailure(e);
+    if (failure === "key_rotated" || failure === "quota" || failure === "server_error") {
+      this._stopForFailure(failure);
+      return;
+    }
     const now = Date.now();
     if (this.lastReconnectAt && now - this.lastReconnectAt < 2500) return;
     this.lastReconnectAt = now;
@@ -310,10 +352,11 @@ export class GeminiLiveClient {
   }
 
   async _mintToken(args = {}) {
-    return mintLiveToken(args);
+    return mintLiveToken({ ...args, expectedKeyVersion: args.expectedKeyVersion || this.keyVersion });
   }
 
   async sendAudio(base64Pcm) {
+    if (this.stopped) return;
     if (!this.ready || !this.session) {
       this.audioBacklog.push(base64Pcm);
       if (this.audioBacklog.length > 100) this.audioBacklog.shift();
@@ -331,12 +374,12 @@ export class GeminiLiveClient {
   }
 
   async sendVideoFrame(base64Jpeg) {
-    if (!this.ready || !this.session) return;
+    if (this.stopped || !this.ready || !this.session) return;
     try { await this.session.sendRealtimeInput({ video: { data: base64Jpeg, mimeType: "image/jpeg" } }); } catch { /* reconnect gap */ }
   }
 
   async sendText(text) {
-    if (!this.ready || !this.session) return;
+    if (this.stopped || !this.ready || !this.session) return;
     try { await this.session.sendRealtimeInput({ text }); } catch { /* reconnect gap */ }
   }
 

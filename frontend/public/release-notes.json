@@ -1,6 +1,46 @@
 {
   "releases": [
     {
+      "version": "1.6.0",
+      "date": "2026-10-04",
+      "major": true,
+      "title": "A more personal, connected reading companion",
+      "items": [
+        {
+          "type": "fix",
+          "text": "Profile and Settings now keep avatars correctly shaped and sized, with a steadier layout across screen sizes"
+        },
+        {
+          "type": "improve",
+          "text": "Gems are easier to search and browse by book, while saved memories are organized by recency with clearer editing controls"
+        },
+        {
+          "type": "fix",
+          "text": "Book progress percentages stay upright and centered inside their progress rings"
+        },
+        {
+          "type": "feature",
+          "text": "Persistent service notices explain connection and voice-key changes, with a safe option to restart a session after key rotation"
+        },
+        {
+          "type": "improve",
+          "text": "Re-sync brings an off-topic reply back to the current book and chapter using recent conversation context"
+        },
+        {
+          "type": "fix",
+          "text": "Voice-requested deletion of a saved gem, memory, word or chapter now requires exact-item confirmation; deleting a chapter also protects the last chapter"
+        },
+        {
+          "type": "feature",
+          "text": "Vocabulary now includes everyday or formal-literary labels, optional sentence practice, gentle recall and private pronunciation observations"
+        },
+        {
+          "type": "feature",
+          "text": "Mind Map can connect related ideas across books with cached semantic insights, a three-link limit and an offline fallback"
+        }
+      ]
+    },
+    {
       "version": "1.5.0",
       "date": "2026-10-04",
       "ui": true,

@@ -2,11 +2,12 @@ import { GoogleGenAI } from "@google/genai";
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
+import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DailyGeminiKeyPool } from "./geminiKeyPool.js";
-import { formatTicketNumber, screenshotObjectPath } from "./reportTicket.js";
 import { buildReportEmailHtml, buildReportEmailSubject } from "./reportEmailTemplate.js";
+import { formatTicketNumber, screenshotObjectPath } from "./reportTicket.js";
 import {
     createFallbackStoryScript,
     normalizeStorySource,
@@ -84,8 +85,14 @@ function validReportScreenshotPath(reportId, path) {
   return legacyPath.test(path) || categorizedPath.test(path);
 }
 
+function currentGeminiKeyVersion() {
+  const keySet = `${process.env.GEMINI_API_KEYS || ""},${process.env.GEMINI_API_KEY || ""}`
+    .split(",").map((key) => key.trim()).filter(Boolean).join("\0");
+  return createHash("sha256").update(keySet).digest("hex").slice(0, 16);
+}
+
 app.get("/api/health", (req, res) => {
-  res.send("ok");
+  res.json({ ok: true, keyVersion: currentGeminiKeyVersion() });
 });
 
 async function findBugReport(reportId) {
@@ -685,9 +692,13 @@ async function generateAuthorPortraitWithCloudflare({ style = "minimalist-lofi",
 app.post("/api/token", async (req, res) => {
   if (!GEMINI_API_KEYS.length) {
     console.warn("[TOKEN] blocked: no Gemini API keys configured in backend/.env");
-    return res.status(503).json({ error: "gemini_api_key_missing" });
+    return res.status(503).json({ code: "server_error", message: "Voice service is not configured." });
   }
   try {
+    const keyVersion = currentGeminiKeyVersion();
+    if (req.body?.expectedKeyVersion && req.body.expectedKeyVersion !== keyVersion) {
+      return res.status(409).json({ code: "key_rotated", message: "Voice settings were updated. Restart this reading session." });
+    }
     // No liveConnectConstraints here on purpose - its mere presence puts the
     // token into a "locked" mode where the server applies its own internal
     // defaults (which clashed with our AUDIO-only setup and caused an
@@ -705,14 +716,14 @@ app.post("/api/token", async (req, res) => {
       failedKeyIndex,
       failedKeyReason: typeof req.body?.failedKeyReason === "string" ? req.body.failedKeyReason : "",
     });
-    return res.json({ ...tokenInfo, keyCount: GEMINI_API_KEYS.length });
+    return res.json({ ...tokenInfo, keyCount: GEMINI_API_KEYS.length, keyVersion });
   } catch (error) {
-    if (error?.message === "all_gemini_keys_exhausted") {
-      console.warn("[TOKEN] every Gemini key is resting or failing; asking the app to wait");
-      return res.status(429).json({ error: "all_keys_unavailable" });
+    if (error?.message === "all_gemini_keys_exhausted" && isQuotaOrRateLimitError(error?.cause)) {
+      console.warn("[TOKEN] every Gemini key is quota-limited; asking the app to wait");
+      return res.status(429).json({ code: "quota_exceeded", message: "Voice capacity is temporarily unavailable." });
     }
     console.error("[TOKEN] mint failed:", redactSecrets(error?.message || error, 300));
-    return res.status(500).json({ error: "token_mint_failed" });
+    return res.status(503).json({ code: "server_error", message: "Voice service is temporarily unavailable." });
   }
 });
 
@@ -1161,6 +1172,65 @@ app.post("/api/mascot-line", async (req, res) => {
   } catch (err) {
     console.warn("[MASCOT] line generation failed:", String(err).slice(0, 160));
     res.json({ line: null });
+  }
+});
+
+// ---------------------------------------------------------------
+// POST /api/gem-insight
+// Small cached-by-client semantic metadata for one saved quote.
+// ---------------------------------------------------------------
+function parseJsonObject(text) {
+  const cleaned = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const parsed = JSON.parse(cleaned);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+}
+
+function validateGemInsight(value) {
+  if (!value || !Array.isArray(value.themes) || typeof value.core_idea !== "string") return null;
+  const themes = [...new Set(value.themes.map((tag) => String(tag).toLowerCase().trim()
+    .replace(/[^a-z0-9 -]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").slice(0, 48)).filter(Boolean))].slice(0, 4);
+  if (themes.length < 2) return null;
+  return { themes, core_idea: value.core_idea.trim().replace(/\s+/g, " ").slice(0, 260) };
+}
+
+app.post("/api/gem-insight", async (req, res) => {
+  const quote = typeof req.body?.quote === "string" ? req.body.quote.trim().slice(0, 1200) : "";
+  const bookTitle = typeof req.body?.bookTitle === "string" ? req.body.bookTitle.trim().slice(0, 180) : "";
+  if (!quote) return res.status(400).json({ themes: [], core_idea: "", error: "quote_required" });
+
+  const prompt = `Analyze this saved book quote and return ONLY strict JSON with this exact shape: {"themes":["2-4 short lowercase concept tags"],"core_idea":"one plain sentence"}. Normalize tags with hyphens, such as "self-awareness" or "inner-change". Describe the specific meaning, not generic motivation. Do not invent context not present in the quote. Book: ${JSON.stringify(bookTitle)}. Quote: ${JSON.stringify(quote)}`;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await generateGeminiContent({ model: MEMORY_SUMMARY_MODEL, contents: prompt, config: { temperature: 0.2 } });
+      const valid = validateGemInsight(parseJsonObject(response.text));
+      if (valid) return res.json({ ...valid, available: true });
+    } catch (error) {
+      if (attempt === 1) console.warn("[GEM INSIGHT] unavailable:", redactSecrets(error?.message, 160));
+    }
+  }
+  return res.json({ themes: [], core_idea: "", available: false });
+});
+
+// ---------------------------------------------------------------
+// POST /api/embed
+// Batched semantic-similarity vectors; errors are a soft offline fallback.
+// ---------------------------------------------------------------
+app.post("/api/embed", async (req, res) => {
+  const texts = Array.isArray(req.body?.texts) ? req.body.texts.slice(0, 32).map((text) => String(text || "").slice(0, 1800)) : [];
+  if (!texts.length || texts.some((text) => !text.trim())) return res.status(400).json({ embeddings: [], error: "texts_required" });
+  try {
+    const result = await withGeminiFailover(async (client) => client.models.embedContent({
+      model: "gemini-embedding-001",
+      contents: texts,
+      config: { taskType: "SEMANTIC_SIMILARITY" },
+    }), "gem embedding");
+    const embeddings = Array.isArray(result?.embeddings)
+      ? result.embeddings.map((embedding) => Array.isArray(embedding?.values) ? embedding.values : [])
+      : result?.embedding?.values ? [result.embedding.values] : [];
+    return res.json({ embeddings: embeddings.slice(0, texts.length) });
+  } catch (error) {
+    console.warn("[GEM EMBED] unavailable:", redactSecrets(error?.message, 160));
+    return res.json({ embeddings: [], unavailable: true });
   }
 });
 

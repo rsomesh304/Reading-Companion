@@ -1910,3 +1910,89 @@ img { -webkit-user-drag: none; }
 @keyframes shHalo { 50% { transform: scale(1.25); opacity: .6; } }
 @keyframes shEmber { 0% { transform: translate(0, 4px) scale(.5); opacity: 0; } 20% { opacity: 1; } 100% { transform: translate(var(--ex, 4px), -26px) scale(1); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .sh-corner-halo, .sh-corner-flame, .sh-corner-core, .sh-corner i { animation: none !important; } }
+
+/* ===== Gems: searchable, per-book crystal gallery ===== */
+.gem-gallery-controls { position: relative; z-index: 3; display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto; padding: 0 16px 10px; background: var(--bg-1); }
+.gem-gallery-search { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: 15px; color: var(--muted); background: var(--surface); box-shadow: var(--shadow); }
+.gem-gallery-search input { flex: 1; min-width: 0; border: 0; outline: 0; color: var(--text); font: inherit; font-size: 13px; background: transparent; }
+.gem-gallery-search input::placeholder { color: var(--muted); }
+.gem-gallery-search button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; color: var(--muted); background: var(--surface-2); }
+.gem-book-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 1px 5px; scrollbar-width: none; overscroll-behavior-x: contain; }
+.gem-book-chips::-webkit-scrollbar { display: none; }
+.gem-book-chip { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; max-width: 68vw; height: 34px; padding: 0 12px; overflow: hidden; border: 1px solid var(--border); border-radius: 99px; color: var(--muted); font: inherit; font-size: 11px; font-weight: 800; white-space: nowrap; cursor: pointer; background: var(--surface); }
+.gem-book-chip span { display: grid; place-items: center; min-width: 19px; height: 19px; padding: 0 4px; border-radius: 99px; color: var(--text); background: var(--surface-2); font-size: 10px; font-variant-numeric: tabular-nums; }
+.gem-book-chip.on { border-color: color-mix(in srgb,var(--primary) 45%,var(--border)); color: #fff; background: linear-gradient(135deg,var(--primary),var(--primary-2)); box-shadow: 0 7px 16px -9px var(--primary); }
+.gem-book-chip.on span { color: #fff; background: rgba(255,255,255,.2); }
+.gem-card.gem-gallery-card { position: relative; overflow: hidden; padding: 15px 16px 14px; border: 1px solid color-mix(in srgb,var(--gem-accent) 30%,var(--border)); border-radius: 22px; background: radial-gradient(110% 110% at 100% 0%,color-mix(in srgb,var(--gem-accent) 17%,transparent),transparent 62%),linear-gradient(145deg,var(--surface),color-mix(in srgb,var(--gem-accent-2) 8%,var(--surface))); box-shadow: var(--shadow),0 14px 30px -22px var(--gem-accent); }
+.gem-gallery-card::before { content: ""; position: absolute; top: 0; left: 0; bottom: 0; width: 3px; background: linear-gradient(180deg,var(--gem-accent),var(--gem-accent-2)); opacity: .9; }
+.gem-gallery-card .gem-card-toolbar { position: relative; z-index: 1; margin-bottom: 5px; }
+.gem-gallery-card .gem-badge { position: relative; display: grid; place-items: center; width: 38px; height: 38px; overflow: hidden; border-radius: 13px; color: #fff; background: linear-gradient(135deg,var(--gem-accent),var(--gem-accent-2)); box-shadow: 0 8px 18px -9px var(--gem-accent); }
+.gem-crystal-mini { position: absolute; width: 21px; height: 26px; background: linear-gradient(135deg,rgba(255,255,255,.42),transparent 45%),linear-gradient(160deg,var(--gem-accent),var(--gem-accent-2)); clip-path: polygon(25% 0,75% 0,100% 33%,50% 100%,0 33%); opacity: .45; }
+.gem-crystal-mini i { position: absolute; inset: 0; border: 1px solid rgba(255,255,255,.48); clip-path: polygon(25% 0,75% 0,100% 33%,50% 100%,0 33%); }
+.gem-gallery-card .gem-badge svg { position: relative; z-index: 1; filter: drop-shadow(0 1px 3px rgba(0,0,0,.4)); }
+.gem-gallery-card .gem-card-toggle { align-items: flex-end; gap: 8px; }
+.gem-gallery-card .gem-preview-block { gap: 10px; }
+.gem-gallery-card .gem-book-title { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.gem-gallery-card .gem-preview-quote { max-width: 100%; font-family: 'Fraunces',serif; font-size: 19px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.gem-open-cue { display: inline-flex; align-items: center; gap: 4px; color: var(--gem-accent); font-size: 11px; font-weight: 800; }
+.gem-gallery-card .gem-chevron-wrap { flex: 0 0 34px; display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 50%; color: var(--gem-accent); background: var(--surface-2); }
+.gem-gallery-detail { overflow: hidden; border-color: color-mix(in srgb,var(--gem-accent) 30%,var(--border)); }
+.gem-detail-poster { position: relative; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; gap: 13px; margin: -16px -16px 17px; padding: 30px 24px 22px; border-radius: 22px 22px 18px 18px; color: #fff; background: radial-gradient(circle at 86% 8%,color-mix(in srgb,var(--gem-accent) 42%,transparent),transparent 45%),linear-gradient(145deg,color-mix(in srgb,var(--gem-accent-2) 70%,#12081f),#171126 78%); }
+.gem-detail-crystal { position: absolute; z-index: -1; top: 20px; right: 24px; width: 66px; height: 78px; opacity: .32; background: linear-gradient(145deg,rgba(255,255,255,.8),var(--gem-accent),var(--gem-accent-2)); clip-path: polygon(26% 0,74% 0,100% 34%,50% 100%,0 34%); filter: drop-shadow(0 12px 30px var(--gem-accent)); animation: gemCrystalFloat 5s ease-in-out infinite; }
+.gem-detail-crystal i { position: absolute; inset: 0; border: 1px solid rgba(255,255,255,.7); clip-path: polygon(26% 0,74% 0,100% 34%,50% 100%,0 34%); }
+.gem-detail-quote-mark { color: var(--gem-accent); }
+.gem-gallery-detail .gem-detail-quote { position: relative; max-width: 100%; margin: 0; color: #fff; font-family: 'Fraunces',serif; font-size: clamp(23px,6vw,34px); font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.gem-detail-source { position: relative; color: rgba(255,255,255,.72); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.gem-detail-application { padding: 15px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface-2); }
+@keyframes gemCrystalFloat { 50% { transform: translateY(-7px) rotate(4deg); } }
+@media (prefers-reduced-motion: reduce) { .gem-detail-crystal { animation: none; } }
+
+/* ===== Memory preferences ===== */
+.pref-group { display: flex; flex-direction: column; gap: 9px; }
+.pref-group h3 { display: flex; align-items: center; justify-content: space-between; margin: 5px 3px 0; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+.pref-group h3 span { display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 99px; color: var(--primary); background: color-mix(in srgb,var(--primary) 12%,var(--surface)); font-size: 10px; font-variant-numeric: tabular-nums; }
+.pref-card { position: relative; min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 18px; background: radial-gradient(120% 120% at 100% 0%,color-mix(in srgb,var(--primary) 11%,transparent),transparent 62%),var(--surface); }
+.pref-card .memory-text-block { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.pref-card .memory-text { overflow-wrap: anywhere; font-size: 14px; line-height: 1.55; }
+.pref-card .memory-timestamp { color: var(--muted); font-size: 10.5px; font-weight: 700; }
+.pref-card-icon { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; border: 1px solid color-mix(in srgb,var(--primary) 24%,var(--border)); border-radius: 12px; color: var(--primary); background: color-mix(in srgb,var(--primary) 12%,var(--surface-2)); }
+.pref-card .memory-card-actions { gap: 5px; }
+.pref-action { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: 11px; color: var(--muted); cursor: pointer; background: var(--surface-2); transition: transform .15s ease,color .15s ease; }
+.pref-action:active { transform: scale(.92); }
+.pref-action.danger { color: #fb7185; }
+.pref-empty { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 28px 20px; border: 1px dashed var(--border); border-radius: 22px; text-align: center; background: color-mix(in srgb,var(--surface) 90%,transparent); }
+.pref-empty-orbit { display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 3px; border: 1px solid color-mix(in srgb,var(--primary) 35%,var(--border)); border-radius: 19px; color: var(--primary); background: color-mix(in srgb,var(--primary) 12%,var(--surface-2)); box-shadow: 0 0 28px color-mix(in srgb,var(--primary) 18%,transparent); animation: prefFloat 4s ease-in-out infinite; }
+.pref-empty b { font-family: 'Fraunces',serif; font-size: 18px; }
+.pref-empty p { max-width: 290px; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+@keyframes prefFloat { 50% { transform: translateY(-5px) rotate(2deg); } }
+@media (prefers-reduced-motion: reduce) { .pref-empty-orbit { animation: none; } }
+
+/* ===== Gentle weekly word recall ===== */
+.recall-card { position: relative; display: flex; flex-direction: column; gap: 8px; margin: 0 16px 10px; padding: 14px 16px; overflow: hidden; border: 1px solid color-mix(in srgb,var(--accent) 30%,var(--border)); border-radius: 20px; background: radial-gradient(110% 120% at 100% 0%,color-mix(in srgb,var(--accent) 14%,transparent),transparent 66%),var(--surface); box-shadow: var(--shadow); }
+.recall-head { display: flex; align-items: center; justify-content: space-between; color: var(--accent); }
+.recall-head > span { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
+.recall-head button { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 50%; color: var(--muted); background: var(--surface-2); }
+.recall-meta { color: var(--muted); font-size: 10px; font-weight: 700; }
+.recall-card h3 { margin: 0; color: var(--text-h); font-family: 'Fraunces',serif; font-size: 22px; line-height: 1.2; }
+.recall-meaning { margin: 2px 0; color: var(--text); font-size: 13px; line-height: 1.5; }
+.recall-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.recall-primary,.recall-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 1px solid var(--border); border-radius: 12px; color: var(--text); font: 700 11.5px/1.2 inherit; cursor: pointer; background: var(--surface-2); }
+.recall-primary { border-color: transparent; color: #fff; background: linear-gradient(135deg,var(--primary),var(--primary-2)); }
+.recall-secondary { border-color: color-mix(in srgb,var(--primary) 28%,var(--border)); color: var(--primary); }
+.recall-soft { margin: 0; color: var(--muted); font-size: 10.5px; }
+
+/* ===== Persistent session notices ===== */
+.notice-host { position: fixed; z-index: 600; top: calc(8px + env(safe-area-inset-top,0px)); left: 50%; display: flex; flex-direction: column; gap: 8px; width: min(94vw,540px); translate: -50% 0; pointer-events: none; }
+.notice-banner { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid color-mix(in srgb,#fb7185 40%,var(--border)); border-radius: 18px; color: var(--text); background: color-mix(in srgb,var(--surface) 94%,transparent); box-shadow: 0 18px 46px rgba(0,0,0,.4); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); pointer-events: auto; }
+.notice-banner-copy { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; text-align: left; }
+.notice-banner-copy b { font-size: 13px; font-weight: 900; }
+.notice-banner-copy span { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+.notice-action { flex: 0 0 auto; min-height: 36px; padding: 0 12px; border: 0; border-radius: 12px; color: #fff; font: inherit; font-size: 11px; font-weight: 800; cursor: pointer; background: linear-gradient(135deg,var(--primary),var(--primary-2)); }
+.notice-dismiss { display: grid; flex: 0 0 28px; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 50%; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; background: var(--surface-2); }
+.notice-banner.info { border-color: color-mix(in srgb,var(--accent) 38%,var(--border)); }
+.transcript-drawer-head { position: sticky; top: -16px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -16px -18px 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.transcript-drawer-head b { font-size: 12px; }
+.transcript-drawer-head button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 9px; border: 1px solid color-mix(in srgb,var(--primary) 28%,var(--border)); border-radius: 10px; color: var(--primary); font: inherit; font-size: 10px; font-weight: 800; cursor: pointer; background: color-mix(in srgb,var(--primary) 9%,var(--surface-2)); }
+@media (max-width: 380px) { .notice-banner { gap: 7px; padding: 10px; } .notice-action { padding: 0 9px; font-size: 10px; } }
+@media (prefers-reduced-motion: reduce) { .notice-banner { scroll-behavior: auto; } }
+.recall-soft { color: var(--muted); font-size: 10.5px; }
