@@ -513,6 +513,7 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
     setIntroRun((run) => run + 1);
   }
 
+  const tourResumable = tourProgress.status === "skipped" || tourProgress.status === "in-progress";
   const browseTopics = HELP_GUIDE.slice(0, 9);
   const rootStyle = viewport ? { top: `${viewport.top}px`, height: `${viewport.height}px`, minHeight: 0 } : undefined;
   const statusLabel = aiStatus === "online" ? "AI online" : aiStatus === "offline" ? "AI offline" : "Checking AI";
@@ -538,14 +539,12 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
             </span>
           </div>
         </div>
-      </header>
-      <nav className="help-toolbar" aria-label="Help navigation">
-        <div className="help-toolbar-inner">
-          <button className="help-toolbar-button primary" type="button" onClick={clearChat} disabled={busy}><Plus size={16} />New chat</button>
-          <button className="help-toolbar-button" type="button" onClick={openHistory} aria-haspopup="dialog" aria-expanded={historyOpen}><History size={16} />Chat history</button>
-          <button className="help-toolbar-button help-tour-button" type="button" disabled={busy} onClick={() => beginTour(tourProgress.status === "skipped" || tourProgress.status === "in-progress" ? tourProgress.sceneIndex : 0)}><Sparkles size={16} />{tourProgress.status === "skipped" || tourProgress.status === "in-progress" ? "Continue tour" : "App tour"}</button>
+        <div className="help-header-actions">
+          <button className="help-round-button primary" type="button" onClick={clearChat} disabled={busy} aria-label="New chat" title="New chat"><Plus size={18} /></button>
+          <button className="help-round-button" type="button" onClick={openHistory} aria-haspopup="dialog" aria-expanded={historyOpen} aria-label="Chat history" title="Chat history"><History size={17} /></button>
+          <button className={`help-round-button help-tour-button ${tourResumable ? "resume" : ""}`} type="button" disabled={busy} onClick={() => beginTour(tourResumable ? tourProgress.sceneIndex : 0)} aria-label={tourResumable ? "Continue tour" : "App tour"} title={tourResumable ? "Continue tour" : "App tour"}><Sparkles size={17} /></button>
         </div>
-      </nav>
+      </header>
 
       <div className="help-thread" ref={listRef} aria-live="polite" aria-relevant="additions text">
         <AnimatePresence>

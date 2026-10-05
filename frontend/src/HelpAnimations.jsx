@@ -1,7 +1,7 @@
 import {
   AlertTriangle, Bell, Bot, BookOpen, Brain, Bug, Cat, Check, Clock, Cloud, Download, Flame, Gem, History, Languages, Library, Link2,
   Lock, LogOut, Maximize2, MessageSquareText, Moon, Palette, PenLine, Play, Plus, RefreshCw, Route, ScanText, Save, Search, Send, Shuffle,
-  Sparkles, Sprout, Sun, Trash2, TrendingUp, User, Volume2,
+  Sparkles, Sprout, Sun, Trash2, TrendingUp, User, Volume2, Eye, ThumbsUp, Wrench, FlaskConical, Zap,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getHelpAnimation } from "./helpAnimations.js";
@@ -9,7 +9,7 @@ import { getHelpAnimation } from "./helpAnimations.js";
 const ICONS = {
   AlertTriangle, Bell, Bot, BookOpen, Brain, Bug, Cat, Check, Clock, Cloud, Download, Flame, Gem, History, Languages, Library, Link2,
   Lock, LogOut, Maximize2, MessageSquareText, Moon, Palette, PenLine, Play, Plus, RefreshCw, Route, ScanText, Save, Search, Send, Shuffle,
-  Sparkles, Sprout, Sun, Trash2, TrendingUp, User, Volume2,
+  Sparkles, Sprout, Sun, Trash2, TrendingUp, User, Volume2, Eye, ThumbsUp, Wrench, FlaskConical, Zap,
 };
 const Icon = ({ name, size = 16 }) => { const Cmp = ICONS[name] || Sparkles; return <Cmp size={size} />; };
 

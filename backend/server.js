@@ -219,7 +219,7 @@ app.get("/api/ai/help/status", async (req, res) => {
 
 function detectReplyLanguage(text) {
   if (/[\u0900-\u097F]/.test(text)) return "Hindi in Devanagari script";
-  const hinglish = /\b(kaise|kya|kyu|kyon|kab|kahan|kaha|mujhe|mera|meri|mere|karun|karu|karna|karo|kar|hai|hain|nahi|nahin|aur|ko|ka|ki|ke|se|me|mein|par|liye|chahiye|batao|bataiye|samajh|samjha|dikha|dikhao|kitab|wala|wali|ho|hota|hoti|sakta|sakti|abhi|bhi|toh|lekin|agar|apna|apni|kuch|kaun|kitna)\b/gi;
+  const hinglish = /\b(kaise|kya|kyu|kyon|kab|kahan|kaha|mujhe|mera|meri|mere|karun|karu|karna|karo|kar|hai|hain|nahi|nahin|aur|ko|ka|ki|ke|se|me|mein|par|liye|chahiye|batao|bataiye|samajh|samjha|dikha|dikhao|kitab|wala|wali|ho|hota|hoti|sakta|sakti|abhi|bhi|toh|lekin|agar|apna|apni|kuch|kaun|kitna|jo|woh|yeh|yah|rha|rhi|raha|rahi|kaisa|kaisi|kyunki|isme|usme|baad|pehle|phir|mujhko|humko|sab|tha|thi|dekh|dekhna|dikha|batana)\b/gi;
   const hits = (text.match(hinglish) || []).length;
   return hits >= 2 || (hits >= 1 && text.trim().split(/\s+/).length <= 4) ? "Hinglish (Hindi written in English letters; never Devanagari)" : "English";
 }
@@ -300,7 +300,7 @@ app.post("/api/ai/help", async (req, res) => {
           messages: [
             {
               role: "system",
-              content: `Pick which animated guides to show under the answer to the user's question about the Reading Companion app. Reply with at most 3 ids from this list, comma-separated, most relevant first, and nothing else. Reply NONE if the question is not about an app feature, setting or screen. Choose the most specific id (for example the Appearance settings for colour theme questions, never a generic one).\n${animationCatalogue.describeAnimationsForPrompt()}`,
+              content: `Pick which animated guides to show under the answer to the user's question about the Reading Companion app. Reply with at most 3 ids from this list, comma-separated, most relevant first, and nothing else. Reply NONE if the question is not about an app feature, setting or screen. Choose the most specific id (for example the Appearance settings for colour theme questions, never a generic one). Match by meaning in English, Hindi or Hinglish. Use set-releases for questions about version history, release types or labels such as Major update, UI enhancement, A new chapter or Signature update. Use support-reports for questions about report stages, status or the status timeline. Use support-help only when the question is about the Help & Guide chat itself, its chat history, new chat or app tour. Never pick an id that is not clearly what the user asked about; reply NONE instead.\n${animationCatalogue.describeAnimationsForPrompt()}`,
             },
             ...history.slice(-2),
             { role: "user", content: question },
@@ -342,7 +342,7 @@ Guide excerpt:
 ${excerpt || "No guide entry matched."}${animationNote}`,
       },
       ...history,
-      { role: "user", content: `${question}\n\n[Reply language: ${replyLanguage}]` },
+      { role: "user", content: `${question}\n\n[Reply language: ${replyLanguage}. Write the entire answer in this language, even if earlier messages or the guide excerpt are in another language.]` },
     ];
     res.on("close", () => { if (!res.writableEnded) controller.abort(); });
     for (let index = 0; index < providers.length; index += 1) {
