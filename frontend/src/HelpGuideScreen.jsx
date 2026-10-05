@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { apiFetchFast } from "./api.js";
+import { useBackLayer } from "./backStack.js";
 import HelpDemo from "./HelpDemos.jsx";
 import HelpChatHistory from "./HelpChatHistory.jsx";
 import { sessionDate, sessionTitle } from "./helpHistory.js";
@@ -169,6 +170,11 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
   const reducedMotion = useReducedMotion();
   const { triggerLightTap } = useHaptic();
   const canDictate = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  useBackLayer(Boolean(viewingId), () => setViewingId(null));
+  useBackLayer(historyOpen, () => setHistoryOpen(false));
+  useBackLayer(browseOpen, () => setBrowseOpen(false));
+  useBackLayer(tourOpen, () => setTourOpen(false));
 
   useEffect(() => {
     const saved = validMessages(messages);

@@ -3,7 +3,7 @@
 /* eslint-disable react-hooks/immutability */
 import { motion as Motion } from "framer-motion";
 import {
-    Bug, Check,
+    BellRing, Bug, Check, Clock3,
     ChevronLeft, ChevronRight,
     Cloud,
     Download, HardDrive, ImagePlus, Lightbulb,
@@ -16,9 +16,11 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch, apiFetchFast } from "./api.js";
+import { useBackLayer } from "./backStack.js";
 import MajorReleaseCard from "./MajorRelease.jsx";
 import { INTERACTION_SPRING } from "./motionConfig.js";
 import { useGeminiVoiceDriver } from "./onboarding/avatarDriver.js";
+import { applyPushPrefs, collectSessionStarts, computeStudyPattern, formatClockMinute, loadPushPrefs, notificationPermission, pushErrorMessage } from "./pushNotifications.js";
 import { getReleaseHistory, normalizeReportStatus } from "./reportIssueHelpers.js";
 import { ReportDetail, ReportList } from "./ReportsView.jsx";
 import "./SettingsScreens.css";
@@ -44,13 +46,27 @@ function Group({ title, children }) {
   return <section className="st-group"><div className="st-group-title">{title}</div>{children}</section>;
 }
 
-function ReleaseNotesScreen({ releases, onBack }) {
+const versionKey = (value) => String(value || "").trim().replace(/^v/i, "");
+
+function ReleaseNotesScreen({ releases, onBack, highlightVersion = null }) {
+  const target = versionKey(highlightVersion);
+  const hasTarget = Boolean(target) && releases.some((release) => versionKey(release.version) === target);
+  useEffect(() => {
+    if (!hasTarget) return undefined;
+    const timer = window.setTimeout(() => {
+      document.getElementById(`release-${target}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [hasTarget, target]);
   return (
     <div className="screen set-screen">
       <div className="aurora-bg" />
       <PfHead title="Version & release notes" sub={`Current version ${APP_VERSION}`} onBack={onBack} />
       <div className="set-body">
       <SetSec title="Release history">
+        {target && releases.length > 0 && !hasTarget && (
+          <div className="st-note"><Sparkles size={15} /><span>Notes for v{target} are not published yet. Here is the full release history.</span></div>
+        )}
         {releases.length === 0 ? (
           <div className="st-note"><Sparkles size={15} /><span>Release notes are loading or not available yet.</span></div>
         ) : (
@@ -58,7 +74,9 @@ function ReleaseNotesScreen({ releases, onBack }) {
             {releases.map((release, releaseIndex) => (
               <Motion.article
                 key={`${release.version}-${release.date || "release"}`}
-                className="st-release-entry"
+                id={`release-${versionKey(release.version)}`}
+                data-version={versionKey(release.version)}
+                className={`st-release-entry${hasTarget && versionKey(release.version) === target ? " is-target" : ""}`}
                 initial={{ opacity: 0, x: -12 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: Math.min(releaseIndex * 0.07, 0.35), duration: 0.28, ease: "easeOut" }}
@@ -155,6 +173,15 @@ function SetSec({ title, children }) {
     </Motion.section>
   );
 }
+function SetSwitchRow({ icon, label, hint, checked, disabled, onChange }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} className="set-row set-switch-row" onClick={() => onChange(!checked)} disabled={disabled}>
+      <span className="set-row-ic">{icon}</span>
+      <span className="set-row-tx"><b>{label}</b>{hint && <small>{hint}</small>}</span>
+      <span className={`switch ${checked ? "on" : ""}`} aria-hidden="true"><span className="switch-thumb" /></span>
+    </button>
+  );
+}
 function SetRow({ icon, label, hint, onClick, danger, trailing, chevron }) {
   return (
     <button type="button" className={`set-row ${danger ? "danger" : ""}`} onClick={onClick}>
@@ -232,6 +259,10 @@ export function SettingsScreen({ nav, stores }) {
   const [updateDetailsOpen, setUpdateDetailsOpen] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [applyingUpdate, setApplyingUpdate] = useState(false);
+  const [pushPrefs, setPushPrefs] = useState(loadPushPrefs);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState("");
+  const [studyPattern] = useState(() => computeStudyPattern(collectSessionStarts(library)));
   const { triggerLightTap } = useHaptic();
   const drv = useGeminiVoiceDriver({ voiceName: voice });
   const fileRef = useRef(null);
@@ -254,6 +285,22 @@ export function SettingsScreen({ nav, stores }) {
         await drv.say("[LINE] Namaste! Main aapka reading companion hoon. Chaliye, kitaab kholte hain.", { fallback: "Namaste!" });
       } else flash("Voice preview is unavailable right now");
     } finally { drv.close(); setPreviewing(false); }
+  }
+  async function updatePushPref(key, value) {
+    if (pushBusy) return;
+    triggerLightTap();
+    const next = { ...pushPrefs, [key]: value };
+    setPushBusy(true);
+    setPushError("");
+    try {
+      await applyPushPrefs(next, library);
+      setPushPrefs(next);
+      if (value) flash(key === "reminders" ? "Study reminders on" : "Notifications on");
+    } catch (error) {
+      setPushError(pushErrorMessage(error));
+    } finally {
+      setPushBusy(false);
+    }
   }
   function exportAll() {
     const data = {};
@@ -332,6 +379,8 @@ export function SettingsScreen({ nav, stores }) {
       .catch(() => {});
     return () => { active = false; };
   }, []);
+  useBackLayer(updateDetailsOpen, () => setUpdateDetailsOpen(false));
+  useBackLayer(releaseNotesOpen, () => setReleaseNotesOpen(false));
 
   if (updateDetailsOpen) {
     return (
@@ -405,6 +454,23 @@ export function SettingsScreen({ nav, stores }) {
             </div>
             <small className="set-hint">Applies from your next session</small>
             <button type="button" className="set-btn" onClick={preview} disabled={previewing}><Volume2 size={15} /> {previewing ? "Playing…" : "Preview this voice"}</button>
+          </div>
+        </SetSec>
+
+        <SetSec title="Notifications">
+          <div className="set-card">
+            <div className="set-rows">
+              <SetSwitchRow icon={<BellRing size={16} />} label="App updates & announcements" hint="New versions and important news, in your notification tray"
+                checked={pushPrefs.announcements} disabled={pushBusy} onChange={(on) => updatePushPref("announcements", on)} />
+              <SetSwitchRow icon={<Clock3 size={16} />} label="Smart study reminders"
+                hint={studyPattern
+                  ? `You usually read around ${formatClockMinute(studyPattern.typicalMinute)}. We'll nudge you at ${formatClockMinute(studyPattern.reminderMinute)}.`
+                  : "We'll learn when you usually read and remind you just before. A few more sessions needed."}
+                checked={pushPrefs.reminders} disabled={pushBusy} onChange={(on) => updatePushPref("reminders", on)} />
+            </div>
+            {pushError
+              ? <small className="set-hint set-push-error" role="alert">{pushError}</small>
+              : notificationPermission() === "denied" && <small className="set-hint">Notifications are blocked for this app in your device settings.</small>}
           </div>
         </SetSec>
 
@@ -627,6 +693,7 @@ export function ReportScreen({ nav, stores }) {
   const [view, setView] = useState("compose");
   const [reportFilter, setReportFilter] = useState("all");
   const [selectedId, setSelectedId] = useState(null);
+  const [releaseView, setReleaseView] = useState(null);
   const [list, setList] = useState(loadReports);
   const [msg, setMsg] = useState("");
   const [refreshingReports, setRefreshingReports] = useState(false);
@@ -640,6 +707,23 @@ export function ReportScreen({ nav, stores }) {
   const selectedReport = filteredReports.find((item) => item.id === selectedId) || null;
 
   const flash = (t) => { setMsg(t); setTimeout(() => setMsg(""), 2800); };
+
+  useBackLayer(view === "reports" && Boolean(selectedId), () => setSelectedId(null));
+  useBackLayer(Boolean(releaseView), () => setReleaseView(null));
+  useBackLayer(Boolean(lightbox), () => setLightbox(null));
+
+  const releaseRequested = Boolean(releaseView);
+  useEffect(() => {
+    if (!releaseRequested) return undefined;
+    let active = true;
+    fetch(`/release-notes.json?t=${Date.now()}`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : { releases: [] }))
+      .then((data) => {
+        if (active) setReleaseView((current) => (current ? { ...current, releases: getReleaseHistory(data.releases || []) } : current));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [releaseRequested]);
 
   function persist(next) {
     const prepared = next.map((r) => ({
@@ -790,6 +874,10 @@ export function ReportScreen({ nav, stores }) {
     flush(next);
   }
 
+  if (releaseView) {
+    return <ReleaseNotesScreen releases={releaseView.releases || []} highlightVersion={releaseView.version} onBack={() => setReleaseView(null)} />;
+  }
+
   return (
     <div className="screen st-screen">
       <div className="aurora-bg" />
@@ -893,6 +981,7 @@ export function ReportScreen({ nav, stores }) {
               onBack={() => setSelectedId(null)}
               onRefresh={() => refreshOneReport(selectedReport.id)}
               onOpenImage={(images, index) => setLightbox({ images, index })}
+              onOpenRelease={(version) => setReleaseView({ version, releases: null })}
             />
           ) : (
             <>

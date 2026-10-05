@@ -86,6 +86,8 @@ import { useAccount } from "./AccountContext.js";
 import AccountGate from "./AccountGate.jsx";
 import { apiUrl } from "./api.js";
 import { computeBadges } from "./appBadges.js";
+import { refreshPushSubscription } from "./pushNotifications.js";
+import { clearLayers, configureBackStack, handleBackStackPop, popRoute, pushRoute, useBackLayer } from "./backStack.js";
 import { AudioCapture } from "./audioCapture.js";
 import { AudioPlayback } from "./audioPlayback.js";
 import BookTile from "./BookTile.jsx";
@@ -464,21 +466,19 @@ function AppCore() {
   const [updateState, setUpdateState] = useState({ available: false, releases: [] });
   const updateActionsRef = useRef(null);
   const routeRef = useRef({ screen: "dashboard", activeBookId: null, activeChapterNumber: null });
-  const overlayStackRef = useRef([]);
-
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", profileStore.getTheme());
   }, []);
 
   useEffect(() => {
+    refreshPushSubscription(library);
+  }, []);
+
+  useEffect(() => {
+    configureBackStack({ routeState: () => routeRef.current });
     window.history.replaceState({ screen: "dashboard" }, "");
     const onPopState = (e) => {
-      const stack = overlayStackRef.current;
-      if (stack.length) {
-        const close = stack.pop();
-        try { close?.(); } catch { /* overlay already unmounted */ }
-        return;
-      }
+      if (handleBackStackPop()) return;
       const state = e.state || { screen: "dashboard" };
       routeRef.current = state;
       setScreen(state.screen);
@@ -489,8 +489,12 @@ function AppCore() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
+  useBackLayer(newBookModalOpen, () => setNewBookModalOpen(false));
+  useBackLayer(!!recapModal, () => setRecapModal(null));
+  useBackLayer(!!storyRequest, () => setStoryRequest(null));
+
   function navigateTo(nextScreen, extra = {}) {
-    overlayStackRef.current = [];
+    clearLayers();
     const nextBookId = "activeBookId" in extra ? extra.activeBookId : activeBookId;
     const nextChapterNumber = "activeChapterNumber" in extra ? extra.activeChapterNumber : activeChapterNumber;
     setScreen(nextScreen);
@@ -498,30 +502,21 @@ function AppCore() {
     setActiveChapterNumber(nextChapterNumber);
     const nextRoute = { screen: nextScreen, activeBookId: nextBookId, activeChapterNumber: nextChapterNumber };
     routeRef.current = nextRoute;
-    window.history.pushState(nextRoute, "");
-  }
-
-  function openOverlay(onClose) {
-    overlayStackRef.current.push(typeof onClose === "function" ? onClose : null);
-    window.history.pushState({ ...routeRef.current, overlay: overlayStackRef.current.length }, "");
+    pushRoute(nextRoute);
   }
 
   function openNewBook() {
     setNewBookModalOpen(true);
-    openOverlay(() => setNewBookModalOpen(false));
   }
 
   function openRecap(bookId) {
     const book = library.getBook(bookId);
     if (!book) return;
     setRecapModal({ bookId, chapterNumber: book.currentChapterNumber });
-    openOverlay(() => setRecapModal(null));
   }
   function startSessionFromRecap() {
     if (!recapModal) return;
     const bookId = recapModal.bookId;
-    overlayStackRef.current.pop();
-    window.history.replaceState(routeRef.current, "");
     setRecapModal(null);
     navigateTo("session", { activeBookId: bookId });
   }
@@ -530,8 +525,6 @@ function AppCore() {
     window.setTimeout(() => navigateTo("session", { activeBookId: bookId }), 80);
   }
   function openStoryFromRecap(bookId) {
-    overlayStackRef.current.pop();
-    window.history.replaceState(routeRef.current, "");
     setRecapModal(null);
     openStory(bookId);
   }
@@ -539,37 +532,24 @@ function AppCore() {
     const book = library.getBook(bookId);
     if (!book) return;
     setStoryRequest({ bookId });
-    openOverlay(() => closeStory(true));
   }
   function finishStory(startSession = false) {
     if (!storyRequest) return;
     const bookId = storyRequest.bookId;
-    const stack = overlayStackRef.current;
-    if (stack.length) stack.pop();
-    window.history.replaceState(routeRef.current, "");
     setStoryRequest(null);
     if (startSession) navigateTo("session", { activeBookId: bookId });
   }
-  function closeStory(fromPopState = false) {
-    if (fromPopState) {
-      setStoryRequest(null);
-      return;
-    }
-    if (!storyRequest) return;
-    if (overlayStackRef.current.length) overlayStackRef.current.pop();
-    window.history.replaceState(routeRef.current, "");
+  function closeStory() {
     setStoryRequest(null);
   }
   function createBookAndOpenSession(title) {
     const book = library.getOrCreateBook(title);
-    overlayStackRef.current.pop();
-    window.history.replaceState(routeRef.current, "");
     setNewBookModalOpen(false);
     navigateTo("session", { activeBookId: book.id });
   }
 
   function goBack() {
-    window.history.back();
+    popRoute();
   }
 
   const badges = computeBadges({ updateAvailable: updateState.available });
@@ -592,7 +572,6 @@ function AppCore() {
     goReport: () => navigateTo("report"),
     goHelp: () => navigateTo("help"),
     openNewBook,
-    openOverlay,
     updateAvailable: updateState.available,
     updateReleases: updateState.releases,
     checkForUpdates: () => updateActionsRef.current?.checkForUpdates?.() || false,
@@ -1506,6 +1485,8 @@ function LibraryScreen({ nav }) {
   const [books, setBooks] = useState(library.listBooks());
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [authorEditor, setAuthorEditor] = useState(null);
+  useBackLayer(Boolean(confirmDelete), () => setConfirmDelete(null));
+  useBackLayer(Boolean(authorEditor), () => setAuthorEditor(null));
   const [portraitSearching, setPortraitSearching] = useState(false);
   const [portraitError, setPortraitError] = useState(false);
 
@@ -1797,6 +1778,7 @@ function ChapterDetailScreen({ bookId, chapterNumber, nav }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [selectedVocab, setSelectedVocab] = useState(null);
+  useBackLayer(!!selectedVocab, () => setSelectedVocab(null));
   const [detailTab, setDetailTab] = useState("context");
   const [detailLang, setDetailLang] = useState("hindi");
   const { triggerLightTap } = useHaptic();
@@ -1836,7 +1818,7 @@ function ChapterDetailScreen({ bookId, chapterNumber, nav }) {
       <div className="screen chapter-detail-screen">
         <div className="aurora-bg" />
         <header className="screen-header">
-          <button className="gem-back-btn" onClick={() => window.history.back()} aria-label="Back to chapter">
+          <button className="gem-back-btn" onClick={() => setSelectedVocab(null)} aria-label="Back to chapter">
             <ChevronRight size={18} className="back-chevron" />
           </button>
           <div className="header-left">
@@ -2025,7 +2007,7 @@ function ChapterDetailScreen({ bookId, chapterNumber, nav }) {
                     className="vocab-card elevated"
                     key={i}
                     style={{ "--badge": badgeGradient(i) }}
-                    onClick={() => { nav.openOverlay(() => setSelectedVocab(null)); setSelectedVocab(v); }}
+                    onClick={() => { setSelectedVocab(v); }}
                   >
                     <div className="vocab-term-row">
                       <div className="vocab-term">{v.term}</div>
@@ -2079,6 +2061,8 @@ function GemsScreen({ nav }) {
   const [selectedGemId, setSelectedGemId] = useState(null);
   const [stylePicking, setStylePicking] = useState(false);
   const [storyGem, setStoryGem] = useState(null);
+  useBackLayer(!!selectedGemId, () => { setSelectedGemId(null); setStylePicking(false); });
+  useBackLayer(!!storyGem, () => setStoryGem(null));
   const [, forceTick] = useState(0);
   const allGems = gemsStore.list();
   const bookOptions = [...allGems.reduce((map, gem) => {
@@ -2142,7 +2126,7 @@ function GemsScreen({ nav }) {
         <div className="screen gem-detail-screen">
         <div className="aurora-bg" />
         <div className="gem-detail-header">
-          <button className="gem-back-btn" onClick={() => window.history.back()} aria-label="Back to gems">
+          <button className="gem-back-btn" onClick={() => { setSelectedGemId(null); setStylePicking(false); }} aria-label="Back to gems">
             <ChevronRight size={18} className="back-chevron" />
           </button>
           <div className="gem-detail-title-block">
@@ -2254,7 +2238,7 @@ function GemsScreen({ nav }) {
   return (
     <div className="screen gems-screen">
       <div className="aurora-bg" />
-      {storyGem && <GemStoryCard gem={storyGem} author={getGemAuthor(storyGem)} onClose={() => window.history.back()} />}
+      {storyGem && <GemStoryCard gem={storyGem} author={getGemAuthor(storyGem)} onClose={() => setStoryGem(null)} />}
       <ScreenHeader title="Gems" subtitle={`${gems.length} saved`} onProfile={nav.goProfile} />
 
       <div className="gem-gallery-controls">
@@ -2279,7 +2263,7 @@ function GemsScreen({ nav }) {
             <div className="gem-card-toolbar">
               <div className="gem-badge"><span className="gem-crystal-mini" aria-hidden="true"><i /><i /></span><Gem size={14} /></div>
               <div className="gem-toolbar-actions">
-                <button className="gem-download-btn" onClick={(e) => { e.stopPropagation(); nav.openOverlay(() => setStoryGem(null)); setStoryGem(g); }} aria-label="Download gem card">
+                <button className="gem-download-btn" onClick={(e) => { e.stopPropagation(); setStoryGem(g); }} aria-label="Download gem card">
                   <Download size={14} />
                 </button>
                 <button className="gem-delete-btn" onClick={(e) => { e.stopPropagation(); gemsStore.remove(g.id); forceTick((n) => n + 1); if (selectedGemId === g.id) setSelectedGemId(null); }} aria-label="Delete gem">
@@ -2288,7 +2272,7 @@ function GemsScreen({ nav }) {
               </div>
             </div>
 
-            <Motion.button className="gem-card-toggle" whileHover={{ y: -3, scale: 1.01 }} whileTap={{ scale: 0.985 }} transition={INTERACTION_SPRING} onClick={() => { nav.openOverlay(() => { setSelectedGemId(null); setStylePicking(false); }); setSelectedGemId(g.id); }}>
+            <Motion.button className="gem-card-toggle" whileHover={{ y: -3, scale: 1.01 }} whileTap={{ scale: 0.985 }} transition={INTERACTION_SPRING} onClick={() => setSelectedGemId(g.id)}>
                 <div className="gem-preview-block">
                 {g.bookTitle && (
                   <div className="gem-book-title"><BookMarked size={12} /> {g.bookTitle}{Number.isFinite(Number(g.chapterNumber)) ? ` · Ch. ${g.chapterNumber}` : ""}</div>
@@ -2353,6 +2337,7 @@ function MemoryScreen() {
   const [, setTick] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [editingText, setEditingText] = useState(null);
+  useBackLayer(Boolean(confirmDelete), () => setConfirmDelete(null));
   const [editDraft, setEditDraft] = useState("");
   const now = APP_STARTED_AT;
   const memories = memoryStore?.memories || [];
@@ -2623,6 +2608,9 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
   const [snapExpanded, setSnapExpanded] = useState(false);
   const [snapBusy, setSnapBusy] = useState(false);
   const snapFileRef = useRef(null);
+  useBackLayer(transcriptOpen, () => setTranscriptOpen(false));
+  useBackLayer(feedOpen, () => setFeedOpen(false));
+  useBackLayer(snapExpanded, () => setSnapExpanded(false));
   const snapBase64Ref = useRef(null);
   const snapTimerRef = useRef(null);
   const snapCountRef = useRef(0);

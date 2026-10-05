@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { getAiProviderOrder, readTextCompletion, requestTextCompletion, streamTextCompletion } from "./aiTextProviders.js";
 import { normalizeGemEchoCatalog, validateGemEchoCandidates, validateGemEchoPairs } from "./gemEchoes.js";
 import { classifyGeminiFailure, KeyPool } from "./geminiKeyPool.js";
+import { buildPushPayload, createPushService, normalizeReminderMinute, normalizeSubscription } from "./pushNotifications.js";
 import { buildReportEmailHtml, buildReportEmailSubject } from "./reportEmailTemplate.js";
 import { cleanRewrite, stepsPreserved } from "./reportRewrite.js";
 import { formatTicketNumber, screenshotObjectPath } from "./reportTicket.js";
@@ -978,14 +979,139 @@ app.post("/api/token/release", (req, res) => {
   return res.json({ ok: true, released: geminiKeyPool.releaseLease(leaseId) });
 });
 
-app.get("/api/keys/status", (req, res) => {
+// Returns true when the request carries ADMIN_TOKEN; otherwise sends 404 (unset) or 403 and returns false.
+function requireAdmin(req, res) {
   const adminToken = process.env.ADMIN_TOKEN || "";
-  if (!adminToken) return res.sendStatus(404);
+  if (!adminToken) {
+    res.sendStatus(404);
+    return false;
+  }
   const supplied = req.get("x-admin-token") || "";
   const expected = Buffer.from(adminToken);
   const actual = Buffer.from(supplied);
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return res.sendStatus(403);
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    res.sendStatus(403);
+    return false;
+  }
+  return true;
+}
+
+app.get("/api/keys/status", (req, res) => {
+  if (!requireAdmin(req, res)) return;
   return res.json({ keys: geminiKeyPool.status() });
+});
+
+// ---------------------------------------------------------------
+// Push notifications (Web Push / VAPID)
+// ---------------------------------------------------------------
+const pushService = createPushService({
+  supabaseUrl: SUPABASE_URL,
+  serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY || "",
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || "",
+  vapidSubject: process.env.VAPID_SUBJECT || "",
+});
+const pushSubscribeWindows = new Map();
+
+function allowPushSubscribe(ip) {
+  const now = Date.now();
+  const window = pushSubscribeWindows.get(ip);
+  if (window && now - window.startedAt < 60 * 60 * 1000) {
+    if (window.count >= 30) return false;
+    window.count += 1;
+  } else {
+    pushSubscribeWindows.set(ip, { startedAt: now, count: 1 });
+  }
+  if (pushSubscribeWindows.size > 2000) {
+    for (const [key, entry] of pushSubscribeWindows) if (now - entry.startedAt >= 60 * 60 * 1000) pushSubscribeWindows.delete(key);
+  }
+  return true;
+}
+
+async function readSupabaseUserId(req) {
+  const token = (req.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
+  try {
+    const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return null;
+    const user = await response.json();
+    return typeof user?.id === "string" ? user.id : null;
+  } catch {
+    return null;
+  }
+}
+
+app.get("/api/push/config", (req, res) => {
+  res.json({ enabled: pushService.configured, publicKey: pushService.configured ? pushService.publicKey : "" });
+});
+
+app.post("/api/push/subscription", async (req, res) => {
+  if (!pushService.configured) return res.status(503).json({ error: "push_not_configured" });
+  if (!allowPushSubscribe(req.ip || req.socket.remoteAddress || "unknown")) return res.status(429).json({ error: "push_rate_limited" });
+  const subscription = normalizeSubscription(req.body?.subscription);
+  if (!subscription) return res.status(400).json({ error: "invalid_subscription" });
+  const prefs = req.body?.preferences || {};
+  try {
+    await pushService.save(subscription, {
+      userId: await readSupabaseUserId(req),
+      announcements: prefs.announcements !== false,
+      remindersEnabled: prefs.reminders === true,
+      reminderMinute: normalizeReminderMinute(prefs.reminderMinute),
+      timezone: prefs.timezone,
+      userAgent: req.get("user-agent"),
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("[PUSH] save failed:", error.message);
+    return res.status(500).json({ error: "push_save_failed" });
+  }
+});
+
+app.delete("/api/push/subscription", async (req, res) => {
+  if (!pushService.configured) return res.status(503).json({ error: "push_not_configured" });
+  const subscription = normalizeSubscription(req.body?.subscription);
+  if (!subscription) return res.status(400).json({ error: "invalid_subscription" });
+  try {
+    await pushService.remove(subscription.endpoint, subscription.auth);
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("[PUSH] remove failed:", error.message);
+    return res.status(500).json({ error: "push_remove_failed" });
+  }
+});
+
+// Developer broadcast: curl -X POST -H "x-admin-token: ..." -d '{"title":"...","body":"..."}'
+app.post("/api/push/send", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  if (!pushService.configured) return res.status(503).json({ error: "push_not_configured" });
+  const payload = buildPushPayload(req.body || {});
+  if (!payload) return res.status(400).json({ error: "title_required" });
+  try {
+    return res.json(await pushService.broadcast(payload));
+  } catch (error) {
+    console.error("[PUSH] broadcast failed:", error.message);
+    return res.status(500).json({ error: "push_broadcast_failed" });
+  }
+});
+
+let reminderRunInFlight = null;
+function runStudyReminders() {
+  if (!pushService.configured) return Promise.resolve({ due: 0, sent: 0, failed: 0, removed: 0 });
+  reminderRunInFlight ||= pushService.runReminders()
+    .catch((error) => {
+      console.error("[PUSH] reminder run failed:", error.message);
+      return { error: "reminder_run_failed" };
+    })
+    .finally(() => { reminderRunInFlight = null; });
+  return reminderRunInFlight;
+}
+
+// External cron ping keeps reminders punctual when the host sleeps between requests.
+app.post("/api/push/reminders/run", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  return res.json(await runStudyReminders());
 });
 
 // ---------------------------------------------------------------
@@ -1681,4 +1807,8 @@ async function buildImageryBriefFromQuote(quote, bookTitle) {
 const PORT = process.env.PORT || 8787;
 app.listen(PORT, () => {
   console.log(`[BACKEND] Token server running on http://localhost:${PORT}`);
+  if (pushService.configured) {
+    setInterval(runStudyReminders, 5 * 60 * 1000).unref();
+    console.log("[PUSH] Study reminder scheduler started");
+  }
 });

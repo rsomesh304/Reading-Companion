@@ -1,7 +1,9 @@
 import { motion as Motion } from "framer-motion";
-import { Calendar, Check, ChevronLeft, Clock, Flag, Hash, Image as ImageIcon, Inbox, MapPin, Plus, RefreshCw, Smartphone } from "lucide-react";
-import { buildReportTimeline, formatIstDate, formatIstDateTime, getReportStatusLabel, getReportStatusShortLabel, istDayKey, normalizeReportStatus } from "./reportIssueHelpers.js";
+import { ArrowUpRight, Calendar, Check, ChevronLeft, Clock, Eye, FlaskConical, Flag, Hash, Image as ImageIcon, Inbox, MapPin, Plus, RefreshCw, ScanSearch, Send, Smartphone, ThumbsUp, Wrench, X as XIcon } from "lucide-react";
+import { buildReportTimeline, formatIstDate, formatIstDateTime, getReportStatusLabel, getReportStatusShortLabel, getTimelineNodeIcon, getTimelineProgress, istDayKey, normalizeReportStatus } from "./reportIssueHelpers.js";
 import "./ReportsView.css";
+
+const STAGE_ICONS = { queued: Clock, sent: Send, seen: Eye, review: ScanSearch, approved: ThumbsUp, in_progress: Wrench, testing: FlaskConical, done: Check, rejected: XIcon };
 
 const formatDate = formatIstDate;
 const ticketLabel = (report) => {
@@ -67,12 +69,15 @@ export function ReportList({ reports, types, onSelect, onCompose }) {
   );
 }
 
-export function ReportDetail({ report, types, appVersion, canRefresh, refreshing, onBack, onRefresh, onOpenImage }) {
+export function ReportDetail({ report, types, appVersion, canRefresh, refreshing, onBack, onRefresh, onOpenImage, onOpenRelease }) {
   const status = normalizeReportStatus(report);
   const type = types.find((entry) => entry.id === report.type);
   const TypeIcon = type?.Icon;
   const shots = screenshotList(report);
   const steps = buildReportTimeline(report);
+  const currentIndex = Math.max(0, steps.findIndex((step) => step.state === "current"));
+  const terminal = status === "done" || status === "rejected";
+  const progress = getTimelineProgress(steps);
   const created = report.createdAt || report.created_at;
   const resolution = status === "done" ? (report.resolutionNote || report.resolution_note || "").trim() : "";
   const doneVersion = report.resolvedInVersion || report.resolved_in_version;
@@ -134,24 +139,48 @@ export function ReportDetail({ report, types, appVersion, canRefresh, refreshing
         </Motion.section>
       )}
 
-      <Motion.section className="rq-block" {...rise(0.15)}>
-        <h4>Status timeline</h4>
+      <Motion.section className={`rq-block rq-track ${status}`} style={{ "--s": `var(--c-${status})` }} {...rise(0.15)}>
+        <div className="rq-track-head">
+          <h4>Status timeline</h4>
+          <span className="rq-track-count">{terminal ? (status === "rejected" ? "Closed" : "Complete") : `Step ${currentIndex + 1} of ${steps.length}`}</span>
+        </div>
+        <div className="rq-meter" role="progressbar" aria-label="Report progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
+          <span style={{ "--p": progress }} />
+        </div>
         <ol className="rq-timeline">
-          {steps.map((step) => {
+          {steps.map((step, index) => {
             const isFirst = step.key === "sent" || step.key === "queued";
             const stamp = isFirst
               ? formatIstDateTime(created)
               : step.date && istDayKey(step.date) !== istDayKey(created) ? formatDate(step.date) : "";
+            const icon = getTimelineNodeIcon(step);
+            const StageIcon = STAGE_ICONS[step.key] || Clock;
+            const next = steps[index + 1];
+            const note = step.notes.at(-1);
             return (
-            <li key={step.key} className={`rq-step ${step.state} ${step.key}`}>
-              <span className="rq-node">{step.state === "done" ? <Check size={11} strokeWidth={3} /> : step.state === "current" ? <Clock size={11} /> : null}</span>
-              <div className="rq-step-body">
-                <div className="rq-step-head"><b>{step.label}</b>{stamp ? <time>{stamp}</time> : null}</div>
-                {step.notes.map((note, index) => (
-                  <p key={index} className="rq-note">{note.text}{note.date && index > 0 ? <time> · {formatDate(note.date)}</time> : null}</p>
-                ))}
-              </div>
-            </li>
+              <li
+                key={step.key}
+                className={`rq-step ${step.state} ${step.key} icon-${icon}`}
+                style={{ "--i": index, "--s": `var(--c-${step.key})`, "--next": next ? `var(--c-${next.key})` : "transparent" }}
+                aria-current={step.state === "current" ? "step" : undefined}
+              >
+                <span className="rq-node" aria-hidden="true">
+                  {icon === "check" && <Check size={13} strokeWidth={3.2} />}
+                  {icon === "cross" && <XIcon size={13} strokeWidth={3.2} />}
+                  {icon === "clock" && <Clock size={13} strokeWidth={2.6} />}
+                  {icon === "stage" && <StageIcon size={12} strokeWidth={2.2} />}
+                  {step.state === "current" && icon === "clock" && <i className="rq-orbit" />}
+                  {step.state === "current" && icon === "check" && <><i className="rq-burst" /><i className="rq-burst b" /></>}
+                </span>
+                <div className="rq-step-body">
+                  <div className="rq-step-head">
+                    <b>{step.label}</b>
+                    {step.state === "current" && !terminal ? <em className="rq-now">Now</em> : null}
+                    {stamp ? <time>{stamp}</time> : null}
+                  </div>
+                  {note ? <p className="rq-note">{note.text}</p> : null}
+                </div>
+              </li>
             );
           })}
         </ol>
@@ -162,7 +191,13 @@ export function ReportDetail({ report, types, appVersion, canRefresh, refreshing
           <span className="rq-resolution-glow" aria-hidden="true" />
           <h4><Check size={14} strokeWidth={3} /> Resolution</h4>
           {resolution ? <p className="rq-text">{resolution}</p> : null}
-          {doneVersion ? <span className="rq-version">Completed in v{doneVersion}</span> : null}
+          {doneVersion ? (
+            onOpenRelease ? (
+              <button type="button" className="rq-version link" onClick={() => onOpenRelease(String(doneVersion))} aria-label={`See what changed in version ${doneVersion}`}>
+                Completed in v{doneVersion} <ArrowUpRight size={13} strokeWidth={2.6} />
+              </button>
+            ) : <span className="rq-version">Completed in v{doneVersion}</span>
+          ) : null}
         </Motion.section>
       )}
     </div>

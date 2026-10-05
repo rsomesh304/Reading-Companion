@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import { clearGemEchoCache, fetchGemEchoes, gemPairSignature, gemTextHash } from "./gemEchoClient.js";
 import { ensureGemInsights, gemInsightHash } from "./gemInsightClient.js";
+import { useBackLayer } from "./backStack.js";
 import { buildLocalGemEchoes, MAX_ECHOES_PER_GEM } from "./gemSemantics.js";
 import "./MemoryConstellation.css";
 
@@ -210,6 +211,8 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
   const [infoOpen, setInfoOpen] = useState(() => { try { return !localStorage.getItem("cc_info_seen"); } catch { return true; } });
 
   const closeInfo = () => { setInfoOpen(false); try { localStorage.setItem("cc_info_seen", "1"); } catch { /* ignore */ } };
+  useBackLayer(Boolean(selectedId), () => setSelectedId(null));
+  useBackLayer(infoOpen, closeInfo);
 
   // follow the app theme
   useEffect(() => {
