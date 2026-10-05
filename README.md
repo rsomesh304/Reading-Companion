@@ -8,6 +8,8 @@ A personal reading companion app built with React + Vite on the frontend and a s
 - Redesigned report status timeline with a tick for completed stages, a single latest note per stage and fixed-in versions that link to Release History.
 - Back navigation moves exactly one level up from nested screens, sheets and dialogs.
 - Chapter vocabulary lists scroll again.
+- Help & Support shows live AI availability with a friendly notice, opens with the message box ready and keeps it above the keyboard.
+- Gem details scroll fully, Mind Map echo lines are back, and Ghost Mode switches on quietly.
 
 ### Push notification setup
 

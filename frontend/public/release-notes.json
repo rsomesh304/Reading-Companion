@@ -8,8 +8,14 @@
         { "type": "feature", "text": "Push notifications deliver app updates and important announcements to your phone's notification tray" },
         { "type": "feature", "text": "Smart study reminders learn when you usually read and nudge you shortly before that time, with an opt-in toggle in Settings" },
         { "type": "feature", "text": "Fixed-in versions on your reports are now links that open the matching Release History entry" },
+        { "type": "feature", "text": "Help & Support shows whether the AI assistant is online, with a friendly note telling you to expect a live AI answer or built-in guide answers" },
         { "type": "improve", "text": "The report status timeline has been redesigned with animated progress, and completed stages now show a tick instead of a clock" },
         { "type": "improve", "text": "Back now goes exactly one step up from nested screens, sheets and dialogs instead of leaving the whole section" },
+        { "type": "improve", "text": "Ghost Mode now switches on quietly; your companion only explains it when you ask, and points app questions to Help & guide" },
+        { "type": "improve", "text": "Help & Support opens with the message box ready straight away, and the blinking cursor next to your name is gone" },
+        { "type": "fix", "text": "The Help & Support message box stays visible just above the keyboard while you type" },
+        { "type": "fix", "text": "Gem details are no longer clipped; every card, including Real-life application, scrolls fully into view" },
+        { "type": "fix", "text": "Mind Map shows the animated dotted connection lines between linked gems across books again" },
         { "type": "fix", "text": "Chapter vocabulary lists scroll again so every difficult word is reachable" },
         { "type": "fix", "text": "Edited status notes no longer appear twice; each stage shows only its latest note" }
       ]

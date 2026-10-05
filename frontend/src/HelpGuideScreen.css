@@ -26,6 +26,19 @@
 .help-header-avatar { position: relative; display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.14); border-radius: 50%; color: #fff; background: var(--hc-orb); }
 .help-header-avatar::before { position: absolute; inset: -3px; border: 2px solid transparent; border-radius: inherit; content: ""; background: conic-gradient(from 0deg,#9d70ff,#35d5dd,#ee72c7,#f3bd68,#9d70ff) border-box; -webkit-mask: linear-gradient(#fff 0 0) padding-box,linear-gradient(#fff 0 0); -webkit-mask-composite: xor; mask-composite: exclude; animation: help-ring-spin 8s linear infinite; }
 .help-header-avatar > i { position: absolute; right: -2px; bottom: 0; width: 9px; height: 9px; border: 2px solid var(--hc-header); border-radius: 50%; background: #42d897; }
+.help-header-avatar.offline > i { background: #f0a24a; }
+.help-header-avatar.checking > i { background: #9a8fb6; }
+.help-status-pill { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; margin-left: 2px; padding: 2px 7px 2px 6px; border: 1px solid rgba(66,216,151,.4); border-radius: 999px; color: #8ff0c2; background: rgba(66,216,151,.12); font-size: 10px; font-weight: 750; letter-spacing: .01em; }
+.help-status-pill > i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.help-status-pill.online > i { animation: help-status-pulse 2.2s ease-out infinite; }
+.help-status-pill.offline { border-color: rgba(240,162,74,.45); color: #ffc98a; background: rgba(240,162,74,.13); }
+.help-status-pill.checking { border-color: var(--hc-border); color: var(--hc-secondary); background: transparent; }
+:root[data-theme="light"] .help-status-pill.online { border-color: #8fd7b4; color: #136b44; background: #e3f7ed; }
+:root[data-theme="light"] .help-status-pill.offline { border-color: #f0c08a; color: #8a4b05; background: #fff1df; }
+.help-status-notice { position: relative; z-index: 4; display: flex; flex: 0 0 auto; align-items: center; gap: 8px; width: min(100% - 28px,752px); margin: 8px auto 0; padding: 7px 12px; border: 1px solid rgba(66,216,151,.3); border-radius: 12px; color: var(--hc-secondary); background: color-mix(in srgb,#42d897 9%,var(--hc-card)); font-size: 12px; line-height: 1.35; }
+.help-status-notice > i { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: #42d897; }
+.help-status-notice.offline { border-color: rgba(240,162,74,.35); background: color-mix(in srgb,#f0a24a 10%,var(--hc-card)); }
+.help-status-notice.offline > i { background: #f0a24a; }
 .help-header-copy { min-width: 0; }
 .help-header-copy h1 { overflow: hidden; margin: 0; color: var(--hc-text); font-family: 'Fraunces',serif; font-size: 20px; font-weight: 650; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
 .help-header-sub { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--hc-secondary); font-size: 11px; line-height: 1.2; }
@@ -57,7 +70,6 @@
 .help-intro-copy { display: flex; flex-direction: column; gap: 4px; min-height: 54px; }
 .help-intro-copy h2 { margin: 0; color: var(--hc-text); font-family: 'Fraunces',serif; font-size: 27px; font-weight: 650; line-height: 1.15; }
 .help-intro-copy p { min-height: 20px; margin: 0; color: var(--hc-secondary); font-size: 14px; line-height: 1.45; }
-.help-type-cursor { display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: -.1em; background: #bb94ff; animation: help-blink .8s steps(2,start) infinite; }
 .help-question-list { display: flex; flex-direction: column; gap: 8px; width: min(100%,500px); margin-top: 1px; }
 .help-question-row { display: grid; grid-template-columns: 38px minmax(0,1fr) 18px; align-items: center; gap: 11px; width: 100%; min-height: 52px; padding: 6px 12px 6px 8px; border: 1px solid var(--hc-border); border-radius: 16px; color: var(--hc-text); background: var(--hc-card); box-shadow: 0 5px 16px rgba(0,0,0,.12); font-size: 14px; font-weight: 650; text-align: left; cursor: pointer; transition: border-color .18s ease,transform .18s ease,background .18s ease; }
 .help-question-row:hover { border-color: #9670d8; background: var(--hc-card-raised); }
@@ -176,7 +188,6 @@
 @keyframes help-ring-spin { to { transform: rotate(360deg); } }
 @keyframes help-ripple { 0% { opacity: .75; transform: scale(.82); } 100% { opacity: 0; transform: scale(1.32); } }
 @keyframes help-wave { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-5px); } }
-@keyframes help-blink { to { visibility: hidden; } }
 @keyframes help-drift { from { transform: translate3d(-3%,0,0) scale(.96); } to { transform: translate3d(8%,6%,0) scale(1.08); } }
 @keyframes help-send-ripple { from { opacity: .8; transform: scale(.55); } to { opacity: 0; transform: scale(1.75); } }
 @media (max-width: 390px) {
@@ -245,16 +256,17 @@
 @keyframes hd-dust { 0% { opacity: 0; transform: translate(-50%, 0); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(calc(-50% + var(--x)), -62px); } }
 @keyframes hd-scan { 0%, 100% { top: 8px; } 50% { top: 86px; } }
 @keyframes hd-flash { 0%, 8% { opacity: .85; } 30%, 100% { opacity: 0; } }
-@keyframes help-blink { to { visibility: hidden; } }
 @media (max-width: 540px) {
   .help-history-dialog { inset: auto 0 0; width: 100%; max-height: calc(100dvh - env(safe-area-inset-top,0px) - 24px); margin: 0; border-radius: 22px 22px 0 0; }
   .help-history-content { max-height: calc(100dvh - env(safe-area-inset-top,0px) - 26px); padding-bottom: env(safe-area-inset-bottom,0px); }
   .help-history-heading { padding: 20px 16px 16px; }
   .help-history-search { margin-right: 16px; margin-left: 16px; }
   .help-history-footer { padding: 10px 16px; }
-  .help-screen { min-height: calc(100dvh - 102px - env(safe-area-inset-bottom, 0px)); height: calc(100dvh - 102px - env(safe-area-inset-bottom, 0px)); }
+  .help-screen { min-height: 0; }
   .help-thread { padding: 16px 14px 12px; }
   .help-message { max-width: 94%; }
   .help-composer { margin-bottom: 4px; }
 }
-@media (prefers-reduced-motion: reduce) { .help-message,.help-cursor,.hd-caption,.hd-orb,.hd-orb i,.hd-scan,.hd-node.current,.hd-phone.on .hd-flash { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .help-message,.help-cursor,.hd-caption,.hd-orb,.hd-orb i,.hd-scan,.hd-node.current,.hd-phone.on .hd-flash,.help-status-pill > i { animation: none; } }
+@keyframes help-status-pulse { 0% { box-shadow: 0 0 0 0 rgba(66,216,151,.55); } 70%, 100% { box-shadow: 0 0 0 6px rgba(66,216,151,0); } }
+@keyframes help-blink { to { visibility: hidden; } }

@@ -2880,9 +2880,9 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     setGhostToast(next);
     triggerSuccess();
     const author = book?.authorName || "the author of this book";
-    clientRef.current?.sendText(next
-      ? `[SYSTEM NOTE] Author's Ghost Mode is ON. Let explanations draw on ${author}'s known themes and broad literary perspective while remaining the reader's companion. This is imaginative mode: do not claim to literally be the author, invent personal memories, or fabricate quotations. Keep responses grounded in the actual book and speak naturally in Hinglish.`
-      : "[SYSTEM NOTE] Author's Ghost Mode is OFF. Return to your usual warm reading-companion voice and answer plainly in Hinglish.");
+    clientRef.current?.sendQuietNote(next
+      ? `[SYSTEM NOTE] Author's Ghost Mode is ON. Do not reply to this note - stay completely silent now. From the reader's next question, let explanations draw on ${author}'s known themes and broad literary perspective while remaining the reader's companion. This is imaginative mode: do not claim to literally be the author, invent personal memories, or fabricate quotations. Keep responses grounded in the actual book and speak naturally in Hinglish.`
+      : "[SYSTEM NOTE] Author's Ghost Mode is OFF. Do not reply to this note - stay completely silent now. From the reader's next question, return to your usual warm reading-companion voice and answer plainly in Hinglish.");
   }
 
   function addVocabularyEntry(entry, chapter = chapterNumberRef.current) {

@@ -59,7 +59,9 @@ function buildGraph(books, gems, verifiedEchoes = []) {
   const nodes = [], links = [], adj = new Map(), echoes = new Map(), echoReasons = new Map(), echoMeta = new Map();
   const add = (m, a, b) => { if (!m.has(a)) m.set(a, new Set()); m.get(a).add(b); };
   const link = (a, b, kind, meta = {}) => {
-    links.push({ source: a, target: b, kind, ...meta });
+    // meta must not override the endpoints; echo metadata carries its own `source` label.
+    const { source: origin, ...rest } = meta;
+    links.push({ ...rest, ...(origin ? { origin } : {}), source: a, target: b, kind });
     add(adj, a, b); add(adj, b, a);
     if (kind === "echo") {
       add(echoes, a, b); add(echoes, b, a);

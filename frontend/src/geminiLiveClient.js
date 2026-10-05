@@ -214,9 +214,12 @@ export class GeminiLiveClient {
       this.goAwayTimer = setTimeout(() => this._handleTransportError({ message: "goaway", soft: true }), Math.max(500, (secondsLeft * 1000) / 2));
       return;
     }
-    if (message.data) this.handlers.onAudio?.(message.data);
     const sc = message.serverContent;
-    if (sc?.outputTranscription?.text) this.handlers.onText?.(sc.outputTranscription.text);
+    if (sc?.inputTranscription?.text) this.quietUntil = 0;
+    const quiet = this.quietUntil > Date.now();
+    if (quiet && sc?.turnComplete) this.quietUntil = 0;
+    if (message.data && !quiet) this.handlers.onAudio?.(message.data);
+    if (sc?.outputTranscription?.text && !quiet) this.handlers.onText?.(sc.outputTranscription.text);
     if (sc?.inputTranscription?.text) this.handlers.onUserText?.(sc.inputTranscription.text);
     if (sc?.interrupted) this.handlers.onInterrupted?.();
     if (message.toolCall) this.handlers.onToolCall?.(message.toolCall);
@@ -424,6 +427,14 @@ export class GeminiLiveClient {
   async sendText(text) {
     if (this.stopped || !this.ready || !this.session) return;
     try { await this.session.sendRealtimeInput({ text }); } catch { /* reconnect gap */ }
+  }
+
+  // Context-only note: any spoken reply the model produces to it is dropped
+  // until that turn completes, the reader speaks, or the hold window ends.
+  async sendQuietNote(text, holdMs = 8000) {
+    if (this.stopped || !this.ready || !this.session) return;
+    this.quietUntil = Date.now() + holdMs;
+    await this.sendText(text);
   }
 
   async sendToolResponse(functionResponses) {

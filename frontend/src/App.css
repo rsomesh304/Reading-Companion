@@ -1956,6 +1956,8 @@ img { -webkit-user-drag: none; }
 .gem-open-cue { display: inline-flex; align-items: center; gap: 4px; color: var(--gem-accent); font-size: 11px; font-weight: 800; }
 .gem-gallery-card .gem-chevron-wrap { flex: 0 0 34px; display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 50%; color: var(--gem-accent); background: var(--surface-2); }
 .gem-gallery-detail { overflow: hidden; border-color: color-mix(in srgb,var(--gem-accent) 30%,var(--border)); }
+/* Children of the scrolling detail screen keep their natural height so the screen scrolls instead of clipping the card. */
+.gem-detail-screen > * { flex-shrink: 0; }
 .gem-detail-poster { position: relative; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; gap: 13px; margin: -16px -16px 17px; padding: 30px 24px 22px; border-radius: 22px 22px 18px 18px; color: #fff; background: radial-gradient(circle at 86% 8%,color-mix(in srgb,var(--gem-accent) 42%,transparent),transparent 45%),linear-gradient(145deg,color-mix(in srgb,var(--gem-accent-2) 70%,#12081f),#171126 78%); }
 .gem-detail-crystal { position: absolute; z-index: -1; top: 20px; right: 24px; width: 66px; height: 78px; opacity: .32; background: linear-gradient(145deg,rgba(255,255,255,.8),var(--gem-accent),var(--gem-accent-2)); clip-path: polygon(26% 0,74% 0,100% 34%,50% 100%,0 34%); filter: drop-shadow(0 12px 30px var(--gem-accent)); animation: gemCrystalFloat 5s ease-in-out infinite; }
 .gem-detail-crystal i { position: absolute; inset: 0; border: 1px solid rgba(255,255,255,.7); clip-path: polygon(26% 0,74% 0,100% 34%,50% 100%,0 34%); }

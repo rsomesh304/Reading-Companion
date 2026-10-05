@@ -201,6 +201,13 @@ app.post("/api/ai/report-rewrite", async (req, res) => {
   }
 });
 
+app.get("/api/ai/help/status", async (req, res) => {
+  const providers = getAiProviderOrder("help");
+  const helpGuide = providers.length ? await loadHelpGuide() : null;
+  res.set("Cache-Control", "no-store");
+  res.json({ available: Boolean(providers.length && helpGuide), providers });
+});
+
 app.post("/api/ai/help", async (req, res) => {
   const question = typeof req.body?.question === "string" ? req.body.question.trim().slice(0, 700) : "";
   if (!question) return res.status(400).json({ error: "help_question_required" });

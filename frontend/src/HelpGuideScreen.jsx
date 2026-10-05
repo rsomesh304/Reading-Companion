@@ -164,6 +164,7 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
   const [serviceNotice, setServiceNotice] = useState(null);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [viewport, setViewport] = useState(null);
+  const [aiStatus, setAiStatus] = useState(() => (typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "checking"));
   const listRef = useRef(null);
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -175,6 +176,29 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
   useBackLayer(historyOpen, () => setHistoryOpen(false));
   useBackLayer(browseOpen, () => setBrowseOpen(false));
   useBackLayer(tourOpen, () => setTourOpen(false));
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkStatus() {
+      if (navigator.onLine === false) { setAiStatus("offline"); return; }
+      try {
+        const response = await apiFetchFast("/api/ai/help/status", { cache: "no-store" }, { timeoutMs: 6000 });
+        const data = response.ok ? await response.json() : null;
+        if (!cancelled) setAiStatus(data?.available ? "online" : "offline");
+      } catch {
+        if (!cancelled) setAiStatus("offline");
+      }
+    }
+    void checkStatus();
+    const goOffline = () => setAiStatus("offline");
+    window.addEventListener("online", checkStatus);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", checkStatus);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
 
   useEffect(() => {
     const saved = validMessages(messages);
@@ -400,6 +424,7 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
           const eventData = JSON.parse(data);
           if (eventData.error) throw new Error(eventData.error);
           if (eventData.type === "provider") {
+            setAiStatus("online");
             setServiceNotice(eventData.provider === "cloudflare"
               ? { kind: "backup", text: eventData.groqConfigured ? "Groq is unavailable right now. A backup AI is answering." : "Groq is not configured here. The backup AI is answering." }
               : null);
@@ -435,6 +460,7 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
       }
       if (intentHandled) return;
       if (!answer.trim()) throw new Error("help_empty");
+      setAiStatus("online");
       const responseTopic = demoTopic;
       setMessages((current) => current.map((message) => message.id === assistantMessage.id
         ? { ...message, streaming: false, topicId: responseTopic?.id || message.topicId || null }
@@ -442,7 +468,8 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
       cacheAnswer(text, { content: answer, topicId: responseTopic?.id || null });
     } catch {
       const usefulTopics = demoTopic ? [] : matches.length ? matches : QUESTIONS.slice(0, 3).map(({ id }) => getTopic(id)).filter(Boolean);
-      setServiceNotice({ kind: "offline", text: "AI replies are unavailable right now. I’ll use the built-in Help guide instead." });
+      if (!answer) setAiStatus("offline");
+      setServiceNotice(null);
       setMessages((current) => current.map((message) => message.id === assistantMessage.id
         ? { ...message, content: answer || (demoTopic ? buildShortHelpAnswer(demoTopic) : "I couldn't get a reliable answer just now. Try one of these guide topics:"), streaming: false, failed: !answer && !demoTopic }
         : message));
@@ -450,6 +477,19 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleInputFocus() {
+    setFocused(true);
+    // iOS pans the page instead of resizing it; pin the window and keep the composer in view.
+    const settle = () => {
+      if (window.scrollY) window.scrollTo(0, 0);
+      inputRef.current?.scrollIntoView({ block: "nearest" });
+      const list = listRef.current;
+      if (list && messages.length) list.scrollTop = list.scrollHeight;
+    };
+    window.setTimeout(settle, 60);
+    window.setTimeout(settle, 320);
   }
 
   function toggleDictation() {
@@ -491,19 +531,39 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
   }
 
   const browseTopics = HELP_GUIDE.slice(0, 9);
-  const rootStyle = viewport ? { top: `${viewport.top}px`, height: `${viewport.height}px` } : undefined;
+  const rootStyle = viewport ? { top: `${viewport.top}px`, height: `${viewport.height}px`, minHeight: 0 } : undefined;
+  const statusLabel = aiStatus === "online" ? "AI online" : aiStatus === "offline" ? "AI offline" : "Checking AI";
+  const statusNotice = aiStatus === "online"
+    ? "Good news, the AI assistant is online. You'll get a live answer to anything you ask."
+    : aiStatus === "offline"
+      ? "The AI assistant is taking a short break. For now you'll get answers from the built-in Help guide."
+      : null;
 
   return (
     <main className="screen help-screen" style={rootStyle}>
       <div className="help-aurora" aria-hidden="true"><i /><i /><i /></div>
       <header className="help-header">
         <button className="help-round-button" type="button" onClick={nav.goBack} aria-label="Back to Profile"><ChevronLeft size={21} /></button>
-        <div className="help-header-avatar" aria-hidden="true"><Sparkles size={17} /><i /></div>
+        <div className={`help-header-avatar ${aiStatus}`} aria-hidden="true"><Sparkles size={17} /><i /></div>
         <div className="help-header-copy">
           <h1>Help &amp; Support</h1>
-          <div className="help-header-sub"><b>AI</b><span>Replies in seconds</span></div>
+          <div className="help-header-sub">
+            <b>AI</b>
+            <span>{aiStatus === "offline" ? "Help guide answers" : "Replies in seconds"}</span>
+            <span className={`help-status-pill ${aiStatus}`} role="status" aria-label={statusLabel} title={statusLabel}>
+              <i aria-hidden="true" />{aiStatus === "online" ? "Online" : aiStatus === "offline" ? "Offline" : "Checking"}
+            </span>
+          </div>
         </div>
       </header>
+      <AnimatePresence initial={false} mode="wait">
+        {statusNotice && (
+          <Motion.p key={aiStatus} className={`help-status-notice ${aiStatus}`}
+            initial={reducedMotion ? false : { opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: reducedMotion ? 0 : 0.25 }}>
+            <i aria-hidden="true" />{statusNotice}
+          </Motion.p>
+        )}
+      </AnimatePresence>
       <nav className="help-toolbar" aria-label="Help navigation">
         <div className="help-toolbar-inner">
           <button className="help-toolbar-button primary" type="button" onClick={clearChat} disabled={busy}><Plus size={16} />New chat</button>
@@ -529,7 +589,7 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
                 <i /><i /><span><Sparkles size={26} /></span>
               </Motion.div>
               <div className="help-intro-copy">
-                <h2 aria-label={`Hi ${userName}`}>{greeting}<i className="help-type-cursor" /></h2>
+                <h2 aria-label={`Hi ${userName}`}>{greeting}</h2>
                 <Motion.p initial={{ opacity: 0, y: 6 }} animate={{ opacity: introStage >= 2 ? 1 : 0, y: introStage >= 2 ? 0 : 6 }} transition={{ duration: reducedMotion ? 0 : 0.35 }}>Ask me anything about the app</Motion.p>
               </div>
               <div className="help-question-list">
@@ -623,12 +683,11 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
             <p>This saved conversation is read-only.</p>
             <button className="help-toolbar-button primary" type="button" onClick={() => { setViewingId(null); window.requestAnimationFrame(() => inputRef.current?.focus()); }}>Back to current chat<ChevronRight size={16} /></button>
           </div>
-        ) : <Motion.form className={`help-composer ${focused ? "focused" : ""}`} onSubmit={(event) => { event.preventDefault(); void sendQuestion(); }}
-          initial={introActive && !reducedMotion ? { opacity: 0, y: 30 } : false} animate={{ opacity: 1, y: 0 }} transition={{ delay: introActive && !reducedMotion ? 1.25 : 0, duration: reducedMotion ? 0 : 0.42, type: "spring", stiffness: 190, damping: 22 }}>
+        ) : <form className={`help-composer ${focused ? "focused" : ""}`} onSubmit={(event) => { event.preventDefault(); void sendQuestion(); }}>
           <Sparkles className="help-composer-spark" size={18} aria-hidden="true" />
           <div className="help-input-wrap">
             <input ref={inputRef} type="text" value={question} maxLength={700} disabled={busy}
-              onChange={(event) => setQuestion(event.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+              onChange={(event) => setQuestion(event.target.value)} onFocus={handleInputFocus} onBlur={() => setFocused(false)}
               aria-label="Your question" autoComplete="off" />
             {!question && <AnimatePresence mode="wait"><Motion.span key={placeholderIndex} className="help-placeholder" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: reducedMotion ? 0 : 0.22 }}>{PLACEHOLDERS[placeholderIndex]}</Motion.span></AnimatePresence>}
           </div>
@@ -643,7 +702,7 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
                   : <Motion.span key="disabled-send" initial={false}><ArrowUp size={20} /></Motion.span>}
             </AnimatePresence>
           </button>
-        </Motion.form>}
+        </form>}
         {!viewing && <p className="help-footer-note">AI can make mistakes. Check <button type="button" onClick={() => setBrowseOpen((open) => !open)}>Browse topics</button> or <button type="button" onClick={() => nav.goReport?.()}>Report an issue</button>.</p>}
       </div>
       {historyOpen && <HelpChatHistory sessions={pastSessions} selectedId={viewingId} onSelect={(id) => { setViewingId(id); setHistoryOpen(false); }} onDelete={deleteSession} onClear={clearPastSessions} onClose={() => setHistoryOpen(false)} />}
