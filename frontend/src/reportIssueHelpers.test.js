@@ -50,7 +50,7 @@ test("labels report lifecycle states for users", () => {
   assert.equal(getReportStatusLabel({ status: "done", resolved_in_version: "1.2.0" }), "Completed · v1.2.0");
 });
 
-test("timeline lists every status note once and keeps the resolution note out", async () => {
+test("timeline keeps only the latest note per status and keeps the resolution note out", async () => {
   const { buildReportTimeline } = await import("./reportIssueHelpers.js");
   const steps = buildReportTimeline({
     status: "done",
@@ -62,7 +62,10 @@ test("timeline lists every status note once and keeps the resolution note out", 
       { status: "done", note: "Fixed in the new build", at: "2026-10-03T09:00:00Z" },
     ],
   });
-  assert.equal(steps.find((s) => s.key === "seen").notes.length, 2);
+  const seen = steps.find((s) => s.key === "seen");
+  assert.equal(seen.notes.length, 1);
+  assert.equal(seen.notes[0].text, "Reproduced it");
+  assert.equal(seen.date, "2026-10-02T09:00:00Z");
   assert.equal(steps.find((s) => s.key === "done").notes.length, 0);
   assert.equal(steps.at(-1).state, "current");
   assert.equal(steps[0].state, "done");
@@ -87,4 +90,21 @@ test("per-stage timestamps are read from stage columns", async () => {
   const steps = buildReportTimeline({ status: "testing", created_at: "2026-10-01T10:00:00Z", seen_at: "2026-10-02T10:00:00Z", review_at: "2026-10-04T10:00:00Z" });
   assert.equal(steps.find((s) => s.key === "seen").date, "2026-10-02T10:00:00Z");
   assert.equal(steps.find((s) => s.key === "review").date, "2026-10-04T10:00:00Z");
+});
+
+test("a finished report shows a tick, never a clock, on its final step", async () => {
+  const { buildReportTimeline, getTimelineNodeIcon, getTimelineProgress } = await import("./reportIssueHelpers.js");
+  const done = buildReportTimeline({ status: "done" });
+  assert.equal(getTimelineNodeIcon(done.at(-1)), "check");
+  assert.ok(done.every((step) => getTimelineNodeIcon(step) === "check"));
+  assert.equal(getTimelineProgress(done), 1);
+
+  const testing = buildReportTimeline({ status: "testing" });
+  assert.equal(getTimelineNodeIcon(testing.find((s) => s.key === "testing")), "clock");
+  assert.equal(getTimelineNodeIcon(testing.find((s) => s.key === "done")), "stage");
+  assert.ok(getTimelineProgress(testing) > 0 && getTimelineProgress(testing) < 1);
+
+  const rejected = buildReportTimeline({ status: "rejected" });
+  assert.equal(getTimelineNodeIcon(rejected.at(-1)), "cross");
+  assert.equal(getTimelineProgress(rejected), 1);
 });

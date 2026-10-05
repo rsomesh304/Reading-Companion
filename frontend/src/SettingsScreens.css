@@ -139,8 +139,18 @@
 .st-release-card-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; color: var(--primary); background: color-mix(in srgb, var(--surface) 62%, transparent); font-size: 10px; font-weight: 800; }
 .st-release-card p { margin: 0; color: var(--text); font-size: 12px; line-height: 1.55; }
 @keyframes release-node-glow { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--primary) 7%, transparent); } }
+/* Release opened from a report's "Fixed in" link */
+.st-release-entry { scroll-margin-top: 84px; }
+.st-release-entry.is-target > :not(.st-release-node) { border-radius: 18px; animation: release-target 2.4s ease-out 0.5s 1 both; }
+.st-release-entry.is-target .st-release-node { width: 14px; height: 14px; left: -20px; top: 15px; background: #f3a849; }
+@keyframes release-target {
+	0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent); }
+	20% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 55%, transparent), 0 14px 32px color-mix(in srgb, var(--primary) 22%, transparent); }
+	100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 35%, transparent), 0 10px 24px rgba(42, 39, 76, .08); }
+}
 @media (prefers-reduced-motion: reduce) {
 	.st-release-node { animation: none; }
+	.st-release-entry.is-target > :not(.st-release-node) { animation: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 35%, transparent); }
 }
 
 /* about */
@@ -191,3 +201,9 @@
 .rp-ai-preview button { min-height: 34px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 10px; color: var(--text); background: var(--surface-2); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
 .st-screen { padding-bottom: 8px; }
 .st-screen::after { content: ""; display: block; flex: 0 0 auto; height: calc(120px + env(safe-area-inset-bottom, 0px)); }
+
+/* Notification switches */
+.set-switch-row .set-row-tx { flex: 1; min-width: 0; }
+.set-switch-row:disabled { opacity: .6; cursor: progress; }
+.set-switch-row .switch { pointer-events: none; }
+.set-push-error { display: block; margin-top: 10px; color: #f87171; }

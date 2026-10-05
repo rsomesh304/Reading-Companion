@@ -156,3 +156,4 @@
 .cc-gem-list button svg { color: var(--ac1); flex-shrink: 0; margin-top: 2px; }
 .cc-gem-list button em { display: block; margin-top: 2px; font-size: 11px; font-style: normal; color: var(--cc-dim); }
 .cc-gem-list button em.cc-echo-why { color: var(--ac1); font-weight: 700; }
+.cc-root.cc-full { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100dvh !important; z-index: 1000; border-radius: 0 !important; }

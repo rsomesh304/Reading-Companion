@@ -1,9 +1,10 @@
 import { AnimatePresence, motion as Motion, useDragControls } from "framer-motion";
-import { BookOpen, Gem, Info, Link2, Maximize2, RefreshCw, Shuffle, X as XIcon } from "lucide-react";
+import { BookOpen, Gem, Info, Link2, Maximize2, Minimize2, RefreshCw, Shuffle, X as XIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import { clearGemEchoCache, fetchGemEchoes, gemPairSignature, gemTextHash } from "./gemEchoClient.js";
 import { ensureGemInsights, gemInsightHash } from "./gemInsightClient.js";
+import { useBackLayer } from "./backStack.js";
 import { buildLocalGemEchoes, MAX_ECHOES_PER_GEM } from "./gemSemantics.js";
 import "./MemoryConstellation.css";
 
@@ -58,7 +59,9 @@ function buildGraph(books, gems, verifiedEchoes = []) {
   const nodes = [], links = [], adj = new Map(), echoes = new Map(), echoReasons = new Map(), echoMeta = new Map();
   const add = (m, a, b) => { if (!m.has(a)) m.set(a, new Set()); m.get(a).add(b); };
   const link = (a, b, kind, meta = {}) => {
-    links.push({ source: a, target: b, kind, ...meta });
+    // meta must not override the endpoints; echo metadata carries its own `source` label.
+    const { source: origin, ...rest } = meta;
+    links.push({ ...rest, ...(origin ? { origin } : {}), source: a, target: b, kind });
     add(adj, a, b); add(adj, b, a);
     if (kind === "echo") {
       add(echoes, a, b); add(echoes, b, a);
@@ -210,6 +213,29 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
   const [infoOpen, setInfoOpen] = useState(() => { try { return !localStorage.getItem("cc_info_seen"); } catch { return true; } });
 
   const closeInfo = () => { setInfoOpen(false); try { localStorage.setItem("cc_info_seen", "1"); } catch { /* ignore */ } };
+  useBackLayer(Boolean(selectedId), () => setSelectedId(null));
+  useBackLayer(infoOpen, closeInfo);
+  const [fullscreen, setFullscreen] = useState(false);
+  const exitFullscreen = useCallback(() => {
+    setFullscreen(false);
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  }, []);
+  useBackLayer(fullscreen, exitFullscreen);
+  const toggleFullscreen = useCallback(() => {
+    if (fullscreen) return exitFullscreen();
+    setFullscreen(true);
+    wrapRef.current?.requestFullscreen?.().catch(() => {});
+    return undefined;
+  }, [fullscreen, exitFullscreen]);
+  useEffect(() => {
+    const onChange = () => { if (!document.fullscreenElement) setFullscreen(false); };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  useEffect(() => {
+    const id = setTimeout(() => fgRef.current?.zoomToFit(500, 60), 350);
+    return () => clearTimeout(id);
+  }, [fullscreen]);
 
   // follow the app theme
   useEffect(() => {
@@ -433,7 +459,7 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
   }, []);
 
   return (
-    <div className={`cc-root ${light ? "light" : "dark"}`} ref={wrapRef}>
+    <div className={`cc-root ${light ? "light" : "dark"} ${fullscreen ? "cc-full" : ""}`} ref={wrapRef}>
       <div className="cc-bgfx" />
 
       {size.w > 0 && (
@@ -504,7 +530,7 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
           <div className="cc-fabs">
             <button onClick={surprise} aria-label="Surprise me with a gem" title="Surprise me"><Shuffle size={16} /></button>
             <button className={showEcho ? "on" : ""} onClick={() => setShowEcho((v) => !v)} aria-label="Toggle echoes" title="Echoes"><Link2 size={16} /></button>
-            <button onClick={() => fgRef.current?.zoomToFit(700, 60)} aria-label="Recenter" title="Recenter"><Maximize2 size={16} /></button>
+            <button className={fullscreen ? "on" : ""} onClick={toggleFullscreen} aria-label={fullscreen ? "Exit full screen" : "Full screen"} title={fullscreen ? "Exit full screen" : "Full screen"}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
           </div>
         </>
       )}
