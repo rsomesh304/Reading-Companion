@@ -82,7 +82,7 @@ function ReleaseNotesScreen({ releases, onBack, highlightVersion = null }) {
                 transition={{ delay: Math.min(releaseIndex * 0.07, 0.35), duration: 0.28, ease: "easeOut" }}
               >
                 <span className="st-release-node" aria-hidden="true" />
-                {release.major || release.ui ? <MajorReleaseCard release={release} variant={release.ui ? "ui" : "major"} /> : (
+                {release.major || release.ui || release.pulse ? <MajorReleaseCard release={release} variant={release.pulse ? "pulse" : release.ui ? "ui" : "major"} /> : (
                 <div className="st-release elevated">
                   <div className="st-release-head">
                     <div>

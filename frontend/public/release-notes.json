@@ -2,6 +2,7 @@
   "releases": [
     {
       "version": "2.1.0",
+      "pulse": true,
       "date": "2026-10-11",
       "title": "Smarter reminders, clearer progress",
       "items": [

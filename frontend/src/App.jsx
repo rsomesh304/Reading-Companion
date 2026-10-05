@@ -87,6 +87,7 @@ import AccountGate from "./AccountGate.jsx";
 import { apiUrl } from "./api.js";
 import { computeBadges } from "./appBadges.js";
 import { refreshPushSubscription } from "./pushNotifications.js";
+import PushPrompt from "./PushPrompt.jsx";
 import { clearLayers, configureBackStack, handleBackStackPop, popRoute, pushRoute, useBackLayer } from "./backStack.js";
 import { AudioCapture } from "./audioCapture.js";
 import { AudioPlayback } from "./audioPlayback.js";
@@ -616,6 +617,7 @@ function AppCore() {
             {screen === "report" && <ReportScreen nav={nav} stores={{ profile: profileStore }} />}
             {screen === "help" && <HelpGuideScreen nav={nav} userName={profileStore.data.name === "Reader" ? "there" : profileStore.data.name} />}
           </div>
+          {screen === "dashboard" && <PushPrompt library={library} />}
           {screen !== "help" && <BottomNav active={["account", "settings", "about", "report"].includes(screen) ? "profile" : screen} onNavigate={(id) => navigateTo(id)} badges={badges} />}
         </div>
       )}
