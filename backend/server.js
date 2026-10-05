@@ -57,6 +57,15 @@ function loadHelpGuide() {
   return helpGuidePromise;
 }
 
+let helpAnimationsPromise;
+function loadHelpAnimations() {
+  helpAnimationsPromise ||= import("../frontend/src/helpAnimations.js").catch((error) => {
+    console.warn("[AI HELP] animations unavailable:", error?.message || error);
+    return null;
+  });
+  return helpAnimationsPromise;
+}
+
 function allowAiRequest(feature, ip) {
   const now = Date.now();
   const limits = AI_REQUEST_LIMITS[feature];
@@ -273,6 +282,36 @@ app.post("/api/ai/help", async (req, res) => {
         }));
       }
     }
+    let animationIds = null;
+    const animationCatalogue = await loadHelpAnimations();
+    if (animationCatalogue) {
+      try {
+        const pick = await requestTextCompletion({
+          feature: "help",
+          providerOrder: providers,
+          messages: [
+            {
+              role: "system",
+              content: `Pick which animated guides to show under the answer to the user's question about the Reading Companion app. Reply with at most 3 ids from this list, comma-separated, most relevant first, and nothing else. Reply NONE if the question is not about an app feature, setting or screen. Choose the most specific id (for example the Appearance settings for colour theme questions, never a generic one).\n${animationCatalogue.describeAnimationsForPrompt()}`,
+            },
+            ...history.slice(-2),
+            { role: "user", content: question },
+          ],
+          maxTokens: 40,
+          stream: false,
+          signal: controller.signal,
+          providerTimeoutMs: 3500,
+        });
+        const raw = await readTextCompletion(pick.response);
+        animationIds = /\bNONE\b/i.test(raw) ? [] : animationCatalogue.sanitizeAnimationIds(raw.split(/[\s,]+/), 3);
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        console.warn("[AI HELP] animation pick unavailable; client keywords will be used");
+      }
+    }
+    const animationNote = animationIds?.length
+      ? `\n\nThe app will show animated guides for: ${animationIds.map((id) => animationCatalogue.getHelpAnimation(id)?.title).filter(Boolean).join(", ")}. Make sure your answer explains exactly those parts, accurately, and do not mention the animations.`
+      : "";
     const messages = [
       {
         role: "system",
@@ -292,7 +331,7 @@ Accuracy: use only facts in the guide excerpt or the topic summaries. Never inve
 Topics the guide covers (one-line summaries; the user may write in any language, so match by meaning):\n${topicIndex}
 
 Guide excerpt:
-${excerpt || "No guide entry matched."}`,
+${excerpt || "No guide entry matched."}${animationNote}`,
       },
       ...history,
       { role: "user", content: question },
@@ -315,6 +354,7 @@ ${excerpt || "No guide entry matched."}`,
           res.status(200).set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive" });
           res.flushHeaders?.();
         }
+        if (animationIds) res.write(`data: ${JSON.stringify({ type: "animations", ids: animationIds })}\n\n`);
         let providerEventSent = false;
         await streamTextCompletion(attempt.response, (token) => {
           if (!providerEventSent && token.trim()) {
@@ -481,6 +521,7 @@ app.post("/api/bug-reports", limitReportScreenshotUploads, async (req, res) => {
       steps: report.steps || "",
       screenshots: createdPaths,
       reporter: String(report.reporter || "Reader").trim().slice(0, 80),
+      push_endpoint: typeof report.pushEndpoint === "string" && report.pushEndpoint.length <= 1024 && report.pushEndpoint.startsWith("https://") ? report.pushEndpoint : null,
       app_version: report.appVersion || null,
       device: report.device || {},
       created_at: report.createdAt || new Date().toISOString(),
@@ -1100,6 +1141,39 @@ app.post("/api/push/send", async (req, res) => {
   } catch (error) {
     console.error("[PUSH] broadcast failed:", error.message);
     return res.status(500).json({ error: "push_broadcast_failed" });
+  }
+});
+
+const REPORT_STATUS_LABELS = {
+  seen: "Seen", review: "Under review", rejected: "Rejected", approved: "Approved",
+  in_progress: "Work in progress", testing: "Testing", done: "Completed",
+};
+
+// Supabase Database Webhook (bug_reports UPDATE) -> push to the reporter's device.
+app.post("/api/push/report-status", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  if (!pushService.configured) return res.status(503).json({ error: "push_not_configured" });
+  const record = req.body?.record;
+  const previous = req.body?.old_record;
+  if (!record || !record.push_endpoint) return res.json({ skipped: "no_endpoint" });
+  const norm = (s) => String(s ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const status = norm(record.status);
+  if (previous && norm(previous.status) === status) return res.json({ skipped: "status_unchanged" });
+  const label = REPORT_STATUS_LABELS[status];
+  if (!label) return res.json({ skipped: "status_not_notifiable" });
+  const version = status === "done" && record.resolved_in_version ? ` in v${record.resolved_in_version}` : "";
+  const payload = buildPushPayload({
+    title: "Your report was updated",
+    body: `${record.ticket_number ? "Report #" + record.ticket_number : "Your report"} is now ${label}${version}`,
+    url: "/?open=reports",
+    tag: `report-${record.id}`,
+  });
+  if (!payload) return res.json({ skipped: "invalid_payload" });
+  try {
+    return res.json(await pushService.sendToEndpoint(record.push_endpoint, payload));
+  } catch (error) {
+    console.error("[PUSH] report status failed:", error.message);
+    return res.status(500).json({ error: "push_report_status_failed" });
   }
 });
 

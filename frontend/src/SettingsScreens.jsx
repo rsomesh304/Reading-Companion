@@ -20,7 +20,7 @@ import { useBackLayer } from "./backStack.js";
 import MajorReleaseCard from "./MajorRelease.jsx";
 import { INTERACTION_SPRING } from "./motionConfig.js";
 import { useGeminiVoiceDriver } from "./onboarding/avatarDriver.js";
-import { applyPushPrefs, collectSessionStarts, computeStudyPattern, formatClockMinute, loadPushPrefs, notificationPermission, pushErrorMessage } from "./pushNotifications.js";
+import { applyPushPrefs, collectSessionStarts, currentPushEndpoint, computeStudyPattern, formatClockMinute, loadPushPrefs, notificationPermission, pushErrorMessage } from "./pushNotifications.js";
 import { getReleaseHistory, normalizeReportStatus } from "./reportIssueHelpers.js";
 import { ReportDetail, ReportList } from "./ReportsView.jsx";
 import "./SettingsScreens.css";
@@ -559,7 +559,7 @@ async function deliver(report) {
       const response = await apiFetch("/api/bug-reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ report }),
+        body: JSON.stringify({ report: { ...report, pushEndpoint: await currentPushEndpoint() } }),
       });
       if (!response.ok) return null;
       storedReport = await response.json();
@@ -589,15 +589,16 @@ async function fetchReportFromSupabase(reportId) {
   return Array.isArray(rows) && rows[0] ? signReportScreenshots(rows[0]) : null;
 }
 
-async function syncReportsFromSupabase(reporterName) {
+// Only reports this device submitted are synced; matching by reporter name would pull in other people's reports.
+async function syncReportsFromSupabase() {
   if (!SUPABASE_URL || !SUPABASE_KEY) return [];
+  const ownedIds = loadReports().map((item) => item.id).filter((id) => /^r-\d+$/.test(id || ""));
+  if (!ownedIds.length) return [];
   try {
     const url = new URL(`${SUPABASE_URL}/rest/v1/bug_reports`);
     url.searchParams.set("select", "*");
     url.searchParams.set("order", "created_at.desc");
-    if (reporterName && reporterName.trim()) {
-      url.searchParams.set("reporter", `eq.${encodeURIComponent(reporterName.trim())}`);
-    }
+    url.searchParams.set("id", `in.(${ownedIds.join(",")})`);
     const res = await fetch(url.toString(), {
       headers: {
         apikey: SUPABASE_KEY,
@@ -690,7 +691,9 @@ export function ReportScreen({ nav, stores }) {
   const [desc, setDesc] = useState("");
   const [steps, setSteps] = useState("");
   const [shots, setShots] = useState([]);
-  const [view, setView] = useState("compose");
+  const [view, setView] = useState(() => {
+    try { return sessionStorage.getItem("rc-open-reports") === "1" ? "reports" : "compose"; } catch { return "compose"; }
+  });
   const [reportFilter, setReportFilter] = useState("all");
   const [selectedId, setSelectedId] = useState(null);
   const [releaseView, setReleaseView] = useState(null);
@@ -707,6 +710,10 @@ export function ReportScreen({ nav, stores }) {
   const selectedReport = filteredReports.find((item) => item.id === selectedId) || null;
 
   const flash = (t) => { setMsg(t); setTimeout(() => setMsg(""), 2800); };
+
+  useEffect(() => {
+    try { sessionStorage.removeItem("rc-open-reports"); } catch { /* storage unavailable */ }
+  }, []);
 
   useBackLayer(view === "reports" && Boolean(selectedId), () => setSelectedId(null));
   useBackLayer(Boolean(releaseView), () => setReleaseView(null));
@@ -742,7 +749,7 @@ export function ReportScreen({ nav, stores }) {
     if (!SUPABASE_URL || !SUPABASE_KEY || refreshingReports) return;
     setRefreshingReports(true);
     try {
-      const remote = await syncReportsFromSupabase(stores.profile.data.name || "");
+      const remote = await syncReportsFromSupabase();
       if (remote.length) {
         const local = loadReports();
         const merged = [...remote, ...local.filter((item) => !remote.some((row) => row.id === item.id))];
@@ -781,7 +788,7 @@ export function ReportScreen({ nav, stores }) {
     let active = true;
     async function sync() {
       if (!SUPABASE_URL || !SUPABASE_KEY) return;
-      const remote = await syncReportsFromSupabase(stores.profile.data.name || "");
+      const remote = await syncReportsFromSupabase();
       if (!active || !remote.length) return;
       const local = loadReports();
       const merged = [...remote, ...local.filter((item) => !remote.some((row) => row.id === item.id))];

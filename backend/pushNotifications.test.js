@@ -83,3 +83,8 @@ test("broadcast removes expired subscriptions and reports totals", async () => {
   assert.deepEqual(result, { total: 2, sent: 1, failed: 0, removed: 1 });
   assert.ok(calls.some((call) => call.method === "DELETE" && call.url.includes(encodeURIComponent("https://push.example/2"))));
 });
+
+test("sendToEndpoint is exposed on the push service", () => {
+  const svc = createPushService({ supabaseUrl: "", serviceRoleKey: "", vapidPublicKey: "", vapidPrivateKey: "", vapidSubject: "" });
+  assert.equal(typeof svc.sendToEndpoint, "function");
+});

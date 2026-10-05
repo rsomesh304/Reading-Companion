@@ -161,6 +161,17 @@ export async function applyPushPrefs(prefs, library) {
   return pattern;
 }
 
+/** The device's push endpoint, so a report-status change can notify the device that raised it. */
+export async function currentPushEndpoint() {
+  try {
+    if (!pushSupported() || Notification.permission !== "granted") return null;
+    const registration = await serviceWorkerRegistration();
+    return (await registration.pushManager.getSubscription())?.endpoint || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Quietly refreshes the stored study time and timezone on launch; never prompts. */
 export async function refreshPushSubscription(library) {
   const prefs = loadPushPrefs();

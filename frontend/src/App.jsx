@@ -198,6 +198,7 @@ function isChapterClosed(c) {
 const BADGE_GRADIENTS = [
   ["#8B5CF6", "#6366F1"], ["#22D3EE", "#0EA5E9"], ["#F59E0B", "#EF4444"],
   ["#34D399", "#10B981"], ["#F472B6", "#EC4899"], ["#A78BFA", "#7C3AED"],
+  ["#FACC15", "#EAB308"], ["#38BDF8", "#2563EB"], ["#FB7185", "#E11D48"], ["#2DD4BF", "#0D9488"],
 ];
 function badgeGradient(seed) {
   const [a, b] = BADGE_GRADIENTS[seed % BADGE_GRADIENTS.length];
@@ -236,7 +237,7 @@ const GEM_ART_STYLE_OPTIONS = [
 ];
 
 function gemPaletteIndex(gem) {
-  const id = String(gem?.bookId || gem?.bookTitle || "unassigned");
+  const id = String(gem?.id || gem?.quote || gem?.bookId || "unassigned");
   let value = 0;
   for (const char of id) value = (value * 31 + char.charCodeAt(0)) >>> 0;
   return value % BADGE_GRADIENTS.length;
@@ -472,6 +473,17 @@ function AppCore() {
 
   useEffect(() => {
     refreshPushSubscription(library);
+  }, []);
+
+  // Tapping a report-status notification opens the app on Your Reports.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("open") !== "reports") return;
+    try { sessionStorage.setItem("rc-open-reports", "1"); } catch { /* storage unavailable */ }
+    params.delete("open");
+    const query = params.toString();
+    window.history.replaceState({ screen: "dashboard" }, "", window.location.pathname + (query ? `?${query}` : "") + window.location.hash);
+    navigateTo("report");
   }, []);
 
   useEffect(() => {
@@ -2571,7 +2583,7 @@ function ProfileScreen({ nav }) {
         </button>
         <button type="button" className="pf-tile about" onClick={nav.goAbout}>
           <span className="pf-tile-ic"><Info size={20} /></span>
-          <span className="pf-tile-text"><b>About</b><small>Why this exists</small></span>
+          <span className="pf-tile-text"><b>About</b><small>Why this exists & Who has built this</small></span>
         </button>
       </Motion.section>
 

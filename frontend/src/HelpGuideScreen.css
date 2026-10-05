@@ -270,3 +270,60 @@
 @media (prefers-reduced-motion: reduce) { .help-message,.help-cursor,.hd-caption,.hd-orb,.hd-orb i,.hd-scan,.hd-node.current,.hd-phone.on .hd-flash,.help-status-pill > i { animation: none; } }
 @keyframes help-status-pulse { 0% { box-shadow: 0 0 0 0 rgba(66,216,151,.55); } 70%, 100% { box-shadow: 0 0 0 6px rgba(66,216,151,0); } }
 @keyframes help-blink { to { visibility: hidden; } }
+
+/* Help animations */
+.help-anim { margin-top: 10px; background: #1b1530; border-radius: 14px; padding: 10px; color: #efe9ff; max-width: 100%; overflow: hidden; }
+.ha-tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; scrollbar-width: none; }
+.ha-tabs button { flex: 0 0 auto; border: 0; border-radius: 999px; padding: 4px 10px; font-size: 11px; background: rgba(255,255,255,.08); color: #cfc6ee; }
+.ha-tabs button.on { background: var(--ha-accent, #a78bfa); color: #1b1530; font-weight: 700; }
+.ha-body { --ha-accent: #a78bfa; }
+.ha-stage { height: 96px; overflow: hidden; border-radius: 10px; background: rgba(255,255,255,.04); position: relative; }
+.ha-scene { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 12px; }
+.ha-caption { margin: 8px 0 4px; font-size: 12px; line-height: 1.4; color: #e4ddfa; animation: ha-fade .4s ease; }
+.ha-caption b { color: var(--ha-accent); }
+.ha-dots { display: flex; gap: 4px; justify-content: center; }
+.ha-dots i { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,.2); transition: all .3s; }
+.ha-dots i.on { width: 14px; border-radius: 3px; background: var(--ha-accent); }
+@keyframes ha-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes ha-pop { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+@keyframes ha-grow { from { transform: scaleY(.1); } to { transform: scaleY(1); } }
+@keyframes ha-flow { to { stroke-dashoffset: -16; } }
+.ha-orb { position: relative; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--ha-accent); color: #1b1530; animation: ha-pop 2s ease-in-out infinite; }
+.ha-orb i { position: absolute; inset: -6px; border-radius: 50%; border: 1px solid var(--ha-accent); opacity: .4; }
+.ha-lines { display: grid; gap: 6px; } .ha-lines b { display: block; width: 70px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.18); } .ha-lines b + b { width: 46px; }
+.ha-flame { color: var(--ha-accent); animation: ha-pop 1.4s ease-in-out infinite; }
+.ha-days { display: flex; gap: 5px; } .ha-days i { width: 14px; height: 14px; border-radius: 50%; background: rgba(255,255,255,.12); transition: background .3s; } .ha-days i.on { background: var(--ha-accent); }
+.ha-grid { display: grid; grid-template-columns: repeat(var(--cols, 2), 1fr); gap: 6px; align-content: center; }
+.ha-tile { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.07); font-size: 10px; min-width: 0; transition: all .3s; }
+.ha-tile small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ha-tile.on { background: var(--ha-accent); color: #1b1530; transform: scale(1.04); }
+.ha-bars { align-items: flex-end; gap: 7px; padding-top: 14px; }
+.ha-bars i { width: 14px; border-radius: 4px 4px 0 0; background: rgba(255,255,255,.2); transform-origin: bottom; animation: ha-grow .7s ease both; } .ha-bars i.hot { background: var(--ha-accent); }
+.ha-ring svg { width: 64px; height: 64px; transform: rotate(-90deg); } .ha-ring circle { fill: none; stroke: rgba(255,255,255,.14); stroke-width: 5; }
+.ha-ring .arc { stroke: var(--ha-accent); stroke-linecap: round; stroke-dasharray: 113; stroke-dashoffset: calc(113 * (1 - var(--p))); transition: stroke-dashoffset .8s ease; }
+.ha-ring-side { display: grid; gap: 4px; font-size: 10px; } .ha-ring-side span { display: flex; align-items: center; gap: 5px; opacity: .55; } .ha-ring-side span.on { opacity: 1; color: var(--ha-accent); }
+.ha-rows { flex-direction: column; gap: 4px; justify-content: center; }
+.ha-row { width: 100%; display: flex; align-items: center; gap: 7px; padding: 3px 8px; border-radius: 7px; background: rgba(255,255,255,.06); font-size: 10px; transition: all .3s; } .ha-row em { flex: 1; font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ha-row.on { background: rgba(255,255,255,.16); outline: 1px solid var(--ha-accent); }
+.ha-switch { width: 22px; height: 12px; border-radius: 8px; background: rgba(255,255,255,.2); position: relative; } .ha-switch i { position: absolute; top: 2px; left: 2px; width: 8px; height: 8px; border-radius: 50%; background: #fff; transition: all .3s; }
+.ha-row.on .ha-switch { background: var(--ha-accent); } .ha-row.on .ha-switch i { left: 12px; }
+.ha-chev { width: 6px; height: 6px; border-right: 2px solid #aaa; border-top: 2px solid #aaa; transform: rotate(45deg); }
+.ha-swatch { gap: 8px; } .ha-chip { display: grid; place-items: center; gap: 2px; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.07); font-size: 9px; transition: all .3s; } .ha-chip.on { background: var(--ha-accent); color: #1b1530; transform: translateY(-3px); }
+.ha-flow { gap: 0; } .ha-step-wrap { display: flex; align-items: center; }
+.ha-node { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.1); transition: all .3s; } .ha-node.on { background: var(--ha-accent); color: #1b1530; animation: ha-pop 1.4s infinite; } .ha-node.done { background: #34d399; color: #12301f; }
+.ha-link { width: 16px; height: 2px; background: rgba(255,255,255,.14); } .ha-link.done { background: #34d399; }
+.ha-timeline { gap: 6px; } .ha-tl { display: grid; place-items: center; gap: 4px; font-size: 9px; opacity: .55; min-width: 0; } .ha-tl b { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.12); } .ha-tl.on { opacity: 1; } .ha-tl.on b { background: var(--ha-accent); color: #1b1530; } .ha-tl.done { opacity: 1; } .ha-tl.done b { background: #34d399; color: #12301f; }
+.ha-graph svg { width: 130px; height: 76px; } .ha-edge { fill: none; stroke: var(--ha-accent); stroke-width: 1.5; stroke-dasharray: 4 4; animation: ha-flow 1s linear infinite; } .ha-graph circle { fill: rgba(255,255,255,.7); } .ha-graph circle.hot { fill: var(--ha-accent); }
+.ha-graph-tool { position: absolute; right: 10px; bottom: 8px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--ha-accent); color: #1b1530; }
+.ha-chatui { flex-direction: column; align-items: stretch; gap: 5px; justify-content: center; } .ha-bubble { height: 10px; border-radius: 6px; background: rgba(255,255,255,.18); width: 60%; } .ha-bubble.me { align-self: flex-end; background: var(--ha-accent); width: 40%; } .ha-bubble.short { width: 35%; }
+.ha-chatbar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,.1); } .ha-chatbar i { flex: 1; height: 5px; border-radius: 3px; background: rgba(255,255,255,.2); }
+.ha-card { gap: 12px; } .ha-book { width: 44px; height: 58px; border-radius: 6px; display: grid; place-items: center; background: var(--ha-accent); color: #1b1530; animation: ha-pop 2.2s infinite; }
+.ha-card-copy { display: grid; gap: 6px; min-width: 0; } .ha-card-copy b { display: block; height: 7px; width: 90px; border-radius: 4px; background: rgba(255,255,255,.18); } .ha-card-copy b.short { width: 56px; }
+.ha-pill { display: inline-flex; align-items: center; gap: 4px; font-style: normal; font-size: 10px; padding: 3px 8px; border-radius: 999px; background: var(--ha-accent); color: #1b1530; max-width: 130px; overflow: hidden; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .help-anim *, .help-anim *::before { animation: none !important; transition: none !important; } }
+
+/* Compact toolbar */
+.help-toolbar-inner { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 8px 14px; }
+.help-toolbar-inner .help-toolbar-button { min-height: 36px; padding: 6px 8px; font-size: 12px; border-radius: 999px; white-space: nowrap; min-width: 0; }
+.help-toolbar-inner .help-toolbar-button svg { width: 14px; height: 14px; }
+.help-status-notice { display: none; }

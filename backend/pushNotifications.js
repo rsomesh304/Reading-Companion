@@ -185,6 +185,14 @@ export function createPushService({
       return { total: rows.length, sent, failed, removed };
     },
 
+    // Sends one notification to a single device (used for report-status updates).
+    async sendToEndpoint(endpoint, payload) {
+      const rows = await select(`endpoint=eq.${encodeURIComponent(endpoint)}`);
+      if (!rows.length) return { sent: 0, failed: 0, removed: 0, subscribed: false };
+      const { sent, failed, removed } = await deliver(rows, () => payload);
+      return { sent, failed, removed, subscribed: true };
+    },
+
     async runReminders(now = new Date()) {
       const rows = (await select("reminders_enabled=is.true&reminder_minute=not.is.null")).filter((row) => isReminderDue(row, now));
       const message = pickReminderMessage(now);

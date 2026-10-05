@@ -10,6 +10,9 @@ A personal reading companion app built with React + Vite on the frontend and a s
 - Chapter vocabulary lists scroll again.
 - Help & Support shows live AI availability with a friendly notice, opens with the message box ready and keeps it above the keyboard.
 - Gem details scroll fully, Mind Map echo lines are back, and Ghost Mode switches on quietly.
+- Help chat shows dedicated animations for every feature, with a compact status pill, tidy toolbar and a plain Send button.
+- Push notification when the status of an issue you reported changes (needs the Supabase webhook below).
+- Distinct gem card colours, circular Profile dock icon, working Mind Map full screen, grey Done step until completed, and Your Reports no longer shows other people's reports.
 
 ### Push notification setup
 
@@ -17,6 +20,8 @@ A personal reading companion app built with React + Vite on the frontend and a s
 2. Generate keys with `npm run push:keys -w backend` and set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` on the backend. Set `ADMIN_TOKEN` too.
 3. Send an announcement with `npm run push:send -w backend -- --title "New update" --body "Version 2.1.0 is live" --url /`, or `POST /api/push/send` with the `x-admin-token` header and a `{ "title", "body", "url" }` body.
 4. Study reminders are checked every 5 minutes while the backend is awake. On hosts that sleep, schedule an external cron to `POST /api/push/reminders/run` with `x-admin-token` every 5–10 minutes.
+
+5. Report-status pushes: apply [the push endpoint migration](supabase/migrations/20261012120000_add_bug_report_push_endpoint.sql), then in Supabase go to Database, Webhooks, create one on `bug_reports` for UPDATE that POSTs to `https://<backend>/api/push/report-status` with the header `x-admin-token`.
 
 Notifications require the installed or production build; the development server does not register the service worker.
 

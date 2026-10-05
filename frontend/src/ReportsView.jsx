@@ -160,7 +160,7 @@ export function ReportDetail({ report, types, appVersion, canRefresh, refreshing
             return (
               <li
                 key={step.key}
-                className={`rq-step ${step.state} ${step.key} icon-${icon}`}
+                className={`rq-step ${step.state} key-${step.key} icon-${icon}`}
                 style={{ "--i": index, "--s": `var(--c-${step.key})`, "--next": next ? `var(--c-${next.key})` : "transparent" }}
                 aria-current={step.state === "current" ? "step" : undefined}
               >

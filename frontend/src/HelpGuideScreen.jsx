@@ -5,13 +5,14 @@ import {
   BookPlus,
   Bug, ChevronLeft, ChevronRight, Ghost,
   History,
-  Mic, MicOff,
+  
   Plus, Quote, ScanText, Sparkles, X,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { apiFetchFast } from "./api.js";
 import { useBackLayer } from "./backStack.js";
-import HelpDemo from "./HelpDemos.jsx";
+import HelpAnimations from "./HelpAnimations.jsx";
+import { pickAnimationsByKeywords, sanitizeAnimationIds } from "./helpAnimations.js";
 import HelpChatHistory from "./HelpChatHistory.jsx";
 import { sessionDate, sessionTitle } from "./helpHistory.js";
 import { buildShortHelpAnswer, findRelevantHelp, HELP_GUIDE } from "./helpGuide.js";
@@ -150,7 +151,6 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
   const [sessionId, setSessionId] = useState(() => `s-${Date.now()}`);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
-  const [dictating, setDictating] = useState(false);
   const [focused, setFocused] = useState(false);
   const [introActive, setIntroActive] = useState(true);
   const [introStage, setIntroStage] = useState(0);
@@ -167,10 +167,8 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
   const [aiStatus, setAiStatus] = useState(() => (typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "checking"));
   const listRef = useRef(null);
   const inputRef = useRef(null);
-  const recognitionRef = useRef(null);
   const reducedMotion = useReducedMotion();
   const { triggerLightTap } = useHaptic();
-  const canDictate = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   useBackLayer(Boolean(viewingId), () => setViewingId(null));
   useBackLayer(historyOpen, () => setHistoryOpen(false));
@@ -284,7 +282,6 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
     };
   }, []);
 
-  useEffect(() => () => recognitionRef.current?.stop(), []);
 
   useEffect(() => {
     const thread = listRef.current;
@@ -392,16 +389,17 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
 
     const cached = readCachedAnswer(text);
     if (cached?.content) {
-      appendMessages(createMessage("assistant", cached.content, { topicId: cached.topicId || null }));
+      appendMessages(createMessage("assistant", cached.content, { topicId: cached.topicId || null, animationIds: cached.animationIds || pickAnimationsByKeywords(text).map((a) => a.id) }));
       return;
     }
 
     const demoTopic = topic || (matches[0]?.score >= 3 ? matches[0] : null);
-    const assistantMessage = createMessage("assistant", "", { streaming: true, topicId: demoTopic?.id || null });
+    const assistantMessage = createMessage("assistant", "", { streaming: true, topicId: demoTopic?.id || null, animationIds: [] });
     appendMessages(assistantMessage);
     setBusy(true);
     let answer = "";
     let intentHandled = false;
+    let animationIds = null;
     try {
       const response = await apiFetchFast("/api/ai/help", {
         method: "POST",
@@ -428,6 +426,10 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
             setServiceNotice(eventData.provider === "cloudflare"
               ? { kind: "backup", text: eventData.groqConfigured ? "Groq is unavailable right now. A backup AI is answering." : "Groq is not configured here. The backup AI is answering." }
               : null);
+            continue;
+          }
+          if (eventData.type === "animations") {
+            animationIds = sanitizeAnimationIds(eventData.ids);
             continue;
           }
           if (eventData.type === "tour-intent") {
@@ -462,10 +464,11 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
       if (!answer.trim()) throw new Error("help_empty");
       setAiStatus("online");
       const responseTopic = demoTopic;
+      const finalAnimations = animationIds ?? pickAnimationsByKeywords(text).map((entry) => entry.id);
       setMessages((current) => current.map((message) => message.id === assistantMessage.id
-        ? { ...message, streaming: false, topicId: responseTopic?.id || message.topicId || null }
+        ? { ...message, streaming: false, topicId: responseTopic?.id || message.topicId || null, animationIds: finalAnimations }
         : message));
-      cacheAnswer(text, { content: answer, topicId: responseTopic?.id || null });
+      cacheAnswer(text, { content: answer, topicId: responseTopic?.id || null, animationIds: finalAnimations });
     } catch {
       const usefulTopics = demoTopic ? [] : matches.length ? matches : QUESTIONS.slice(0, 3).map(({ id }) => getTopic(id)).filter(Boolean);
       if (!answer) setAiStatus("offline");
@@ -492,25 +495,6 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
     window.setTimeout(settle, 320);
   }
 
-  function toggleDictation() {
-    if (dictating) return recognitionRef.current?.stop();
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) return;
-    const recognition = new Recognition();
-    recognition.lang = navigator.language || "en-US";
-    recognition.interimResults = false;
-    recognition.onresult = (event) => {
-      const spoken = event.results?.[0]?.[0]?.transcript || "";
-      setQuestion((current) => `${current}${current ? " " : ""}${spoken}`);
-      inputRef.current?.focus();
-    };
-    recognition.onend = () => setDictating(false);
-    recognition.onerror = () => setDictating(false);
-    recognitionRef.current = recognition;
-    setDictating(true);
-    recognition.start();
-  }
-
   function clearChat() {
     if (busy) return;
     // The finished chat stays in history; the next one gets its own session.
@@ -521,7 +505,6 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
     setFallback([]);
     setBrowseOpen(false);
     setQuestion("");
-    recognitionRef.current?.stop();
     setShowTourRow(false);
     setServiceNotice(null);
     setIntroActive(true);
@@ -549,21 +532,13 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
           <h1>Help &amp; Support</h1>
           <div className="help-header-sub">
             <b>AI</b>
-            <span>{aiStatus === "offline" ? "Help guide answers" : "Replies in seconds"}</span>
-            <span className={`help-status-pill ${aiStatus}`} role="status" aria-label={statusLabel} title={statusLabel}>
-              <i aria-hidden="true" />{aiStatus === "online" ? "Online" : aiStatus === "offline" ? "Offline" : "Checking"}
+            <span>{aiStatus === "online" ? "Live replies" : aiStatus === "offline" ? "Guide replies for now" : "Checking…"}</span>
+            <span className={`help-status-pill ${aiStatus}`} role="status" aria-label={statusLabel} title={statusNotice || statusLabel}>
+              <i aria-hidden="true" />{aiStatus === "online" ? "Online" : aiStatus === "offline" ? "Offline" : "…"}
             </span>
           </div>
         </div>
       </header>
-      <AnimatePresence initial={false} mode="wait">
-        {statusNotice && (
-          <Motion.p key={aiStatus} className={`help-status-notice ${aiStatus}`}
-            initial={reducedMotion ? false : { opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: reducedMotion ? 0 : 0.25 }}>
-            <i aria-hidden="true" />{statusNotice}
-          </Motion.p>
-        )}
-      </AnimatePresence>
       <nav className="help-toolbar" aria-label="Help navigation">
         <div className="help-toolbar-inner">
           <button className="help-toolbar-button primary" type="button" onClick={clearChat} disabled={busy}><Plus size={16} />New chat</button>
@@ -635,7 +610,7 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
                     ? <p>{formatMessage(message.content)}</p>
                     : message.streaming && <div className="help-typing" aria-label="Assistant is typing"><i /><i /><i /></div>}
                   {message.streaming && message.content && <span className="help-stream-cursor" aria-hidden="true" />}
-                  {topic?.demo && !message.streaming && <HelpDemo kind={topic.demo} />}
+                  {!message.streaming && message.animationIds?.length > 0 && <HelpAnimations ids={message.animationIds} />}
                   <div className="help-bubble-meta"><time>{timestamp(message)}</time></div>
                 </div>
                 {(actionScreens.length > 0 || unknown) && (
@@ -691,16 +666,8 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
               aria-label="Your question" autoComplete="off" />
             {!question && <AnimatePresence mode="wait"><Motion.span key={placeholderIndex} className="help-placeholder" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: reducedMotion ? 0 : 0.22 }}>{PLACEHOLDERS[placeholderIndex]}</Motion.span></AnimatePresence>}
           </div>
-          <button className={`help-send ${question.trim() ? "ready" : ""} ${dictating ? "recording" : ""}`} type={question.trim() ? "submit" : "button"}
-            onClick={!question.trim() && canDictate ? toggleDictation : undefined} disabled={busy || (!question.trim() && !canDictate)}
-            aria-label={question.trim() ? "Send question" : canDictate ? (dictating ? "Stop dictation" : "Dictate question") : "Type a question to send"}>
-            <AnimatePresence mode="wait" initial={false}>
-              {question.trim()
-                ? <Motion.span key="send" initial={{ opacity: 0, rotate: -45, scale: 0.7 }} animate={{ opacity: 1, rotate: 0, scale: 1 }} exit={{ opacity: 0, rotate: 35, scale: 0.7 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><ArrowUp size={20} /></Motion.span>
-                : canDictate
-                  ? <Motion.span key="mic" initial={{ opacity: 0, rotate: 45, scale: 0.7 }} animate={{ opacity: 1, rotate: 0, scale: 1 }} exit={{ opacity: 0, rotate: -35, scale: 0.7 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}>{dictating ? <MicOff size={19} /> : <Mic size={19} />}</Motion.span>
-                  : <Motion.span key="disabled-send" initial={false}><ArrowUp size={20} /></Motion.span>}
-            </AnimatePresence>
+          <button className={`help-send ${question.trim() ? "ready" : ""}`} type="submit" disabled={busy || !question.trim()} aria-label="Send question">
+            <ArrowUp size={20} />
           </button>
         </form>}
         {!viewing && <p className="help-footer-note">AI can make mistakes. Check <button type="button" onClick={() => setBrowseOpen((open) => !open)}>Browse topics</button> or <button type="button" onClick={() => nav.goReport?.()}>Report an issue</button>.</p>}
