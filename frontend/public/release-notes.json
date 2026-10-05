@@ -1,6 +1,86 @@
 {
   "releases": [
     {
+      "version": "2.0.0",
+      "date": "2026-10-05",
+      "major": true,
+      "title": "Reading Companion, a whole new chapter",
+      "items": [
+        {
+          "type": "feature",
+          "text": "Google sign-in now keeps your reading profile, library progress, saved gems and preferences backed up to your account"
+        },
+        {
+          "type": "feature",
+          "text": "Skip Tour speaks the exact onboarding prompt, then your companion responds to the genres you choose"
+        },
+        {
+          "type": "feature",
+          "text": "Persistent service notices explain connection issues, while voice-key failures recover in the same reading session when possible"
+        },
+        {
+          "type": "feature",
+          "text": "Vocabulary now includes everyday or formal-literary labels, optional sentence practice, gentle recall and private pronunciation observations"
+        },
+        {
+          "type": "feature",
+          "text": "Mind Map can connect related ideas across books with cached semantic insights, a three-link limit and an offline fallback"
+        },
+        {
+          "type": "feature",
+          "text": "Help & Support is now a full-screen support chat with instant answers, streamed replies, animated guides, saved conversations and direct screen actions"
+        },
+        {
+          "type": "feature",
+          "text": "A replayable, bilingual app tour shows how to start reading, save words and quotes, and find key screens"
+        },
+        {
+          "type": "improve",
+          "text": "New chat, Chat history and App tour are directly accessible, with searchable date-grouped history, a mobile bottom sheet and a clear return to your current chat"
+        },
+        {
+          "type": "improve",
+          "text": "Saved help conversations are clearly read-only, chat deletion requires confirmation and clearing history preserves your current conversation"
+        },
+        {
+          "type": "improve",
+          "text": "The welcome tour now points readers to chat with Help & support from Profile"
+        },
+        {
+          "type": "improve",
+          "text": "Help gives clearer camera and reading-control answers, with a notice when replies use the backup AI provider"
+        },
+        {
+          "type": "improve",
+          "text": "A dedicated Account screen brings your connected Google account and live cloud-sync controls together"
+        },
+        {
+          "type": "improve",
+          "text": "Gems are easier to search and browse by book, while saved memories are organized by recency with clearer editing controls"
+        },
+        {
+          "type": "improve",
+          "text": "Re-sync brings an off-topic reply back to the current book and chapter using recent conversation context"
+        },
+        {
+          "type": "improve",
+          "text": "Report an issue can polish your description and reproduction steps while preserving the original meaning and step count"
+        },
+        {
+          "type": "fix",
+          "text": "Profile and Settings now keep avatars correctly shaped and sized, with a steadier layout across screen sizes"
+        },
+        {
+          "type": "fix",
+          "text": "Book progress percentages stay upright and centered inside their progress rings"
+        },
+        {
+          "type": "fix",
+          "text": "Voice-requested deletion of a saved gem, memory, word or chapter now requires exact-item confirmation; deleting a chapter also protects the last chapter"
+        }
+      ]
+    },
+    {
       "version": "1.5.0",
       "date": "2026-10-04",
       "ui": true,

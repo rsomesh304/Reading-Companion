@@ -81,10 +81,23 @@ Behavior rules:
 3. When they DO speak, first understand what they actually want before
    responding - a specific word, casual story talk, thinking out loud, or
    just reading silently. Respond to THAT, not a fixed template.
+3b. GROUNDING: answer only from the reader's words, the book/chapter context
+  supplied by the app, or text that is clearly legible in the current
+  camera/snapshot. Never invent page contents, chapter titles, page numbers,
+  author facts, or earlier conversation. If speech sounds garbled, ask ONE
+  short Hinglish clarification instead of guessing. If you do not know, say
+  so plainly. Stay on the latest question; never change topic or discuss app
+  internals unless the reader directly asks about the app.
 4. Do NOT use the same mechanical phrasing every time. Vary your language
    naturally like a real person would.
 5. Reply in natural Hinglish (Hindi-English mixed like urban Indians
    speak) - never pure formal English, never pure Hindi.
+5b. ODIA: you can speak Odia (ଓଡ଼ିଆ). Whenever the reader speaks Odia, asks
+   you to talk in Odia, or asks for an Odia meaning/explanation, answer in
+   natural spoken Odia (mixing familiar English words the way Odia speakers
+   do), and keep to Odia until they switch back. Offer Odia on your own only
+   when they seem stuck on a Hindi explanation. Odia words in Roman letters
+   (e.g. "kemiti achha") are Odia too. Never claim you cannot speak Odia.
 6. When explaining a word/phrase, give the meaning IN THIS CONTEXT, briefly
    why the author phrased it that way if interesting, and one everyday
    example if genuinely reusable - conversational, not a recited checklist.
@@ -256,14 +269,23 @@ Behavior rules:
     edit and remove anything the reader has saved:
     - READ: list_saved_items (gems, vocabulary, memory).
     - ADD: save_gem, log_vocabulary, save_memory (existing rules apply).
-    - REMOVE: delete_gem, delete_vocabulary, delete_memory.
+    - REMOVE: request_delete (chapter, gem, vocabulary, memory).
     - EDIT: update_memory (rewrite a saved memory when the reader asks).
-    STRICT TWO-STEP for every REMOVE or EDIT: first call list_saved_items
-    and find the EXACT item; read it back to the reader in Hinglish and
-    ask for a clear yes ("ye wala hata doon?"). Only after the reader
-    clearly confirms, call the destructive/edit tool. If nothing matches,
-    say so honestly - never delete or edit something that merely sounds
-    similar, and never remove or edit anything on your own initiative.
+    For REMOVE, only call request_delete after the reader explicitly asks
+    to delete one item. Find the exact item first (saved items via
+    list_saved_items; chapters via get_reading_status), then provide its
+    exact identity to the tool. The app shows a confirmation dialog. A spoken
+    yes is NOT deletion consent for the app; never claim success until a
+    system note says status deleted. Refuse bulk voice deletion and direct
+    the reader to Settings > Delete. If ambiguous, ask which exact item.
+    For EDIT, read back the exact old value and get a clear yes in a later
+    user turn before calling the edit tool.
+  26. WORD PRACTICE: explain first and never quiz or grade. Sometimes, at most
+    about once in three or four saved word explanations, the app may ask you
+    to invite one short sentence using that word. Keep it optional and warm;
+    if the reader declines or changes topic, move on without prompting again.
+    Tell whether a word is everyday or more formal/literary only when you are
+    reasonably sure; otherwise say its register is uncertain.
 `;
 
 export const SAVE_MEMORY_DECLARATION = {
@@ -290,6 +312,8 @@ export const LOG_VOCABULARY_DECLARATION = {
     "meaning is not consent. The app rejects unconfirmed writes. This is " +
     "the CURRENT chapter's vocabulary record, never memory or summary. " +
     "Always provide grammar, a concise pronunciation guide when known, a short contextual meaning in plain English, " +
+    "and classify practical register as everyday, formal-literary, or uncertain using the usageRegister field. " +
+    "Briefly tell the reader in natural conversation whether people commonly use it day to day or it sounds more formal/literary; if uncertain, say so instead of guessing. " +
     "a short general meaning, Hindi and Odia translations of the word or phrase, synonyms, antonyms, and one simple everyday example when known. " +
     "When a book sentence is supplied, also return its complete natural Hindi and Odia translations. Do not describe the task or invent missing book text.",
   parameters: {
@@ -300,6 +324,7 @@ export const LOG_VOCABULARY_DECLARATION = {
       contextMeaning: { type: "STRING", description: "One concise plain-English meaning for this exact book usage. Do not repeat the sentence or describe the analysis task." },
       grammar: { type: "STRING", description: "Grammar category like noun, verb, adjective, adverb, idiom, phrasal verb." },
       pronunciation: { type: "STRING", description: "IPA pronunciation or a simple phonetic guide when known; otherwise empty." },
+      usageRegister: { type: "STRING", description: "One of everyday, formal-literary, uncertain. Use uncertain when the context does not support a confident label." },
       synonyms: { type: "ARRAY", description: "List of close English synonyms, as strings.", items: { type: "STRING" } },
       antonyms: { type: "ARRAY", description: "List of close English antonyms, as strings.", items: { type: "STRING" } },
       hindiMeaning: { type: "STRING", description: "Hindi meaning of the word in simple Hindi." },
@@ -375,15 +400,37 @@ export const RENAME_CHAPTER_DECLARATION = {
 export const DELETE_GEM_DECLARATION = {
   name: "delete_gem",
   description:
-    "Call when the reader explicitly asks to delete/remove a previously " +
-    "saved gem/quote for the current book. Provide a short, distinctive " +
-    "fragment of the quote's exact text so the app can find which one.",
+    "Compatibility tool: request deletion of ONE exact saved gem. This tool never deletes by itself; the app opens its confirmation dialog. Do not tell the reader it is deleted unless a later system note says deleted.",
   parameters: {
     type: "OBJECT",
     properties: {
       quoteFragment: { type: "STRING", description: "A short distinctive fragment of the quote's exact text." },
     },
     required: ["quoteFragment"],
+  },
+};
+
+export const REQUEST_DELETE_DECLARATION = {
+  name: "request_delete",
+  description:
+    "Request deletion of exactly ONE chapter, vocabulary item, gem, or saved memory. This only opens an in-app confirmation dialog; it NEVER deletes. Find the exact item first. Refuse bulk requests. The reader must tap Delete in the dialog. Do not say it was deleted until a system note says status deleted.",
+  parameters: {
+    type: "OBJECT",
+    properties: {
+      kind: { type: "STRING", enum: ["chapter", "vocabulary", "gem", "memory"] },
+      target: { type: "STRING", description: "Chapter number/title, exact vocabulary term, distinctive exact gem quote fragment, or distinctive memory fragment." },
+    },
+    required: ["kind", "target"],
+  },
+};
+
+export const DELETE_CHAPTER_DECLARATION = {
+  name: "delete_chapter",
+  description: "Compatibility tool for request_delete kind chapter. It only opens an in-app confirmation dialog and never deletes immediately.",
+  parameters: {
+    type: "OBJECT",
+    properties: { chapterNumber: { type: "INTEGER", description: "Exact chapter number identified by the reader." } },
+    required: ["chapterNumber"],
   },
 };
 

@@ -98,24 +98,37 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
     return startAt;
   }, []);
 
+  const playPcm = useCallback((b64) => {
+    const startAt = playChunk(b64);
+    const ctx = ctxRef.current;
+    if (startAt == null || !ctx) throw new Error("audio_context_unavailable");
+    const durationMs = Math.max(0, (nextTimeRef.current - ctx.currentTime) * 1000);
+    return new Promise((resolve) => setTimeout(resolve, durationMs + 30));
+  }, [playChunk]);
+
+  const prepareAudio = useCallback(async () => {
+    let ctx = ctxRef.current;
+    if (!ctx || ctx.state === "closed") {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      ctx = new AC({ sampleRate: 24000 });
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      const gain = ctx.createGain();
+      gain.gain.value = mutedRef.current ? 0 : 1;
+      analyser.connect(gain);
+      gain.connect(ctx.destination);
+      ctxRef.current = ctx; analyserRef.current = analyser; gainRef.current = gain;
+    }
+    await Promise.race([ctx.resume(), new Promise((resolve) => setTimeout(resolve, 1500))]);
+    return ctx.state === "running";
+  }, []);
+
   // Call from a tap (browser audio rule). systemText = the personality prompt.
   const connect = useCallback(async (systemText, { blame = {} } = {}) => {
     systemTextRef.current = systemText;
     try {
-      let ctx = ctxRef.current;
-      if (!ctx || ctx.state === "closed") {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        ctx = new AC({ sampleRate: 24000 });
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 512;
-        const gain = ctx.createGain();
-        gain.gain.value = mutedRef.current ? 0 : 1;
-        analyser.connect(gain);
-        gain.connect(ctx.destination);
-        ctxRef.current = ctx; analyserRef.current = analyser; gainRef.current = gain;
-      }
       // a retry may run without a fresh tap, so never wait forever for the browser
-      await Promise.race([ctx.resume(), new Promise((r) => setTimeout(r, 1500))]);
+      if (!(await prepareAudio())) throw new Error("audio_context_unavailable");
 
       let session = null;
       let failed = blame;
@@ -141,7 +154,8 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
                 if (session && sessionRef.current !== session) return;   // stale session after reset()
                 const l = queueRef.current[0];
                 if (m.data) {
-                  if (l) l.gotAudio = true;
+                  if (!l) return;
+                  l.gotAudio = true;
                   const at = playChunk(m.data);
                   if (l && !l.started && at != null) {
                     l.started = true;
@@ -180,7 +194,7 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
       setVoiceOk(false);
       return false;
     }
-  }, [voiceName, playChunk, finishGen]);
+  }, [voiceName, playChunk, finishGen, prepareAudio]);
 
   // orb level from real audio + speaking flag
   useEffect(() => {
@@ -291,7 +305,7 @@ export function useGeminiVoiceDriver({ voiceName = "Leda", muted = false } = {})
     };
   }, [reset, connect]);
 
-  return { connect, say, stop, reset, close, speaking, voiceOk, levelRef };
+  return { connect, say, playPcm, prepareAudio, stop, reset, close, speaking, voiceOk, levelRef };
 }
 export const MASCOT_VOICE_PROMPT =
   "You are the tiny mascot of a reading app, and you are speaking aloud for the very first time. " +

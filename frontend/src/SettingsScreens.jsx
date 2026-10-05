@@ -3,13 +3,19 @@
 /* eslint-disable react-hooks/immutability */
 import { motion as Motion } from "framer-motion";
 import {
-    Bug,
-    ChevronLeft, ChevronRight, Download, HardDrive, ImagePlus, Lightbulb, Moon, RefreshCw,
-    Send, Shield, Sparkles, Sun, Target, Trash2, Upload, Volume2, Wrench, X as XIcon, Zap
+    Bug, Check,
+    ChevronLeft, ChevronRight,
+    Cloud,
+    Download, HardDrive, ImagePlus, Lightbulb,
+    LogOut,
+    Moon, Redo2, RefreshCw,
+    Send,
+    Shield,
+    Sparkles, Sun, Target, Trash2, Undo2, Upload, Volume2, Wrench, X as XIcon, Zap
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { apiFetch } from "./api.js";
+import { apiFetch, apiFetchFast } from "./api.js";
 import MajorReleaseCard from "./MajorRelease.jsx";
 import { INTERACTION_SPRING } from "./motionConfig.js";
 import { useGeminiVoiceDriver } from "./onboarding/avatarDriver.js";
@@ -160,6 +166,61 @@ function SetRow({ icon, label, hint, onClick, danger, trailing, chevron }) {
   );
 }
 
+export function AccountScreen({ nav }) {
+  const [syncingNow, setSyncingNow] = useState(false);
+  const syncing = syncingNow || nav.accountSyncStatus === "syncing";
+  const failed = nav.accountSyncStatus === "error";
+
+  async function syncNow() {
+    if (syncing) return;
+    setSyncingNow(true);
+    try { await nav.syncAccountNow?.(); }
+    finally { setSyncingNow(false); }
+  }
+
+  return (
+    <div className="screen set-screen ac-screen">
+      <div className="aurora-bg" />
+      <PfHead title="Account" sub="Your reading, connected" onBack={nav.goBack} />
+      <div className="set-body ac-body">
+        <Motion.section className="ac-identity" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.48, ease: "easeOut" }}>
+          <div className="ac-overline"><span /> READER ACCOUNT <span className="ac-overline-index">01 / 02</span></div>
+          <div className="ac-title-row">
+            <div className="ac-mark"><Cloud size={30} strokeWidth={1.7} /></div>
+            <div><h2>Your reading<br />travels with you.</h2><p>Connected with Google</p></div>
+          </div>
+          <div className="ac-email">
+            <div><small>CONNECTED ACCOUNT</small><b>{nav.accountEmail}</b></div>
+            <span className="ac-connected"><Check size={14} /> Connected</span>
+          </div>
+        </Motion.section>
+
+        <Motion.section className="ac-sync" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.42 }}>
+          <div className="ac-sync-top">
+            <div><span className="ac-section-label">CLOUD SNAPSHOT</span><h3>Reading data</h3></div>
+            <span className={`ac-state ${failed ? "error" : syncing ? "working" : "ready"}`}>
+              <i />{failed ? "Needs attention" : syncing ? "Syncing now" : "Up to date"}
+            </span>
+          </div>
+          <div className={`ac-sync-line ${syncing ? "active" : ""}`} aria-hidden="true"><i /><span /><i /></div>
+          <div className="ac-sync-caption"><span>This device</span><b>{failed ? "Sync paused" : syncing ? "Sending changes" : "Account backup"}</b></div>
+          <p>Books, saved gems, preferences, and reading progress sync when your data changes.</p>
+        </Motion.section>
+
+        <div className="ac-actions">
+          <button type="button" className="ac-sync-button" onClick={() => void syncNow()} disabled={syncing}>
+            <RefreshCw size={17} className={syncing ? "spinning" : ""} />{syncing ? "Syncing…" : "Sync now"}
+          </button>
+          <button type="button" className="ac-signout-button" onClick={() => void nav.signOut?.()}>
+            <LogOut size={17} /> Sign out
+          </button>
+        </div>
+        <p className="ac-footnote"><Shield size={15} /> Signing out disconnects this device. Your cloud snapshot stays with your account.</p>
+      </div>
+    </div>
+  );
+}
+
 // ======================= SETTINGS =======================
 export function SettingsScreen({ nav, stores }) {
   const { profile, library, memory, gems } = stores;
@@ -231,9 +292,15 @@ export function SettingsScreen({ nav, stores }) {
     if (!window.confirm("Delete ALL saved gems? This cannot be undone.")) return;
     gems.gems = []; gems._save(); flash("Gems deleted"); bump((n) => n + 1);
   }
-  function wipe() {
+  async function wipe() {
     if (!window.confirm("Delete EVERYTHING (books, gems, memory, profile)? This cannot be undone.")) return;
-    localStorage.clear(); window.location.reload();
+    try {
+      await nav.deleteAccountData?.();
+      localStorage.clear();
+      window.location.reload();
+    } catch (error) {
+      flash(error?.message || "Cloud data could not be deleted. Nothing on this device was cleared.");
+    }
   }
   async function checkUpdate() {
     if (nav.updateAvailable) {
@@ -564,6 +631,8 @@ export function ReportScreen({ nav, stores }) {
   const [msg, setMsg] = useState("");
   const [refreshingReports, setRefreshingReports] = useState(false);
   const [refreshingOne, setRefreshingOne] = useState(false);
+  const [rewrite, setRewrite] = useState(null);
+  const rewriteRequestRef = useRef(0);
   const fileRef = useRef(null);
   const isFault = type === "bug" || type === "issue";
 
@@ -672,6 +741,33 @@ export function ReportScreen({ nav, stores }) {
     setShots((s) => [...s, ...done.filter(Boolean)]);
   }
 
+  async function improveReportText() {
+    if (desc.trim().length < 10 || rewrite?.status === "loading") return;
+    const original = { description: desc, steps };
+    const requestId = ++rewriteRequestRef.current;
+    setRewrite({ status: "loading" });
+    try {
+      const response = await apiFetchFast("/api/ai/report-rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: original.description, steps: original.steps }),
+      }, { timeoutMs: 17000 });
+      if (!response.ok) throw new Error("rewrite_unavailable");
+      const suggestion = await response.json();
+      if (requestId !== rewriteRequestRef.current) return;
+      if (typeof suggestion.description !== "string" || typeof suggestion.steps !== "string") throw new Error("rewrite_invalid");
+      setRewrite({ status: "suggestion", original, suggestion });
+    } catch {
+      if (requestId === rewriteRequestRef.current) setRewrite({ status: "error" });
+    }
+  }
+
+  function updateReportText(setter, value) {
+    rewriteRequestRef.current += 1;
+    setRewrite(null);
+    setter(value);
+  }
+
   function submit() {
     if (title.trim().length < 3 || desc.trim().length < 10) return flash("Add a short title and a few details first");
     const r = {
@@ -689,6 +785,7 @@ export function ReportScreen({ nav, stores }) {
     setSelectedId(r.id);
     setView("reports");
     setTitle(""); setDesc(""); setSteps(""); setShots([]);
+    rewriteRequestRef.current += 1; setRewrite(null);
     flash("Saved. Thank you for helping improve the app!");
     flush(next);
   }
@@ -736,9 +833,38 @@ export function ReportScreen({ nav, stores }) {
               )}
               <label>Title<input className="st-input full" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} placeholder={type === "feature" ? "e.g. Dark reading mode" : "e.g. Mind map does not load"} /></label>
               <label>{type === "feature" || type === "enhance" ? "Describe your idea" : "What went wrong?"}
-                <textarea className="st-input full rp-grow" ref={(el) => autoGrow(el)} rows={4} value={desc} maxLength={1500} onChange={(e) => setDesc(e.target.value)} placeholder="Write as much as you like" />
+                <textarea className="st-input full rp-grow" ref={(el) => autoGrow(el)} rows={4} value={desc} maxLength={1500} onChange={(e) => updateReportText(setDesc, e.target.value)} placeholder="Write as much as you like" />
               </label>
-              {isFault && <label>Steps to reproduce (optional)<textarea className="st-input full rp-grow" ref={(el) => autoGrow(el)} rows={3} value={steps} maxLength={800} onChange={(e) => setSteps(e.target.value)} placeholder="1. Open Memory  2. Tap Mind Map  3. ..." /></label>}
+              {isFault && <label>Steps to reproduce (optional)<textarea className="st-input full rp-grow" ref={(el) => autoGrow(el)} rows={3} value={steps} maxLength={800} onChange={(e) => updateReportText(setSteps, e.target.value)} placeholder="1. Open Memory  2. Tap Mind Map  3. ..." /></label>}
+              <div className="rp-ai">
+                {rewrite?.status !== "suggestion" && rewrite?.status !== "accepted" && (
+                  <button type="button" className="rp-ai-trigger" onClick={improveReportText} disabled={rewrite?.status === "loading" || desc.trim().length < 10}>
+                    <Sparkles size={15} /> {rewrite?.status === "loading" ? "Preparing suggestion…" : "Improve with AI"}
+                  </button>
+                )}
+                {rewrite?.status === "error" && <span role="status">AI is unavailable right now. Your text is unchanged.</span>}
+                {rewrite?.status === "suggestion" && (
+                  <div className="rp-ai-preview">
+                    <span>Suggestion</span>
+                    <p>{rewrite.suggestion.description}</p>
+                    {isFault && rewrite.suggestion.steps && <p>{rewrite.suggestion.steps}</p>}
+                    <div>
+                      <button type="button" onClick={() => { setDesc(rewrite.suggestion.description); if (isFault) setSteps(rewrite.suggestion.steps); setRewrite({ ...rewrite, status: "accepted", applied: true }); }}>Use suggestion</button>
+                      <button type="button" onClick={() => setRewrite(null)}>Keep mine</button>
+                    </div>
+                  </div>
+                )}
+                {rewrite?.status === "accepted" && (
+                  <button type="button" className="rp-ai-restore" onClick={() => {
+                    const next = rewrite.applied ? rewrite.original : rewrite.suggestion;
+                    setDesc(next.description);
+                    if (isFault) setSteps(next.steps);
+                    setRewrite({ ...rewrite, applied: !rewrite.applied });
+                  }}>
+                    {rewrite.applied ? <><Undo2 size={14} /> Undo</> : <><Redo2 size={14} /> Redo</>}
+                  </button>
+                )}
+              </div>
               <div>
                 <div className="st-lbl">Screenshots ({shots.length}/4)</div>
                 <div className="rp-shots">
