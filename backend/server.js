@@ -217,6 +217,13 @@ app.get("/api/ai/help/status", async (req, res) => {
   res.json({ available: Boolean(providers.length && helpGuide), providers });
 });
 
+function detectReplyLanguage(text) {
+  if (/[\u0900-\u097F]/.test(text)) return "Hindi in Devanagari script";
+  const hinglish = /\b(kaise|kya|kyu|kyon|kab|kahan|kaha|mujhe|mera|meri|mere|karun|karu|karna|karo|kar|hai|hain|nahi|nahin|aur|ko|ka|ki|ke|se|me|mein|par|liye|chahiye|batao|bataiye|samajh|samjha|dikha|dikhao|kitab|wala|wali|ho|hota|hoti|sakta|sakti|abhi|bhi|toh|lekin|agar|apna|apni|kuch|kaun|kitna)\b/gi;
+  const hits = (text.match(hinglish) || []).length;
+  return hits >= 2 || (hits >= 1 && text.trim().split(/\s+/).length <= 4) ? "Hinglish (Hindi written in English letters; never Devanagari)" : "English";
+}
+
 app.post("/api/ai/help", async (req, res) => {
   const question = typeof req.body?.question === "string" ? req.body.question.trim().slice(0, 700) : "";
   if (!question) return res.status(400).json({ error: "help_question_required" });
@@ -282,6 +289,7 @@ app.post("/api/ai/help", async (req, res) => {
         }));
       }
     }
+    const replyLanguage = detectReplyLanguage(question);
     let animationIds = null;
     const animationCatalogue = await loadHelpAnimations();
     if (animationCatalogue) {
@@ -317,7 +325,7 @@ app.post("/api/ai/help", async (req, res) => {
         role: "system",
         content: `You are the friendly in-app helper for Reading Companion, talking to one reader like a knowledgeable friend, not a manual.
 
-Language: reply in the same language and style as the user's latest message. English gets English, Hindi in Devanagari gets Hindi in Devanagari, and Hindi written in English letters (Hinglish, e.g. \"kitab kaise add karun\") gets Hinglish in English letters only, never Devanagari script. Never switch language on your own.
+Language: reply in the same language and style as the user's latest message. English gets English, Hindi in Devanagari gets Hindi in Devanagari, and Hindi written in English letters (Hinglish, e.g. \"kitab kaise add karun\") gets Hinglish in English letters only, never Devanagari script. Every user message ends with a [Reply language: ...] tag added by the app: you MUST write the whole answer in exactly that language and never mention the tag. Never switch language on your own.
 
 How to answer:
 - First read the guide excerpt below carefully, then explain it in your own natural words. Never paste or list the excerpt mechanically, and do not start with "Memory has two tabs"-style dry sentences.
@@ -334,7 +342,7 @@ Guide excerpt:
 ${excerpt || "No guide entry matched."}${animationNote}`,
       },
       ...history,
-      { role: "user", content: question },
+      { role: "user", content: `${question}\n\n[Reply language: ${replyLanguage}]` },
     ];
     res.on("close", () => { if (!res.writableEnded) controller.abort(); });
     for (let index = 0; index < providers.length; index += 1) {

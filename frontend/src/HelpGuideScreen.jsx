@@ -389,7 +389,7 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
 
     const cached = readCachedAnswer(text);
     if (cached?.content) {
-      appendMessages(createMessage("assistant", cached.content, { topicId: cached.topicId || null, animationIds: cached.animationIds || pickAnimationsByKeywords(text).map((a) => a.id) }));
+      appendMessages(createMessage("assistant", cached.content, { topicId: cached.topicId || null, animationIds: cached.animationIds?.length ? cached.animationIds : pickAnimationsByKeywords(text) }));
       return;
     }
 
@@ -464,7 +464,7 @@ export default function HelpGuideScreen({ nav, userName = "there" }) {
       if (!answer.trim()) throw new Error("help_empty");
       setAiStatus("online");
       const responseTopic = demoTopic;
-      const finalAnimations = animationIds ?? pickAnimationsByKeywords(text).map((entry) => entry.id);
+      const finalAnimations = animationIds?.length ? animationIds : pickAnimationsByKeywords(text);
       setMessages((current) => current.map((message) => message.id === assistantMessage.id
         ? { ...message, streaming: false, topicId: responseTopic?.id || message.topicId || null, animationIds: finalAnimations }
         : message));
