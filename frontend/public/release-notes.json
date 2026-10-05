@@ -6,6 +6,9 @@
       "date": "2026-10-11",
       "title": "Smarter reminders, clearer progress",
       "items": [
+        { "type": "improve", "text": "Help & Support actions (New chat, Chat history, App tour) now live as neat icon buttons in the header, so nothing covers the chat" },
+        { "type": "fix", "text": "Help chat now explains release labels (Major update, UI enhancement, A new chapter, Signature update) and every Your Reports stage correctly, with matching animations" },
+        { "type": "fix", "text": "Hinglish questions in Help chat get Hinglish answers" },
         { "type": "improve", "text": "Help & Support status is now a compact pill, the toolbar is tidier, and the chat uses a simple Send button instead of a mic" },
         { "type": "fix", "text": "Help chat animations now reliably appear under answers, and the chat replies in your language: English, Hindi or Hinglish" },
         { "type": "improve", "text": "If notifications were blocked, a friendly banner explains how to turn them back on for your device" },
