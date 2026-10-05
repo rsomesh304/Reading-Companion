@@ -173,6 +173,19 @@
 .sc-bar { display: block; height: 5px; border-radius: 99px; overflow: hidden; background: color-mix(in srgb, var(--muted) 25%, transparent); }
 .sc-bar i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--primary), var(--accent)); }
 
+.sc-support { display: flex; flex-direction: column; gap: 9px; width: min(100%,280px); }
+.sc-support-profile,.sc-support-tile { display: flex; align-items: center; gap: 9px; min-height: 46px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 14px; color: var(--text); background: var(--surface); box-shadow: var(--shadow); }
+.sc-support-profile > span,.sc-support-tile > span { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; border-radius: 10px; color: #fff; background: linear-gradient(140deg,#6944ca,#3276c6); }
+.sc-support-profile b,.sc-support-tile b { flex: 1; font-size: 12px; text-align: left; }
+.sc-support-profile > svg { color: var(--muted); }
+.sc-support-tile { border-color: color-mix(in srgb,#8b5cf6 36%,var(--border)); }
+.sc-support-tile > span { background: linear-gradient(140deg,#7245d4,#168f9c); }
+.sc-support-tile > i { width: 7px; height: 7px; border-radius: 50%; background: #22c985; box-shadow: 0 0 0 4px color-mix(in srgb,#22c985 16%,transparent); }
+.sc-support-chat { align-self: flex-end; display: flex; flex-direction: column; gap: 5px; width: 88%; padding: 11px 12px; border: 1px solid color-mix(in srgb,#8b5cf6 32%,var(--border)); border-radius: 15px 15px 4px 15px; color: var(--text); background: color-mix(in srgb,var(--surface) 94%,#8b5cf6); box-shadow: var(--shadow); text-align: left; }
+.sc-support-chat small { display: flex; align-items: center; gap: 5px; color: var(--primary); font-size: 9px; font-weight: 800; }
+.sc-support-chat p { margin: 0; font-size: 11px; }
+.sc-support-chat b { color: var(--text); font-size: 12px; }
+
 .sc-why { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
 .sc-why .sc-page { flex: none; width: 240px; height: 150px; }
 .sc-stuck, .sc-solved {

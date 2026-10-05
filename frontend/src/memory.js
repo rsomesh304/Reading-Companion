@@ -1,3 +1,4 @@
+import { dispatchLocalDataChanged } from "./accountSync.js";
 import { DEVANAGARI_PATTERN } from "./persona.js";
 
 const STORAGE_KEY = "reading_companion_memory";
@@ -66,6 +67,7 @@ export class CompanionMemory {
 
   _save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(this.memories));
+    dispatchLocalDataChanged();
   }
 
   promptContext() {

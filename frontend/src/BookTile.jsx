@@ -82,14 +82,16 @@ export default function BookTile({ book, index, completed, total, date, time, on
                 <defs>
                   <linearGradient id={`bkg-${book.id}`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#fff" /><stop offset="1" stopColor="#fde68a" /></linearGradient>
                 </defs>
-                <circle className="bk-track" cx={RING.size / 2} cy={RING.size / 2} r={RADIUS} strokeWidth={RING.stroke} />
-                <circle className="bk-fill" cx={RING.size / 2} cy={RING.size / 2} r={RADIUS} strokeWidth={RING.stroke}
-                  stroke={`url(#bkg-${book.id})`} strokeDasharray={CIRC} strokeDashoffset={ready ? CIRC * (1 - pct) : CIRC} />
-                {pct > 0 && pct < 1 && (
-                  <circle className="bk-dot" cx={RING.size / 2 + RADIUS * Math.cos(angle)} cy={RING.size / 2 + RADIUS * Math.sin(angle)} r="3.2" />
-                )}
+                <g transform={`rotate(-90 ${RING.size / 2} ${RING.size / 2})`}>
+                  <circle className="bk-track" cx={RING.size / 2} cy={RING.size / 2} r={RADIUS} strokeWidth={RING.stroke} />
+                  <circle className="bk-fill" cx={RING.size / 2} cy={RING.size / 2} r={RADIUS} strokeWidth={RING.stroke}
+                    stroke={`url(#bkg-${book.id})`} strokeDasharray={CIRC} strokeDashoffset={ready ? CIRC * (1 - pct) : CIRC} />
+                  {pct > 0 && pct < 1 && (
+                    <circle className="bk-dot" cx={RING.size / 2 + RADIUS * Math.cos(angle)} cy={RING.size / 2 + RADIUS * Math.sin(angle)} r="3.2" />
+                  )}
+                </g>
+                <text className="bk-ring-label" x={RING.size / 2} y={RING.size / 2} textAnchor="middle" dominantBaseline="central">{Math.round(pct * 100)}%</text>
               </svg>
-              <b>{Math.round(pct * 100)}<small>%</small></b>
             </div>
             <div className="bk-prog-text"><b>{completed}/{total}</b><span>Chapters</span></div>
           </div>

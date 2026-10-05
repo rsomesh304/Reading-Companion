@@ -1,3 +1,5 @@
+import { dispatchLocalDataChanged, readAccountSyncMeta } from "./accountSync.js";
+
 const STORAGE_KEY = "reading_companion_profile";
 const PRIOR_READER_DATA_KEYS = new Set([
   "reading_companion_library",
@@ -25,6 +27,7 @@ export class Profile {
   }
   _save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
+    dispatchLocalDataChanged();
   }
   markActiveToday() {
     const today = new Date().toDateString();
@@ -71,7 +74,7 @@ export class Profile {
       this.data.avatarPreset !== null && this.data.avatarPreset !== undefined ||
       this.data.theme && this.data.theme !== "dark"
     );
-    const hasPriorReaderData = Object.keys(localStorage).some((key) => (
+    const hasPriorReaderData = !readAccountSyncMeta()?.userId && Object.keys(localStorage).some((key) => (
       PRIOR_READER_DATA_KEYS.has(key) || key.startsWith("rc_convo_")
     ));
 

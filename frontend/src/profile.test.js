@@ -62,3 +62,9 @@ test("clearing browser data restores first-run onboarding", () => {
 
   assert.equal(new Profile().hasCompletedOnboarding(), false);
 });
+
+test("a fresh account still sees onboarding when legacy device reports remain", () => {
+  localStorage.setItem("rc_account_sync_meta", JSON.stringify({ userId: "new-account", signature: "empty" }));
+  localStorage.setItem("rc_reports", JSON.stringify([{ id: "previous-reader-report" }]));
+  assert.equal(new Profile().hasCompletedOnboarding(), false);
+});

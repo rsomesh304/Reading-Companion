@@ -1,6 +1,35 @@
 # Reading Companion
 
-A personal reading companion app built with React + Vite on the frontend and a small Node/Express backend for AI session orchestration. It stores reading data in the browser using localStorage/IndexedDB-like browser storage patterns, so your books, chapters, gems, memories, and vocabulary remain on the device unless you explicitly export them.
+A personal reading companion app built with React + Vite on the frontend and a small Node/Express backend for AI session orchestration. Version 2.0.0, **A New Chapter**, keeps a browser-local reading cache and adds Google sign-in with private per-account cloud backup.
+
+## Version 2.0.0: A New Chapter
+
+- Google sign-in, account-scoped cloud snapshots, conflict resolution and a dedicated Account screen.
+- Full-screen Help & Support with streamed replies, built-in guide answers, animated explainers and direct navigation.
+- Visible New chat, Chat history and App tour controls; searchable, date-grouped history with mobile bottom-sheet presentation, read-only saved conversations and confirmed deletion.
+- A resumable bilingual app tour, clearer onboarding, vocabulary practice and pronunciation observations.
+- Cross-book Mind Map connections, improved Gems and memories, safer voice-requested deletion and more resilient reading sessions.
+- Report-description and reproduction-step polishing, plus refreshed version-2 release presentation.
+
+Help conversations remain on the current device and are excluded from cloud backups.
+See [the release notes](frontend/public/release-notes.json) for the full release.
+
+### Release configuration
+
+Before promoting `dev` to `main`:
+
+1. Apply [the reader-account migration](supabase/migrations/20261004210000_create_reader_cloud_accounts.sql) to the intended Supabase environment. It enables per-user row-level policies on reading snapshots.
+2. Enable Google authentication in Supabase and configure the appropriate local, preview and production redirect URLs.
+3. Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the frontend environment. Keep service-role credentials server-side.
+4. Configure the optional server-only `GROQ_API_KEY` for Help replies and Cloudflare credentials for backup replies and report rewrites. Built-in Help answers remain available when AI replies are unavailable.
+5. Deploy the matching backend and frontend. The backend Help route imports the guide from the frontend source, so retain that source in the backend deployment checkout.
+6. Keep the in-memory Gemini key/lease pool on one backend instance unless shared state is introduced. Optional pool limits and the protected diagnostic endpoint are described in [the backend environment template](backend/.env.example).
+
+Never commit local environment files or credentials.
+
+## Historical local-only deployment guide
+
+The sections below describe the earlier local-only architecture and alternative hosting approaches. Their statements about having no account or cloud database do **not** describe the 2.0.0 account-backed release; use the configuration checklist above for the current application.
 
 This guide explains the right way to deploy it for daily personal use, how to keep your data local, and how to install it on your phone like a normal app without writing Android code.
 

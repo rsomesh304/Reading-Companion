@@ -1,8 +1,10 @@
 import { AnimatePresence, motion as Motion, useDragControls } from "framer-motion";
-import { BookOpen, Gem, Info, Link2, Maximize2, Shuffle, X as XIcon } from "lucide-react";
+import { BookOpen, Gem, Info, Link2, Maximize2, RefreshCw, Shuffle, X as XIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import { apiUrl } from "./api.js";
+import { clearGemEchoCache, fetchGemEchoes, gemPairSignature, gemTextHash } from "./gemEchoClient.js";
+import { ensureGemInsights, gemInsightHash } from "./gemInsightClient.js";
+import { buildLocalGemEchoes, MAX_ECHOES_PER_GEM } from "./gemSemantics.js";
 import "./MemoryConstellation.css";
 
 const TAU = Math.PI * 2;
@@ -11,7 +13,6 @@ const BOOK_COLORS = [
   ["#34D399", "#10B981"], ["#F472B6", "#EC4899"], ["#A78BFA", "#7C3AED"],
 ];
 const LOOSE = ["#94A3B8", "#64748B"];
-const STOP = new Set("about above after again being could every first found great their there these thing those through where which while would should always because before between little never other really still than that them then they this very what when with your yourself".split(" "));
 
 // ---------- Mock data ----------
 const MOCK_BOOKS = [
@@ -20,21 +21,22 @@ const MOCK_BOOKS = [
   { id: "courage", title: "The Courage to Be Disliked", authorName: "Ichiro Kishimi and Fumitake Koga" },
 ];
 const MOCK_GEMS = [
-  { id: "g1", bookId: "atomic", bookTitle: "Atomic Habits", chapterNumber: 1, quote: "You do not rise to the level of your goals. You fall to the level of your systems.", takeawaySituation: "You set a big goal every January and drop it by February.", takeawaySteps: ["Pick one tiny daily action", "Attach it to something you already do", "Track it with a simple tick"], takeawayExample: "After morning chai, read one page.", takeawayWhyItMatters: "Systems keep working on the days motivation doesn't." },
-  { id: "g2", bookId: "atomic", bookTitle: "Atomic Habits", chapterNumber: 4, quote: "Every action you take is a vote for the type of person you wish to become.", takeawaySituation: "You skip the gym because 'one day won't matter'.", takeawaySteps: ["Ask: what would the person I want to be do now?", "Do the 2-minute version"], takeawayWhyItMatters: "Identity is built from small repeated votes." },
-  { id: "g3", bookId: "atomic", bookTitle: "Atomic Habits", chapterNumber: 7, quote: "Make it obvious, make it attractive, make it easy, make it satisfying.", takeaway: "Use the four laws to design any habit you want to keep." },
-  { id: "g4", bookId: "alchemist", bookTitle: "The Alchemist", chapterNumber: 2, quote: "When you want something, all the universe conspires in helping you to achieve it.", takeaway: "Take the first concrete step. Momentum attracts help." },
-  { id: "g5", bookId: "alchemist", bookTitle: "The Alchemist", chapterNumber: 5, quote: "The fear of suffering is worse than the suffering itself.", takeaway: "Name what you fear, then do the smallest version of it today." },
-  { id: "g6", bookId: "courage", bookTitle: "The Courage to Be Disliked", chapterNumber: 3, quote: "All problems are interpersonal relationship problems.", takeaway: "Separate your tasks from other people's tasks before reacting." },
-  { id: "g7", bookId: "courage", bookTitle: "The Courage to Be Disliked", chapterNumber: 3, quote: "Freedom is being disliked by other people.", takeaway: "Pick one decision this week and make it without seeking approval." },
-  { id: "g8", bookId: "alchemist", bookTitle: "The Alchemist", chapterNumber: 6, quote: "Fear of suffering keeps people from taking the first step toward their dream.", takeaway: "Take one small step toward the thing you keep postponing." },
+  { id: "g1", bookId: "atomic", bookTitle: "Atomic Habits", chapterNumber: 1, quote: "A small choice rehearses the person you are becoming.", themes: ["habits-and-identity"], coreIdea: "Repeated actions slowly shape identity.", embedding: [0, 0, 1, 0] },
+  { id: "g2", bookId: "atomic", bookTitle: "Atomic Habits", chapterNumber: 4, quote: "A routine makes a difficult choice feel ordinary.", themes: ["habits-and-identity"], coreIdea: "Systems make useful actions repeatable.", embedding: [0.02, 0, 0.99, 0] },
+  { id: "g3", bookId: "atomic", bookTitle: "Atomic Habits", chapterNumber: 7, quote: "Lasting change begins with the shape of an ordinary day.", themes: ["habits-and-identity", "inner-change"], coreIdea: "Daily systems shape long-term change.", embedding: [0, 0.08, 0.98, 0] },
+  { id: "g4", bookId: "alchemist", bookTitle: "The Alchemist", chapterNumber: 2, quote: "A dream becomes less frightening after the first small step.", themes: ["courage-and-action"], coreIdea: "Action shrinks the fear of beginning.", embedding: [0, 1, 0, 0] },
+  { id: "g5", bookId: "alchemist", bookTitle: "The Alchemist", chapterNumber: 5, quote: "The road looks shorter once you start walking.", themes: ["courage-and-action"], coreIdea: "Beginning gives courage momentum.", embedding: [0.05, 0.98, 0, 0] },
+  { id: "g6", bookId: "courage", bookTitle: "The Courage to Be Disliked", chapterNumber: 5, quote: "A feared possibility loses some power when you choose one small action.", themes: ["courage-and-action"], coreIdea: "A small action loosens the hold of fear.", embedding: [0.01, 0.99, 0.03, 0] },
+  { id: "g7", bookId: "courage", bookTitle: "The Courage to Be Disliked", chapterNumber: 1, quote: "We don't see things as they are; we see them as we are.", themes: ["self-awareness", "perception"], coreIdea: "Our inner viewpoint shapes how the world appears.", embedding: [1, 0, 0, 0] },
+  { id: "g8", bookId: "courage", bookTitle: "The Courage to Be Disliked", chapterNumber: 2, quote: "Yesterday I was clever and wanted to change the world; today I am wise and changing myself.", themes: ["self-awareness", "inner-change"], coreIdea: "Wisdom turns attention toward changing oneself.", embedding: [0.98, 0.03, 0, 0] },
+  { id: "g9", bookId: "courage", bookTitle: "The Courage to Be Disliked", chapterNumber: 3, quote: "The view changes when the person looking inward changes.", themes: ["self-awareness", "perception"], coreIdea: "Self-understanding changes perspective.", embedding: [0.99, 0, 0.03, 0] },
+  { id: "g10", bookId: "atomic", bookTitle: "Atomic Habits", chapterNumber: 9, quote: "A better question is what kind of person your next action supports.", themes: ["self-awareness", "habits-and-identity"], coreIdea: "Small actions reveal and reinforce identity.", embedding: [0.82, 0, 0.57, 0] },
 ];
 
 // ---------- Helpers ----------
 const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; };
 const hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); };
 const clip = (text, n) => { const s = String(text || "").replace(/\s+/g, " ").trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
-const tokens = (text) => [...new Set((String(text || "").toLowerCase().match(/[a-z]{5,}/g) || []).filter((w) => !STOP.has(w)))];
 function rr(ctx, x, y, w, h, r) {
   ctx.beginPath(); ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
@@ -50,24 +52,20 @@ function drawLabel(ctx, text, x, y, fs, weight, color, scale, light) {
 }
 
 // ---------- Semantic echoes (backend-judged idea links between books) ----------
-const ECHO_CACHE_KEY = "rc_gem_echoes_v2";
 const pairKey = (a, b) => [String(a), String(b)].sort().join("|");
-function loadEchoCache() { try { return JSON.parse(localStorage.getItem(ECHO_CACHE_KEY) || "{}"); } catch { return {}; } }
-function saveEchoCache(cache) { try { localStorage.setItem(ECHO_CACHE_KEY, JSON.stringify(cache)); } catch { /* storage full */ } }
-function resolvedBookKey(gem, books, byTitle) {
-  if (gem.bookId && books.some((b) => b.id === gem.bookId)) return gem.bookId;
-  const byT = byTitle.get(String(gem.bookTitle || "").toLowerCase());
-  return byT || `unknown:${String(gem.bookTitle || gem.id).toLowerCase()}`;
-}
-
 // Fixed "orbit" layout: books on a ring, gems orbit their book. No physics, so it is stable.
-function buildGraph(books, gems, semanticPairs = []) {
-  const nodes = [], links = [], adj = new Map(), echoes = new Map(), echoReasons = new Map();
+function buildGraph(books, gems, verifiedEchoes = []) {
+  const nodes = [], links = [], adj = new Map(), echoes = new Map(), echoReasons = new Map(), echoMeta = new Map();
   const add = (m, a, b) => { if (!m.has(a)) m.set(a, new Set()); m.get(a).add(b); };
-  const link = (a, b, kind) => {
-    links.push({ source: a, target: b, kind });
+  const link = (a, b, kind, meta = {}) => {
+    links.push({ source: a, target: b, kind, ...meta });
     add(adj, a, b); add(adj, b, a);
-    if (kind === "echo") { add(echoes, a, b); add(echoes, b, a); }
+    if (kind === "echo") {
+      add(echoes, a, b); add(echoes, b, a);
+      const key = pairKey(a, b);
+      echoMeta.set(key, meta);
+      if (meta.reason) echoReasons.set(key, meta.reason);
+    }
   };
   const groups = new Map(books.map((b) => [b.id, []]));
   const byTitle = new Map(books.map((b) => [String(b.title).toLowerCase(), b.id]));
@@ -101,104 +99,107 @@ function buildGraph(books, gems, semanticPairs = []) {
     nodes.push({ id: `gem:${g.id}`, type: "gem", label: g.summary || g.quote, data: g, c: LOOSE, bid: null, x: gx, y: gy, fx: gx, fy: gy, phase: (hash(String(g.id)) % 628) / 100 });
   });
 
-  // echoes: gems from different books that share ideas
+  // Local semantic bridges render immediately; AI verdicts upgrade or reject them later.
   const gn = nodes.filter((x) => x.type === "gem");
-  gn.forEach((x) => { x.tok = tokens(x.data.quote); });
-  let echoCount = 0;
-  for (let i = 0; i < gn.length && echoCount < 40; i++) {
-    for (let j = i + 1; j < gn.length && echoCount < 40; j++) {
-      const a = gn[i], b = gn[j];
-      if (a.bid && a.bid === b.bid) continue;
-      const shared = a.tok.filter((w) => b.tok.includes(w));
-      if (shared.length >= 2 || shared.some((w) => w.length >= 8)) { link(a.id, b.id, "echo"); echoCount += 1; }
-    }
+  const candidates = [];
+  const semanticGems = gn.map((node) => ({ ...node.data, bookId: node.bid || node.data.bookId }));
+  const gemsById = new Map(gems.map((gem) => [String(gem.id), gem]));
+  const decisions = new Map(verifiedEchoes.map((echo) => [pairKey(echo.a, echo.b), echo]));
+  for (const localEcho of buildLocalGemEchoes(semanticGems)) {
+    let decision = decisions.get(pairKey(localEcho.a, localEcho.b));
+    if (decision?.signature !== gemPairSignature(gemsById.get(localEcho.a), gemsById.get(localEcho.b))) decision = null;
+    if (decision && !decision.accepted) continue;
+    candidates.push(decision?.accepted ? decision : localEcho);
   }
 
-  // semantic echoes: cross-book pairs the language model confirmed share one idea
-  const nodeIds = new Set(nodes.map((x) => x.id));
-  const seenEcho = new Set(links.filter((l) => l.kind === "echo").map((l) => pairKey(String(l.source), String(l.target))));
-  for (const p of semanticPairs) {
-    const a = `gem:${p.a}`, b = `gem:${p.b}`;
-    const k = pairKey(a, b);
-    if (a === b || !nodeIds.has(a) || !nodeIds.has(b) || seenEcho.has(k)) continue;
-    seenEcho.add(k);
-    link(a, b, "echo");
-    echoCount += 1;
-    if (p.reason) echoReasons.set(k, p.reason);
+  candidates.sort((a, b) => b.score - a.score);
+  const nodeIds = new Set(gn.map((node) => String(node.data.id)));
+  const seenEcho = new Set();
+  const degree = new Map();
+  for (const candidate of candidates) {
+    const a = `gem:${candidate.a}`, b = `gem:${candidate.b}`;
+    const key = pairKey(a, b);
+    if (a === b || !nodeIds.has(candidate.a) || !nodeIds.has(candidate.b) || seenEcho.has(key)) continue;
+    if ((degree.get(candidate.a) || 0) >= MAX_ECHOES_PER_GEM || (degree.get(candidate.b) || 0) >= MAX_ECHOES_PER_GEM) continue;
+    seenEcho.add(key);
+    degree.set(candidate.a, (degree.get(candidate.a) || 0) + 1);
+    degree.set(candidate.b, (degree.get(candidate.b) || 0) + 1);
+    link(a, b, "echo", { score: candidate.score, sharedThemes: candidate.sharedThemes || [], reason: candidate.reason || "Related ideas across books", source: candidate.source });
   }
-  return { graph: { nodes, links }, adj, echoes, echoCount, echoReasons };
+  return { graph: { nodes, links }, adj, echoes, echoCount: seenEcho.size, echoReasons, echoMeta };
 }
 
 // ---------- Component ----------
-export default function MemoryConstellation({ books = [], gems = [], paused = false }) {
+export default function MemoryConstellation({ books = [], gems = [], paused = false, onGemInsight = () => {} }) {
   const demo = books.length === 0 && gems.length === 0;
-  const gemsKey = gems.map((g) => g.id).sort().join(",");
-  const [semPairs, setSemPairs] = useState([]);
-  const { graph, adj, echoes, echoCount, echoReasons } = useMemo(
-    () => (demo ? buildGraph(MOCK_BOOKS, MOCK_GEMS) : buildGraph(books, gems, semPairs)),
-    [books, gems, demo, semPairs]
+  const gemsKey = gems.map((gem) => `${String(gem.id)}:${gemTextHash(gem)}`).sort().join(",");
+  const [insightBusy, setInsightBusy] = useState(false);
+  const [connectionsBusy, setConnectionsBusy] = useState(false);
+  const [rebuildKey, setRebuildKey] = useState(0);
+  const [insightOverrides, setInsightOverrides] = useState({});
+  const [verifiedEchoes, setVerifiedEchoes] = useState([]);
+  const hasMissingInsights = gems.some((gem) => gem.insightHash !== gemInsightHash(gem));
+  const enrichedGems = useMemo(() => demo ? MOCK_GEMS : gems.map((gem) => insightOverrides[gem.id] ? { ...gem, ...insightOverrides[gem.id] } : gem), [demo, gems, insightOverrides]);
+  const { graph, adj, echoes, echoCount, echoReasons, echoMeta } = useMemo(
+    () => buildGraph(demo ? MOCK_BOOKS : books, enrichedGems, verifiedEchoes),
+    [books, enrichedGems, demo, verifiedEchoes]
   );
 
-  // Ask the backend's language model which cross-book gem pairs share an idea.
-  // Every pair is judged exactly once and cached in localStorage; "no link"
-  // verdicts are cached too so we never re-ask the same pair.
   useEffect(() => {
-    if (demo || gems.length < 2) return undefined;
+    if (demo || paused || gems.length < 1 || !onGemInsight) return undefined;
     let cancelled = false;
     const timer = setTimeout(async () => {
-      const byTitle = new Map(books.map((b) => [String(b.title).toLowerCase(), b.id]));
-      const keyOf = (g) => resolvedBookKey(g, books, byTitle);
-      const cache = loadEchoCache();
-      const yesPairs = [];
-      const unknown = [];
-      for (let i = 0; i < gems.length; i++) {
-        for (let j = i + 1; j < gems.length; j++) {
-          const a = gems[i], b = gems[j];
-          if (keyOf(a) === keyOf(b)) continue; // same book: never an echo
-          const hit = cache[pairKey(a.id, b.id)];
-          if (hit) { if (hit.on) yesPairs.push({ a: a.id, b: b.id, reason: hit.reason || "" }); }
-          else unknown.push([a, b]);
-        }
-      }
-      if (cancelled) return;
-      setSemPairs(yesPairs);
-      if (!unknown.length) return;
-      const involved = new Map();
-      unknown.slice(0, 200).forEach(([a, b]) => { involved.set(a.id, a); involved.set(b.id, b); });
-      const payload = [...involved.values()].slice(0, 40)
-        .map((g) => ({ id: g.id, bookTitle: g.bookTitle, quote: g.quote, takeaway: g.takeaway || "" }));
+      setInsightBusy(true);
       try {
-        const res = await fetch(apiUrl("/api/gem-echoes"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ gems: payload }),
-        });
-        const data = await res.json();
-        if (cancelled) return;
-        const got = new Set();
-        const fresh = [];
-        for (const p of Array.isArray(data?.pairs) ? data.pairs : []) {
-          const [a, b, reason] = p;
-          if (!involved.has(a) || !involved.has(b)) continue;
-          got.add(pairKey(a, b));
-          cache[pairKey(a, b)] = { on: true, reason: String(reason || "") };
-          fresh.push({ a, b, reason: String(reason || "") });
-        }
-        for (const [a, b] of unknown) {
-          const k = pairKey(a.id, b.id);
-          if (!got.has(k) && cache[k] === undefined) cache[k] = { on: false };
-        }
-        saveEchoCache(cache);
-        setSemPairs((prev) => {
-          const merged = [...prev];
-          for (const p of fresh) if (!prev.some((q) => pairKey(q.a, q.b) === pairKey(p.a, p.b))) merged.push(p);
-          return merged;
-        });
-      } catch { /* backend offline - keyword echoes still work */ }
+        const enriched = await ensureGemInsights(gems, onGemInsight);
+        if (!cancelled) setInsightOverrides(Object.fromEntries(enriched.map((gem) => [gem.id, {
+          themes: gem.themes || [], coreIdea: gem.coreIdea || "", embedding: gem.embedding || null,
+        }])));
+      } catch { /* offline keyword connections remain available */ }
+      if (!cancelled) setInsightBusy(false);
     }, 400);
-    return () => { cancelled = true; clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gemsKey, books, demo]);
+    return () => { cancelled = true; clearTimeout(timer); setInsightBusy(false); };
+  }, [gemsKey, gems, demo, paused, rebuildKey, onGemInsight]);
+
+  useEffect(() => {
+    if (demo || paused || gems.length < 2) return undefined;
+    let cancelled = false;
+    let retryTimer = null;
+    let retries = 0;
+    const run = async () => {
+      if (cancelled) return;
+      setConnectionsBusy(true);
+      const onFailure = () => {
+        if (cancelled || retryTimer || retries >= 3) return;
+        const delay = [2000, 5000, 15000][retries++];
+        retryTimer = setTimeout(() => { retryTimer = null; void run(); }, delay);
+      };
+      const decisions = await fetchGemEchoes(gems, {
+        onUpdate: (next) => { if (!cancelled) setVerifiedEchoes(next); },
+        onFailure,
+      });
+      if (!cancelled) {
+        setVerifiedEchoes(decisions);
+        if (!retryTimer) setConnectionsBusy(false);
+      }
+    };
+    const debounce = setTimeout(() => { void run(); }, 1500);
+    return () => {
+      cancelled = true;
+      clearTimeout(debounce);
+      clearTimeout(retryTimer);
+    };
+  }, [gemsKey, gems, demo, paused, rebuildKey]);
+
+  const rebuildConnections = useCallback(() => {
+    clearGemEchoCache();
+    gems.forEach((gem) => onGemInsight(gem.id, { themes: [], coreIdea: "", embedding: null, insightHash: "" }));
+    setInsightOverrides({});
+    setVerifiedEchoes([]);
+    setInsightBusy(true);
+    setConnectionsBusy(true);
+    setRebuildKey((key) => key + 1);
+  }, [gems, onGemInsight]);
 
   const wrapRef = useRef(null);
   const fgRef = useRef(null);
@@ -333,7 +334,7 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
     ctx.globalAlpha = 1;
   }, [selectedId, connected, light]);
 
-  const paintLink = useCallback((l, ctx) => {
+  const paintLink = useCallback((l, ctx, scale = 1) => {
     const s = l.source, e = l.target;
     if (typeof s !== "object" || typeof e !== "object") return;
     if (![s.x, s.y, e.x, e.y].every(Number.isFinite)) return;
@@ -359,7 +360,9 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
     const lift = Math.min(46, Math.hypot(dx, dy) * 0.22);
     const cx = mx - dy * 0.22, cy = my + dx * 0.22 - lift;   // arc control point (raised)
     const at = (px, pt) => ({ x: (1 - pt) * (1 - pt) * s.x + 2 * (1 - pt) * pt * cx + pt * pt * e.x, y: (1 - pt) * (1 - pt) * s.y + 2 * (1 - pt) * pt * cy + pt * pt * e.y });
-    const base = active ? (selectedId ? 1 : 0.75) : 0.1;
+    const meta = echoMeta.get(pairKey(s.id, e.id)) || {};
+    const score = Math.max(0, Math.min(1, Number(meta.score) || 0.5));
+    const base = (active ? (selectedId ? 1 : 0.75) : 0.1) * (0.4 + score * 0.6);
     const glowC = s.c[0], glowC2 = e.c[1];
 
     const trace = () => { ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.quadraticCurveTo(cx, cy, e.x, e.y); };
@@ -367,13 +370,13 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
     // wide soft aura under everything
     const aura = ctx.createLinearGradient(s.x, s.y, e.x, e.y);
     aura.addColorStop(0, rgba(glowC, base * 0.22)); aura.addColorStop(1, rgba(glowC2, base * 0.22));
-    ctx.strokeStyle = aura; ctx.lineWidth = 6.5; ctx.lineCap = "round";
+    ctx.strokeStyle = aura; ctx.lineWidth = (3.5 + score * 3) / Math.max(1, scale); ctx.lineCap = "round";
     trace(); ctx.stroke();
 
     // neon tube: colored body + white-hot core
     const tube = ctx.createLinearGradient(s.x, s.y, e.x, e.y);
     tube.addColorStop(0, rgba(glowC, base * 0.85)); tube.addColorStop(0.5, rgba("#F472B6", base * 0.9)); tube.addColorStop(1, rgba(glowC2, base * 0.85));
-    ctx.strokeStyle = tube; ctx.lineWidth = 2.4;
+    ctx.strokeStyle = tube; ctx.lineWidth = (1.4 + score * 1.8) / Math.max(1, scale);
     if (!light) { ctx.shadowColor = rgba("#F472B6", 0.85); ctx.shadowBlur = 12; }
     trace(); ctx.stroke();
     ctx.shadowBlur = 0;
@@ -416,8 +419,11 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
       ctx.beginPath(); ctx.arc(mid.x, mid.y, 9 * beat, 0, TAU); ctx.fill();
       ctx.fillStyle = light ? "#be185d" : "#fff";
       ctx.beginPath(); ctx.arc(mid.x, mid.y, 2.2 * beat, 0, TAU); ctx.fill();
+      if (scale > 2.3 && meta.sharedThemes?.length) {
+        drawLabel(ctx, meta.sharedThemes.slice(0, 2).join(" · "), mid.x, mid.y + 13 / scale, 9 / scale, 700, light ? "#6b2157" : "#fff", scale, light);
+      }
     }
-  }, [selectedId, showEcho, light]);
+  }, [selectedId, showEcho, light, echoMeta]);
 
   const paintPointer = useCallback((node, color, ctx) => {
     if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
@@ -454,9 +460,10 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
       <header className="cc-header">
         <div className="cc-head-row">
           <div className="cc-head-text">
-            <h1>Cognitive Constellation</h1>
-            <p>{bookNodes.length} books · {gemNodes.length} gems · {echoCount} echoes{demo ? " · demo" : ""}</p>
+            <h1>{demo ? "Ideas that travel across books" : "Cognitive Constellation"}</h1>
+            <p>{demo ? "Same meaning, different words — connected across books." : `${bookNodes.length} books · ${gemNodes.length} gems · ${echoCount} echoes`}{insightBusy || connectionsBusy || hasMissingInsights && !demo ? " · Finding connections…" : ""}{demo ? " · demo" : ""}</p>
           </div>
+          {!demo && <button className="cc-info-btn" onClick={rebuildConnections} aria-label="Rebuild connections" title="Rebuild connections"><RefreshCw size={15} /></button>}
           <button className={`cc-info-btn ${infoOpen ? "on" : ""}`} onClick={() => (infoOpen ? closeInfo() : setInfoOpen(true))} aria-label="What is this?">
             <Info size={16} />
           </button>
@@ -465,12 +472,12 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
           {infoOpen && (
             <Motion.div className="cc-info" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.28 }}>
               <div className="cc-info-in">
-                <p className="cc-info-lead">Tumhari reading ka night sky. Har book ek planet hai, aur tumhare saved gems uske around ghoomte crystals.</p>
+                <p className="cc-info-lead">Tumhari reading ke ideas ka map. Alag books mein agar baat ka meaning same ho, toh gems connect hote hain — wording alag ho tab bhi.</p>
                 <ul>
                   <li><span className="cc-ico"><i className="ico-book" /></span><span><b>Book cover</b> — Library ki ek book.</span></li>
                   <li><span className="cc-ico"><i className="ico-gem" /></span><span><b>Crystal</b> — tumhara saved gem. Tap karo, real-life application dikhegi.</span></li>
                   <li><span className="cc-ico"><i className="ico-orbit" /></span><span><b>Orbit</b> — gems apni book ke chaaron taraf, chapter order me.</span></li>
-                  <li><span className="cc-ico"><i className="ico-echo" /></span><span><b>Echo</b> — dotted bridge: do alag books me same idea repeat hua.</span></li>
+                  <li><span className="cc-ico"><i className="ico-echo" /></span><span><b>Echo</b> — dotted bridge: alag wording mein bhi same idea dono books mein mila.</span></li>
                 </ul>
                 <div className="cc-info-why">
                   <b>Isse kya milega?</b>
@@ -503,14 +510,14 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
       )}
 
       <AnimatePresence>
-        {selected && <Sheet key={selected.id} node={selected} nodeById={nodeById} adj={adj} echoes={echoes} echoReasons={echoReasons} onClose={closeSheet} onPick={focusNode} />}
+          {selected && <Sheet key={selected.id} node={selected} nodeById={nodeById} adj={adj} echoes={echoes} echoReasons={echoReasons} echoMeta={echoMeta} onClose={closeSheet} onPick={focusNode} />}
       </AnimatePresence>
     </div>
   );
 }
 
 // ---------- Bottom sheet ----------
-function Sheet({ node, nodeById, adj, echoes, echoReasons, onClose, onPick }) {
+function Sheet({ node, nodeById, adj, echoes, echoReasons, echoMeta, onClose, onPick }) {
   const controls = useDragControls();
   const isBook = node.type === "book";
   const d = node.data;
@@ -567,11 +574,12 @@ function Sheet({ node, nodeById, adj, echoes, echoReasons, onClose, onPick }) {
                 <div className="cc-label"><Link2 size={11} /> Echoes in other books</div>
                 <div className="cc-gem-list">
                   {echoNodes.map((g) => {
+                    const meta = echoMeta?.get(pairKey(node.id, g.id));
                     const why = echoReasons?.get(pairKey(node.id, g.id));
                     return (
                       <button key={g.id} onClick={() => onPick(g)}>
                         <Gem size={13} />
-                        <span>{clip(g.data.quote, 80)}<em>{g.data.bookTitle}</em>{why && <em className="cc-echo-why">Linked: {why}</em>}</span>
+                        <span>{clip(g.data.quote, 80)}<em>{g.data.bookTitle}</em>{meta?.sharedThemes?.length > 0 && <em className="cc-echo-themes">{meta.sharedThemes.join(" · ")}</em>}{why && <em className="cc-echo-why">Why connected: {clip(why, 120)}</em>}</span>
                       </button>
                     );
                   })}

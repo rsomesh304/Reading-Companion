@@ -1,5 +1,18 @@
 # React + Vite
 
+## Help & Support
+
+Help navigation exposes **New chat**, **Chat history**, and **App tour** directly.
+Chat history opens in a searchable dialog (a bottom sheet on mobile), grouped by
+date with the newest conversations first. Search matches questions and answers.
+Saved conversations are read-only; returning to the current chat preserves its
+messages and draft. Deleting one conversation or clearing history requires
+confirmation and does not remove the current conversation.
+
+Up to 30 help conversations are stored on the current device only, not in cloud
+backups. Tour progress is preserved, so the tour action can resume an unfinished
+tour. While a reply is being generated, starting a new chat or tour is disabled.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

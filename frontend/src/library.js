@@ -1,3 +1,5 @@
+import { dispatchLocalDataChanged } from "./accountSync.js";
+
 const STORAGE_KEY = "reading_companion_library";
 
 function load() {
@@ -64,6 +66,16 @@ function normalizeVocabularyEntry(entry) {
     odiaSentence: String(entry.odiaSentence || "").trim(),
     sentence: String(entry.sentence || entry.context || entry.bookSentence || "").trim(),
     timestamp: entry.timestamp || new Date().toISOString(),
+    usageRegister: ["everyday", "formal-literary", "uncertain"].includes(entry.usageRegister) ? entry.usageRegister : "uncertain",
+    practiceCount: Math.max(0, Number(entry.practiceCount) || 0),
+    practicedAt: entry.practicedAt || null,
+    recallAttempts: Math.max(0, Number(entry.recallAttempts) || 0),
+    recallSuccesses: Math.max(0, Number(entry.recallSuccesses) || 0),
+    lastRecallAt: entry.lastRecallAt || null,
+    pronunciationHints: Array.isArray(entry.pronunciationHints) ? entry.pronunciationHints
+      .filter((hint) => hint && typeof hint.observed === "string")
+      .slice(-4)
+      .map((hint) => ({ observed: hint.observed.slice(0, 80), count: Math.max(1, Number(hint.count) || 1), lastAt: hint.lastAt || null })) : [],
   };
 }
 
@@ -85,6 +97,9 @@ function normalize(book) {
   // Backfill any missing fields on older chapter records so nothing crashes.
   for (const key of Object.keys(chapters)) {
     chapters[key] = { ...emptyChapter(Number(key)), ...chapters[key] };
+    chapters[key].vocabLog = Array.isArray(chapters[key].vocabLog)
+      ? chapters[key].vocabLog.map(normalizeVocabularyEntry).filter(Boolean)
+      : [];
   }
 
   const chapterNumbers = Object.keys(chapters).map(Number);
@@ -116,6 +131,7 @@ export class Library {
     } catch (e) {
       console.warn("[LIBRARY] save failed (storage full?)", e);
     }
+    dispatchLocalDataChanged();
   }
 
   listBooks() {
@@ -151,6 +167,20 @@ export class Library {
   deleteBook(id) {
     delete this.data.books[id];
     this._save();
+  }
+  deleteChapter(id, chapterNumber) {
+    const raw = this.data.books[id];
+    const number = Number(chapterNumber);
+    if (!raw || !Number.isInteger(number) || number < 1 || !raw.chapters?.[number]) return { ok: false, reason: "not_found" };
+    const book = normalize(raw);
+    const existing = Object.keys(book.chapters).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    if (existing.length <= 1) return { ok: false, reason: "last_chapter" };
+    delete book.chapters[number];
+    const remaining = Object.keys(book.chapters).map(Number).filter((n) => Number.isInteger(n) && n > 0).sort((a, b) => a - b);
+    if (book.currentChapterNumber === number) book.currentChapterNumber = remaining.filter((n) => n < number).at(-1) || remaining[0] || 1;
+    this.data.books[id] = book;
+    this._save();
+    return { ok: true, currentChapterNumber: book.currentChapterNumber };
   }
   touch(id) {
     const book = this.data.books[id];
@@ -254,6 +284,69 @@ export class Library {
       }
     }
     return false;
+  }
+  deleteVocab(id, chapterNumber, term) {
+    const raw = this.data.books[id];
+    const number = Number(chapterNumber);
+    const cleanTerm = String(term || "").trim().toLowerCase();
+    if (!raw || !Number.isInteger(number) || !cleanTerm) return false;
+    const book = normalize(raw);
+    const chapter = book.chapters[number];
+    if (!chapter || !Array.isArray(chapter.vocabLog)) return false;
+    const index = chapter.vocabLog.findIndex((entry) => String(entry.term || "").trim().toLowerCase() === cleanTerm);
+    if (index < 0) return false;
+    chapter.vocabLog.splice(index, 1);
+    chapter.lastActiveAt = new Date().toISOString();
+    this.data.books[id] = book;
+    this._save();
+    return true;
+  }
+  updateVocabularyEntry(id, chapterNumber, term, updates) {
+    const raw = this.data.books[id];
+    if (!raw || !Number.isInteger(Number(chapterNumber))) return false;
+    const book = normalize(raw);
+    const chapter = book.chapters[Number(chapterNumber)];
+    const entry = chapter?.vocabLog?.find((v) => String(v.term || "").toLowerCase() === String(term || "").toLowerCase());
+    if (!entry) return false;
+    Object.assign(entry, updates);
+    this.data.books[id] = book;
+    this._save();
+    return true;
+  }
+  markVocabularyPracticed(id, chapterNumber, term) {
+    const chapter = this.getChapter(id, chapterNumber);
+    const entry = chapter?.vocabLog?.find((v) => String(v.term || "").toLowerCase() === String(term || "").toLowerCase());
+    if (!entry) return false;
+    return this.updateVocabularyEntry(id, chapterNumber, term, {
+      practiceCount: (Number(entry.practiceCount) || 0) + 1,
+      practicedAt: new Date().toISOString(),
+    });
+  }
+  markVocabularyRecall(id, chapterNumber, term, remembered = false) {
+    const chapter = this.getChapter(id, chapterNumber);
+    const entry = chapter?.vocabLog?.find((v) => String(v.term || "").toLowerCase() === String(term || "").toLowerCase());
+    if (!entry) return false;
+    return this.updateVocabularyEntry(id, chapterNumber, term, {
+      recallAttempts: (Number(entry.recallAttempts) || 0) + 1,
+      recallSuccesses: (Number(entry.recallSuccesses) || 0) + (remembered ? 1 : 0),
+      lastRecallAt: new Date().toISOString(),
+    });
+  }
+  recordVocabularyPronunciation(id, chapterNumber, term, observed) {
+    const chapter = this.getChapter(id, chapterNumber);
+    const entry = chapter?.vocabLog?.find((v) => String(v.term || "").toLowerCase() === String(term || "").toLowerCase());
+    const spoken = String(observed || "").trim().replace(/\s+/g, " ").slice(0, 80);
+    if (!entry || !spoken || spoken.toLowerCase() === String(term).toLowerCase()) return false;
+    const hints = Array.isArray(entry.pronunciationHints) ? [...entry.pronunciationHints] : [];
+    const key = spoken.toLowerCase();
+    const existing = hints.find((hint) => hint.observed.toLowerCase() === key);
+    if (existing) {
+      existing.count += 1;
+      existing.lastAt = new Date().toISOString();
+    } else {
+      hints.push({ observed: spoken, count: 1, lastAt: new Date().toISOString() });
+    }
+    return this.updateVocabularyEntry(id, chapterNumber, term, { pronunciationHints: hints.slice(-4) });
   }
   updateChapterSummary(id, chapterNumber, summary) {
     const raw = this.data.books[id];
