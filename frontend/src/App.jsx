@@ -45,6 +45,7 @@ import {
     Check,
     ChevronRight,
     Clock,
+    Cloud,
     Download,
     Flame,
     Gem,
@@ -53,6 +54,7 @@ import {
     Info,
     Library as LibraryIcon,
     Lock,
+    MessageCircleMore,
     MessageSquareText,
     Mic,
     MicOff,
@@ -75,25 +77,30 @@ import {
     // Upload,
     User,
     Volume2,
+    WifiOff,
     X as XIcon
 } from "lucide-react";
-import { Component, useCallback, useEffect, useRef, useState } from "react";
+import { Component, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useAccount } from "./AccountContext.js";
+import AccountGate from "./AccountGate.jsx";
 import { apiUrl } from "./api.js";
 import { computeBadges } from "./appBadges.js";
 import { AudioCapture } from "./audioCapture.js";
 import { AudioPlayback } from "./audioPlayback.js";
 import BookTile from "./BookTile.jsx";
 import { CameraCapture } from "./cameraCapture.js";
+import { EmptyGemsArt, EmptyLibraryArt } from "./components/EmptyStateArt.jsx";
 import MascotCharacter from "./components/MascotCharacter.jsx";
 import { describeLiveStatus, friendlyErrorMessage } from "./friendlyErrors.js";
 import { GeminiLiveClient } from "./geminiLiveClient.js";
 import { ensureGemInsights } from "./gemInsightClient.js";
 import { Gems } from "./gems.js";
 import GemStoryCard from "./GemStoryCard.jsx";
+import HelpGuideScreen from "./HelpGuideScreen.jsx";
 import JourneyRecap from "./JourneyRecap.jsx";
 import { Library } from "./library.js";
-import { makeLocalLine, useMascotLine } from "./mascotLines.js";
+import { useMascotLine } from "./mascotLines.js";
 import { getMascot, setMascot } from "./mascotPreference.js";
 import { CompanionMemory } from "./memory.js";
 import MemoryConstellation from "./MemoryConstellation.jsx";
@@ -134,7 +141,7 @@ import "./ProfileUI.css";
 import { findApproxSpokenVariant } from "./pronunciationObservation.js";
 import ServiceNotice from "./ServiceNotice.jsx";
 import { getRecap, saveTurn } from "./sessionMemory.js";
-import { AboutScreen, ReportScreen, SettingsScreen } from "./SettingsScreens.jsx";
+import { AboutScreen, AccountScreen, ReportScreen, SettingsScreen } from "./SettingsScreens.jsx";
 import { prepareSnapshot } from "./snapshotCapture.js";
 import { resolveStorySource } from "./story/resolveStorySource.js";
 import StoryTheatre from "./story/StoryTheatre.jsx";
@@ -443,7 +450,8 @@ class ErrorBoundary extends Component {
   }
 }
 
-export default function App() {
+function AppCore() {
+  const account = useAccount();
   useButtonHaptics();
   const [screen, setScreen] = useState("dashboard");
   const [activeBookId, setActiveBookId] = useState(null);
@@ -567,15 +575,22 @@ export default function App() {
   const badges = computeBadges({ updateAvailable: updateState.available });
 
   const nav = {
+    accountEmail: account.user.email || "Google account",
+    accountSyncStatus: account.syncStatus,
+    signOut: account.signOut,
+    syncAccountNow: account.syncNow,
+    deleteAccountData: account.deleteAccountData,
     badges,
     goDashboard: () => navigateTo("dashboard"),
     goLibrary: () => navigateTo("library"),
     goGems: () => navigateTo("gems"),
     goMemory: () => navigateTo("memory"),
     goProfile: () => navigateTo("profile"),
+    goAccount: () => navigateTo("account"),
     goSettings: () => navigateTo("settings"),
     goAbout: () => navigateTo("about"),
     goReport: () => navigateTo("report"),
+    goHelp: () => navigateTo("help"),
     openNewBook,
     openOverlay,
     updateAvailable: updateState.available,
@@ -604,11 +619,13 @@ export default function App() {
             {/* {screen === "memory" && <MemoryScreen nav={nav} />} */}
             {screen === "memory" && <MemoryTab nav={nav} />}
             {screen === "profile" && <ProfileScreen nav={nav} />}
+            {screen === "account" && <AccountScreen nav={nav} />}
                         {screen === "settings" && <SettingsScreen nav={nav} stores={{ profile: profileStore, library, memory: memoryStore, gems: gemsStore }} />}
             {screen === "about" && <AboutScreen nav={nav} />}
             {screen === "report" && <ReportScreen nav={nav} stores={{ profile: profileStore }} />}
+            {screen === "help" && <HelpGuideScreen nav={nav} userName={profileStore.data.name === "Reader" ? "there" : profileStore.data.name} />}
           </div>
-          <BottomNav active={["settings", "about", "report"].includes(screen) ? "profile" : screen} onNavigate={(id) => navigateTo(id)} badges={badges} />
+          {screen !== "help" && <BottomNav active={["account", "settings", "about", "report"].includes(screen) ? "profile" : screen} onNavigate={(id) => navigateTo(id)} badges={badges} />}
         </div>
       )}
 
@@ -664,22 +681,16 @@ export default function App() {
   );
 }
 
-// ==================== SHARED STICKY HEADER ====================
-function MascotCorner({ mascot, size, context }) {
-  const [line, setLine] = useState(() => makeLocalLine({}, context));
-  useEffect(() => {
-    const id = setInterval(() => setLine(makeLocalLine({}, context)), 9000);
-    return () => clearInterval(id);
-  }, [context]);
+export default function App() {
   return (
-    <div className="mc-wrap">
-      <div className="mc-bubble" key={line}>{line}</div>
-      <span className="mc-dots"><i /><i /></span>
-      <MascotCharacter characterId={mascot} size={size} animated silent onTap={() => setLine(makeLocalLine({}, context))} />
-    </div>
+    <>
+      <NetworkOfflineCurtain />
+      <AccountGate><AppCore /></AccountGate>
+    </>
   );
 }
 
+// ==================== SHARED STICKY HEADER ====================
 function ScreenHeader({ title, subtitle, right }) {
   return (
     <header className="screen-header">
@@ -693,6 +704,47 @@ function ScreenHeader({ title, subtitle, right }) {
 }
 
 // ==================== GLOBAL TOASTS ====================
+
+function NetworkOfflineCurtain() {
+  const [offline, setOffline] = useState(() => typeof navigator !== "undefined" && navigator.onLine === false);
+  useEffect(() => {
+    const setOnlineState = () => setOffline(typeof navigator !== "undefined" && navigator.onLine === false);
+    const onOffline = () => setOffline(true);
+    const onOnline = () => setOffline(false);
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", setOnlineState);
+    setOnlineState();
+    return () => {
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", setOnlineState);
+    };
+  }, []);
+
+  return (
+    <AnimatePresence>
+      {offline && (
+        <Motion.div className="network-offline-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="network-offline-title" aria-describedby="network-offline-copy"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <Motion.section className="network-offline-card"
+            initial={{ opacity: 0, y: 24, scale: 0.92 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 230, damping: 22 }}>
+            <div className="network-offline-signal" aria-hidden="true">
+              <span className="network-offline-ring ring-one" />
+              <span className="network-offline-ring ring-two" />
+              <span className="network-offline-icon"><WifiOff size={34} strokeWidth={1.8} /></span>
+            </div>
+            <div className="network-offline-eyebrow">CONNECTION LOST</div>
+            <h2 id="network-offline-title">Internet access is off</h2>
+            <p id="network-offline-copy">Reconnect to continue reading with your companion.</p>
+            <div className="network-offline-status"><i /><span>Waiting for connection</span><span className="network-offline-dots">...</span></div>
+          </Motion.section>
+        </Motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
 
 function NotificationHost() {
   const [items, setItems] = useState([]);
@@ -774,6 +826,16 @@ function ConfirmModal({ title, message, onConfirm, onCancel }) {
 
 function BottomNav({ active, onNavigate, badges = {} }) {
   const { triggerLightTap } = useHaptic();
+  const navRef = useRef(null);
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return undefined;
+    const updateHeight = () => document.documentElement.style.setProperty("--bottom-nav-h", `${nav.getBoundingClientRect().height}px`);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, []);
   const items = [
     { id: "dashboard", Icon: Home, label: "Home" },
     { id: "library", Icon: LibraryIcon, label: "Library" },
@@ -782,7 +844,7 @@ function BottomNav({ active, onNavigate, badges = {} }) {
   ];
   return (
     <div className="bottom-nav-shell">
-      <nav className="bottom-nav elevated">
+      <nav ref={navRef} className="bottom-nav elevated">
         {items.map(({ id, Icon, label }) => (
           <Motion.button key={id} className={`nav-item ${active === id ? "active" : ""}`} whileTap={{ scale: 0.9 }} transition={INTERACTION_SPRING} onClick={() => { triggerLightTap(); onNavigate(id); }}>
             <span className="nav-icon-box"><Icon size={28} strokeWidth={active === id ? 2.4 : 1.8} /></span>
@@ -1446,7 +1508,6 @@ function LibraryScreen({ nav }) {
   const [authorEditor, setAuthorEditor] = useState(null);
   const [portraitSearching, setPortraitSearching] = useState(false);
   const [portraitError, setPortraitError] = useState(false);
-  const mascot = useMascotPreference();
 
   function refresh() { setBooks(library.listBooks()); }
   function handleDeleteConfirmed() {
@@ -1519,7 +1580,7 @@ function LibraryScreen({ nav }) {
       <div className="book-grid">
         {books.length === 0 && (
           <div className="empty-library-state elevated">
-            <MascotCorner mascot={mascot} size={92} context="library is empty" />
+            <EmptyLibraryArt />
             <p className="empty-hint">No books yet. Tap "Add book" above to start one..</p>
           </div>
         )}
@@ -2019,7 +2080,6 @@ function GemsScreen({ nav }) {
   const [stylePicking, setStylePicking] = useState(false);
   const [storyGem, setStoryGem] = useState(null);
   const [, forceTick] = useState(0);
-  const mascot = useMascotPreference();
   const allGems = gemsStore.list();
   const bookOptions = [...allGems.reduce((map, gem) => {
     const key = String(gem.bookId || gem.bookTitle || "unknown");
@@ -2210,7 +2270,7 @@ function GemsScreen({ nav }) {
       <div className="gems-list">
         {gems.length === 0 && (
           <div className="empty-state-card elevated tiny-mascot-card">
-            <MascotCorner mascot={mascot} size={80} context="no gems saved yet" />
+            <EmptyGemsArt />
             <p className="empty-hint">{allGems.length === 0 ? "No quotes saved yet. Your kept ideas will find a home here." : "Koi saved quote nahi mila. Search ya book filter badal kar dekhiye."}</p>
           </div>
         )}
@@ -2388,6 +2448,16 @@ function MemoryScreen() {
 }
 // ==================== PROFILE — with photo upload + default presets ====================
 
+// Fixed values keep the ambient snow identical across renders.
+const PROFILE_FLAKES = Array.from({ length: 22 }, (_, i) => {
+  const rain = i % 5 === 4;
+  const x = (i * 37 + 11) % 100;
+  const size = rain ? 1.5 : 3 + ((i * 7) % 5);
+  const dur = rain ? 2.6 + (i % 3) * 0.5 : 9 + ((i * 5) % 8);
+  const delay = -((i * 1.7) % dur);
+  return { rain, style: { "--x": `${x}%`, "--s": `${size}px`, "--dur": `${dur}s`, "--delay": `${delay}s`, "--sway": `${(i % 2 ? 1 : -1) * (8 + (i % 4) * 4)}px` } };
+});
+
 function ProfileScreen({ nav }) {
   const [name, setName] = useState(profileStore.data.name);
   const mascot = useMascotPreference();
@@ -2425,6 +2495,10 @@ function ProfileScreen({ nav }) {
         <span className="pf-mesh" aria-hidden="true" />
         <span className="pf-blob a" aria-hidden="true" />
         <span className="pf-blob b" aria-hidden="true" />
+        <span className="pf-fx" aria-hidden="true">
+          {PROFILE_FLAKES.map((flake, idx) => <i key={idx} className={flake.rain ? "rain" : "flake"} style={flake.style} />)}
+          <b className="pf-star" />
+        </span>
         <div className="pf-kicker">Your profile</div>
 
         <div className="pf-avatar">
@@ -2487,7 +2561,15 @@ function ProfileScreen({ nav }) {
         </div>
       </Motion.section>
 
-      <Motion.section className="pf-bento" {...rise(3)}>
+      <Motion.section className="pf-bento" {...rise(4)}>
+        <button type="button" className="pf-tile account" onClick={nav.goAccount}>
+          <span className="pf-tile-ic"><Cloud size={21} /></span>
+          <span className="pf-tile-text">
+            <b>Account</b>
+            <small>{nav.accountEmail} · {nav.accountSyncStatus === "syncing" ? "Syncing" : nav.accountSyncStatus === "error" ? "Sync needs attention" : "Cloud backup active"}</small>
+          </span>
+          <ChevronRight size={18} className="pf-tile-go" />
+        </button>
         <button type="button" className="pf-tile settings" onClick={nav.goSettings}>
           <span className="pf-tile-ic"><SettingsIcon size={22} /></span>
           <span className="pf-tile-text"><b>Settings</b><small>Theme, voice, backup, privacy</small></span>
@@ -2497,6 +2579,10 @@ function ProfileScreen({ nav }) {
         <button type="button" className="pf-tile report" onClick={nav.goReport}>
           <span className="pf-tile-ic"><Bug size={20} /></span>
           <span className="pf-tile-text"><b>Report an issue</b><small>Bugs and ideas</small></span>
+        </button>
+        <button type="button" className="pf-tile help" onClick={nav.goHelp}>
+          <span className="pf-tile-ic"><MessageCircleMore size={21} /></span>
+          <span className="pf-tile-text"><b>Help &amp; guide</b><small>Find your way around</small></span>
         </button>
         <button type="button" className="pf-tile about" onClick={nav.goAbout}>
           <span className="pf-tile-ic"><Info size={20} /></span>
@@ -2578,8 +2664,6 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
   const orbLevelRef = useRef(0);
   const darkFramesRef = useRef(0);
   const lastDarkNoteRef = useRef(0);
-  const keyVersionRef = useRef("");
-
   const clientRef = useRef(null);
   const audioCaptureRef = useRef(null);
   const audioPlaybackRef = useRef(null);
@@ -2643,39 +2727,6 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
       cameraRef.current?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    let disposed = false;
-    let timer = null;
-    const checkVersion = async () => {
-      if (disposed) return;
-      if (document.visibilityState === "visible") {
-        try {
-          const response = await fetch(apiUrl("/api/health"), { cache: "no-store" });
-          if (response.ok) {
-            const health = await response.json();
-            if (health?.keyVersion) {
-              if (keyVersionRef.current && health.keyVersion !== keyVersionRef.current) {
-                clientRef.current?.abortForKeyRotation();
-              } else {
-                keyVersionRef.current = health.keyVersion;
-              }
-            }
-          }
-        } catch { /* a health-check network miss does not interrupt an active session */ }
-      }
-      if (!disposed) timer = setTimeout(checkVersion, 60000);
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        clearTimeout(timer);
-        void checkVersion();
-      }
-    };
-    timer = setTimeout(checkVersion, 60000);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => { disposed = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVisibility); };
   }, []);
 
   useEffect(() => {
@@ -3369,16 +3420,21 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
             setTimeout(() => { resendSnapshot(); clientRef.current?.sendText(SNAPSHOT_REMINDER_NOTE); }, 600);
           }
         },
-        onKeyVersion: (version) => { keyVersionRef.current = version; },
         onNotice: (notice) => {
           audioCaptureRef.current?.setMuted(true);
+          setMuted(true);
           stopCameraNow();
           audioPlaybackRef.current?.clear();
           notifyPersistent({
             ...notice,
             action: {
-              label: notice.code === "key_rotated" ? "End & restart session" : "End session",
-              onClick: () => handleEnd({ restart: notice.code === "key_rotated" }),
+              label: "Retry connection",
+              onClick: () => {
+                endingRef.current = false;
+                setMuted(false);
+                audioCaptureRef.current?.setMuted(false);
+                clientRef.current?.retry();
+              },
             },
           });
         },
@@ -3455,10 +3511,14 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
     const totalChapters = book ? library.getChapters(bookId).length || 1 : 1;
   const doneCount = book ? library.getChapters(bookId).filter((c) => !c.isPlaceholder && isChapterClosed(c)).length : 0;
   const donePct = Math.round((doneCount / totalChapters) * 100);
-  const reachPct = Math.min(100, Math.round((chapterNumber / totalChapters) * 100));
-  const RR = 17;
-  const RC = 2 * Math.PI * RR;
-  const railChapters = book ? library.getChapters(bookId).filter((c) => !c.isPlaceholder) : [];
+  const pathChapters = (() => {
+    const real = book ? library.getChapters(bookId).filter((c) => !c.isPlaceholder).map((c) => ({ number: c.number, done: isChapterClosed(c) })) : [];
+    if (!real.some((c) => c.number === chapterNumber)) real.push({ number: chapterNumber, done: false });
+    real.sort((a, b) => a.number - b.number);
+    const at = real.findIndex((c) => c.number === chapterNumber);
+    const start = Math.max(0, Math.min(at - 3, real.length - 7));
+    return { nodes: real.slice(start, start + 7), before: start > 0, after: start + 7 < real.length };
+  })();
   const statusKey = /reconnect|resum/i.test(status) ? "reconnecting"
     : /connecting|starting/i.test(status) ? "connecting"
     : /closed|lost|error|failed|busy/i.test(status) ? "lost" : "connected";
@@ -3482,41 +3542,28 @@ const systemInstructionText = READER_PROFILE + "\n\n" + buildTimeLine() + profil
       <div className={`hud-aura ${mode}`} />
 
       <div className="hud-top">
-        <div className="hud-journey">
+        <div className="hud-journey" style={{ "--done": `${donePct}%` }}>
           <div className="hud-jr-head">
-            <div className="hud-jr-ring">
-              <svg viewBox="0 0 44 44">
-                <defs>
-                  <linearGradient id="hudRingGrad" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#ffd7a3" /><stop offset="55%" stopColor="#f2a65a" /><stop offset="100%" stopColor="#d6607a" />
-                  </linearGradient>
-                </defs>
-                <circle cx="22" cy="22" r={RR} className="ring-track" />
-                <circle cx="22" cy="22" r={RR} className="ring-done" stroke="url(#hudRingGrad)" strokeDasharray={RC} strokeDashoffset={RC * (1 - donePct / 100)} />
-              </svg>
-              <span className="hud-ring-num">{chapterNumber}</span>
-            </div>
+            <span className={`hud-jr-badge ${chapterNumber > 99 ? "wide" : ""}`} aria-hidden="true"><small>Ch</small><b>{chapterNumber}</b></span>
             <div className="hud-journey-text">
               <span className="hud-book-title">{book?.title || "Reading"}</span>
-              <span className="hud-book-ch">Chapter {chapterNumber} of {totalChapters} · {doneCount} done</span>
+              <span className="hud-book-ch">Chapter {chapterNumber} of {totalChapters} · {donePct}% done</span>
+            </div>
+            <div className="hud-jr-meta">
+              <span className="hud-time"><Clock size={11} />{fmt(elapsed)}</span>
+              <span className="hud-live"><span className={statusMeta.dotClass} />{statusMeta.label}</span>
             </div>
           </div>
-          {railChapters.length <= 40 ? (
-            <div className="hud-rail" aria-hidden="true">
-              {railChapters.map((c) => (
-                <span key={c.number} className={`hud-seg ${isChapterClosed(c) ? "done" : c.number === chapterNumber ? "current" : ""}`} />
-              ))}
-            </div>
-          ) : (
-            <div className="hud-rail-bar" aria-hidden="true">
-              <span style={{ width: `${donePct}%` }} />
-              <i style={{ left: `${Math.min(100, reachPct)}%` }} />
-            </div>
-          )}
-        </div>
-        <div className="hud-pills">
-          <span className="hud-pill"><Clock size={12} />{fmt(elapsed)}</span>
-          <span className="hud-pill"><span className={statusMeta.dotClass} />{statusMeta.label}</span>
+          <div className="hud-path" role="img" aria-label={`Chapter ${chapterNumber} of ${totalChapters}, ${doneCount} done`}>
+            {pathChapters.before && <i className="hud-more">…</i>}
+            {pathChapters.nodes.map((c, index) => (
+              <Fragment key={c.number}>
+                {(index > 0 || pathChapters.before) && <span className={`hud-link ${pathChapters.nodes[index - 1]?.done ? "done" : ""}`} />}
+                <span className={`hud-node ${c.done ? "done" : c.number === chapterNumber ? "current" : ""}`}>{c.number}</span>
+              </Fragment>
+            ))}
+            {pathChapters.after && <><span className="hud-link" /><i className="hud-more">…</i></>}
+          </div>
         </div>
       </div>
 

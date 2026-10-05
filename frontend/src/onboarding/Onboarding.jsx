@@ -1,6 +1,7 @@
 import { AnimatePresence, motion as Motion } from "framer-motion";
 import { SkipForward, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { apiUrl } from "../api.js";
 import MascotCharacter from "../components/MascotCharacter.jsx";
 import DeveloperCard from "../DeveloperCard.jsx";
 import { getMascot } from "../mascotPreference.js";
@@ -31,13 +32,14 @@ const FEATURE_LINES = [
 const FEATURE_SCENES = [3, 19, 4, 5, 6];
 const FEATURE_INTRO = "Ab jo sunne wale hain na... woh is app ki chaar khaas taakatein hain. Chaliye, ek-ek karke, aaram se samajhte hain.";
 const VISUAL_RECAP_LINE = "Aur agar aap chahein, chapter padhne se pehle uski pichhli kahani ek chhoti si animation mein dekh sakte hain. Agar Start Reading button press karoge toh aap seedha reading session screen mein pahunch jayenge.";
+const HELP_SUPPORT_LINE = "Agar kuchh samajh mein na aaye, toh Profile mein Help & Support par chat kijiye. App ke baare mein kuchh bhi poochh sakte hain.";
 const WHY_US_LINES = [
   "Ab aap soch rahe honge... ye sab toh ChatGPT ya Gemini bhi kar leta hai. Sach hai... par wahan har baar nayi shuruaat hoti hai, aur kal ka kuch yaad nahi rehta.",
   "Yahan main aapki kitab, chapter aur har word yaad rakhta hoon... streak aur goal ke saath, aur aapki apni bhasha mein samjhata hoon. Ye chat nahi... aapka apna reading saathi hai.",
 ];
 // scene 13 = AI vs your book, 14 = words that stay
 const WHY_US_SCENES = [13, 14];
-const SKIP_ASK_LINE = "Theek hai, tour chhod dete hain. Bas apna naam, mere liye ek naam, aur apni pasand ki books batayein.";
+const SKIP_ASK_LINE = "Theek hai, tour chhod dete hain. Pehle apna naam, mujhe kis naam se bulaoge, pasand ke genres, aur roz kitni der padhna chahoge - yeh bata do.";
 const VOICE_CHECK_ATTEMPTS = 4;
 
 const TOUR_STORIES = [
@@ -59,6 +61,7 @@ function buildBeats(story) {
     { s: 1, f: 2, t: FEATURE_INTRO },
     ...FEATURE_LINES.map((text, index) => ({ s: 1, f: FEATURE_SCENES[index], t: text })),
     { s: 1, f: 12, t: VISUAL_RECAP_LINE },
+    { s: 1, f: 20, t: HELP_SUPPORT_LINE },
     { s: 2, card: true, t: story.creator },
     { s: 2, card: false, mascot: true, bubble: "Padhai mein main bhi tumhare saath hoon!", wait: 11000, t: story.mascotIntro },
     { s: 1, card: false, mascot: false, bubble: null, f: 9, t: story.mascotSecret },
@@ -82,11 +85,11 @@ export default function Onboarding({ initialName = "", voiceName = "Leda", onFin
   const mName = MASCOT_NAMES[mascotId] || "Ullu";
 
   const [started, setStarted] = useState(false);
+  const [skipMode, setSkipMode] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [voiceAttempt, setVoiceAttempt] = useState(1);
   const [voiceFailed, setVoiceFailed] = useState(false);
   const [silentOk, setSilentOk] = useState(false);
-  const modeRef = useRef("tour");
   const [step, setStep] = useState(0);
   const [caption, setCaption] = useState("");
   const [feature, setFeature] = useState(-1);
@@ -97,6 +100,7 @@ export default function Onboarding({ initialName = "", voiceName = "Leda", onFin
   const [form, setForm] = useState({ name: initialName, companionName: "", prefs: [], goal: "20 min" });
   const [otherOn, setOtherOn] = useState(false);
   const [customGenres, setCustomGenres] = useState("");
+  const skipVoiceConnectedRef = useRef(false);
   const copy = TOUR_COPY;
   // listed chips + anything the reader typed under "Other", deduped
   const mergedPrefs = [...form.prefs, ...customGenres.split(/[,\n]/).map((s) => s.trim()).filter(Boolean)]
@@ -164,6 +168,14 @@ export default function Onboarding({ initialName = "", voiceName = "Leda", onFin
     setSending(true);
     setMascotOn(false); setBubble(null); setCard(false); setFeature(-1);
     setStep(5);
+    if (skipMode && !skipVoiceConnectedRef.current && !silentOk) {
+      const connected = await connectVoice(my);
+      if (runRef.current !== my) return;
+      if (!connected) {
+        setVoiceFailed(false);
+        setSilentOk(true);
+      } else skipVoiceConnectedRef.current = true;
+    }
     const selectedGenres = mergedPrefs.length ? mergedPrefs.join(", ") : "No genres selected";
     const genreCommentary = api.current.say(
       `[PROFILE CARD COMMENTARY] The reader chose these genres: ${selectedGenres}. Their daily reading goal is ${form.goal}. While the animated profile card is visible, respond as a warm friend in 2 or 3 short, natural sentences in Roman Hinglish (everyday Hindi mixed with English). Mention the appeal of one or two chosen genres and connect it lightly to reading. Do not merely repeat the list, infer personality, recommend books, ask questions, say all set, or give reminders. If no genre was selected, respond briefly to the daily goal without inventing a preference.`,
@@ -181,7 +193,7 @@ export default function Onboarding({ initialName = "", voiceName = "Leda", onFin
     onFinish(payload({ ...form, prefs: mergedPrefs }));
   }
 
-  async function begin() { await launch("tour"); }
+  async function begin() { setSkipMode(false); await launch(); }
 
   // Tries the voice a few times, showing a checking animation instead of silently falling back to captions.
   async function connectVoice(my) {
@@ -200,44 +212,66 @@ export default function Onboarding({ initialName = "", voiceName = "Leda", onFin
     return false;
   }
 
-  async function launch(mode) {
-    modeRef.current = mode;
+  async function launch() {
     const my = ++runRef.current;
     setStarted(true);
     setSilentOk(false);
     api.current.reset();
     const ok = await connectVoice(my);
-    if (ok) await (mode === "skip" ? runSkipAsk() : runIntro());
-  }
-
-  async function runSkipAsk() {
-    const my = ++runRef.current;
-    await play([{ s: 3, card: false, mascot: false, bubble: null, t: SKIP_ASK_LINE }], my);
+    if (ok) await runIntro();
   }
 
   function skipTour() {
     if (connecting || sending || step >= 3) return;
+    const my = ++runRef.current;
+    api.current.reset();
+    skipVoiceConnectedRef.current = false;
+    setStarted(true);
+    setSkipMode(true);
+    setConnecting(false);
+    setVoiceFailed(false);
+    setSilentOk(false);
     setMascotOn(false); setBubble(null); setCard(false); setFeature(-1); setCaption("");
     setStep(3);
-    if (voiceFailed) {
-      modeRef.current = "skip";
-      setVoiceFailed(false);
-      setSilentOk(true);
-      runSkipAsk();
-      return;
-    }
-    launch("skip");
+    void speakSkipPrompt(my);
   }
 
-  function retryVoice() { launch(modeRef.current); }
+  async function speakSkipPrompt(my) {
+    setConnecting(true);
+    try {
+      if (!(await api.current.prepareAudio())) throw new Error("audio_context_unavailable");
+      if (runRef.current !== my) return;
+      const response = await fetch(apiUrl("/api/onboarding/skip-prompt-audio"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voiceName }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.audio) throw new Error(result.error || "skip_prompt_speech_unavailable");
+      if (runRef.current !== my) return;
+      await api.current.playPcm(result.audio);
+    } catch (speechError) {
+      if (runRef.current !== my) return;
+      console.warn("[ONBOARDING] Skip prompt speech failed:", speechError?.message || speechError);
+      setVoiceFailed(true);
+    } finally {
+      if (runRef.current === my) setConnecting(false);
+    }
+  }
+
+  function retryVoice() {
+    if (skipMode) { void speakSkipPrompt(runRef.current); return; }
+    launch();
+  }
 
   function continueWithCaptions() {
     setVoiceFailed(false);
     setSilentOk(true);
-    if (modeRef.current === "skip") runSkipAsk(); else runIntro();
+    if (skipMode) { setCaption(SKIP_ASK_LINE); return; }
+    runIntro();
   }
 
-  const canContinue = form.name.trim() && form.companionName.trim() && !sending;
+  const canContinue = form.name.trim() && form.companionName.trim() && (!skipMode || mergedPrefs.length > 0) && !sending && !connecting;
   const togglePref = (p) => setForm((f) => ({ ...f, prefs: f.prefs.includes(p) ? f.prefs.filter((x) => x !== p) : [...f.prefs, p] }));
   const hostName = form.companionName.trim() || "Your companion";
   const dotIdx = Math.min(step, 3);
@@ -288,6 +322,7 @@ export default function Onboarding({ initialName = "", voiceName = "Leda", onFin
           {step === 3 && (
             <Motion.div className="ob-form" initial={{ opacity: 0, y: 60 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               transition={{ type: "spring", stiffness: 110, damping: 16 }}>
+              {skipMode && silentOk && <p className="ob-skip-script">{SKIP_ASK_LINE}</p>}
               <label>{copy.companion}
                 <input value={form.companionName} maxLength={20} placeholder={copy.companionPlaceholder}
                   onChange={(e) => setForm({ ...form, companionName: e.target.value })} />

@@ -1,3 +1,5 @@
+import { dispatchLocalDataChanged } from "./accountSync.js";
+
 const STORAGE_KEY = "reading_companion_gems";
 
 function load() {
@@ -84,6 +86,7 @@ export class Gems {
       console.warn("[GEMS] save failed (storage full?)", e);
     }
     if (typeof window !== "undefined") window.dispatchEvent(new Event("gems:updated"));
+    dispatchLocalDataChanged();
   }
   add({
     quote, takeawaySituation, takeawaySteps, takeawayExample, takeawayWhyItMatters,

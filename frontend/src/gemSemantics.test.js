@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSemanticEchoes, cosineSimilarity, offlineThemes } from "./gemSemantics.js";
+import { buildLocalGemEchoes, buildSemanticEchoes, cosineSimilarity, offlineThemes } from "./gemSemantics.js";
 
 test("quotes about perception and change beginning with the self connect without matching hard-coded pairs", () => {
   const [left, right] = [
@@ -25,5 +25,35 @@ test("embedding similarity and three-edge cap are enforced", () => {
   const gems = [{ id: "center", bookId: "a", quote: "", embedding: [1, 0] },
     ...Array.from({ length: 5 }, (_, index) => ({ id: `g${index}`, bookId: `b${index}`, quote: "", embedding: [1, index / 100] }))];
   const pairs = buildSemanticEchoes(gems);
+  assert.equal(pairs.filter((pair) => pair.a === "center" || pair.b === "center").length, 3);
+});
+
+test("local TF-IDF concepts link different metaphors about humility and grounding", () => {
+  const pairs = buildLocalGemEchoes([
+    { id: "a", bookId: "a-book", quote: "No matter how high you fly, stay grounded." },
+    { id: "b", bookId: "b-book", quote: "Tall trees are held up by roots no one sees." },
+  ]);
+  assert.equal(pairs.length, 1);
+  assert.equal(pairs[0].source, "local");
+  assert.ok(pairs[0].sharedThemes.includes("humility"));
+});
+
+test("local concept lexicon links common Roman Hinglish terms and excludes same-book gems", () => {
+  const gems = [
+    { id: "a", bookId: "a-book", quote: "Himmat se darr ko paar karo." },
+    { id: "b", bookId: "b-book", quote: "Courage helps us move beyond fear." },
+    { id: "c", bookId: "a-book", quote: "Aadat roz ke chhote kadam se banti hai." },
+  ];
+  const pairs = buildLocalGemEchoes(gems);
+  assert.ok(pairs.some((pair) => pair.a === "a" && pair.b === "b" && pair.sharedThemes.includes("courage")));
+  assert.ok(pairs.every((pair) => !(pair.a === "a" && pair.b === "c")));
+});
+
+test("local fallback caps each gem at three strongest cross-book links", () => {
+  const gems = [
+    { id: "center", bookId: "a", quote: "Small habits and steady discipline help us grow with courage." },
+    ...Array.from({ length: 5 }, (_, index) => ({ id: `g${index}`, bookId: "shared-target-book", quote: `A daily habit needs discipline and courage to grow ${index}.` })),
+  ];
+  const pairs = buildLocalGemEchoes(gems);
   assert.equal(pairs.filter((pair) => pair.a === "center" || pair.b === "center").length, 3);
 });

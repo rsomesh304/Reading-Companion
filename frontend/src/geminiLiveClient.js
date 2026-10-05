@@ -1,13 +1,14 @@
 import { GoogleGenAI } from "@google/genai";
 import { classifyLiveFailure, userNoticeForFailure } from "./friendlyErrors.js";
 import { failureSummary, isKeyFailure, isModelUnavailable } from "./liveErrors.js";
-import { mintLiveToken } from "./tokenClient.js";
+import { mintLiveToken, releaseLiveLease } from "./tokenClient.js";
 
 const WATCH_LOUD_MS = 9000;      // reader has spoken this long with no server message
 const WATCH_SILENT_MS = 18000;   // and the server has been completely silent this long
 const WATCH_COOLDOWN_MS = 90000; // never reconnect from the watchdog more than once per minute and a half
 const STABLE_MS = 30000;         // a session this old counts as healthy: retries reset
-const MAX_SILENT_KEY_SWITCHES = 2; // a key that connects but never answers is blamed at most this often per session
+const CONNECT_KEY_ATTEMPTS = 3;
+const RECOVERY_BACKOFF_MS = [500, 1000, 2000, 4000, 8000];
 
 export class GeminiLiveClient {
   constructor({ modelName, fallbackModelName, config, handlers }) {
@@ -48,9 +49,13 @@ export class GeminiLiveClient {
     this.pendingFailedKeyDay = null;
     this.pendingFailedReason = "";
     this.keyCount = 1;
-    this.silentKeySwitches = 0;
-    this.keyVersion = "";
+    this.leaseId = "";
+    this.liveToken = "";
+    this.retryTimer = null;
+    this.retryResolve = null;
     this.terminalNoticeSent = false;
+    this.pageHideListener = () => releaseLiveLease(this.leaseId, { beacon: true });
+    if (typeof window !== "undefined") window.addEventListener("pagehide", this.pageHideListener);
   }
 
   async connect(existingHandle = null) {
@@ -74,26 +79,20 @@ export class GeminiLiveClient {
 
     let session;
     let connectionError;
-    const tokenInfo = await this._mintToken({
+    let tokenInfo = await this._mintToken({
       failedKeyIndex: this.pendingFailedKeyIndex,
       failedKeyDay: this.pendingFailedKeyDay,
       reason: this.pendingFailedReason,
-      expectedKeyVersion: this.keyVersion,
+      leaseId: this.leaseId,
     });
-    this.pendingFailedKeyIndex = null;
-    this.pendingFailedKeyDay = null;
-    this.pendingFailedReason = "";
     this.keyCount = tokenInfo.keyCount || 1;
-    if (tokenInfo.keyVersion) {
-      this.keyVersion = tokenInfo.keyVersion;
-      this.handlers.onKeyVersion?.(this.keyVersion);
-    }
     this.activeKeyIndex = tokenInfo.keyIndex;
     this.activeKeyDay = tokenInfo.deviceDay;
-    const maxAttempts = Math.max(1, Math.min(tokenInfo.keyCount || 1, 10));
+    this.liveToken = tokenInfo.token;
+    const maxAttempts = Math.max(1, Math.min(tokenInfo.keyCount || 1, CONNECT_KEY_ATTEMPTS));
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       if (this.stopped || gen !== this.gen) return;
-      const ai = new GoogleGenAI({ apiKey: tokenInfo.token, httpOptions: { apiVersion: "v1alpha" } });
+      const ai = new GoogleGenAI({ apiKey: tokenInfo.token, httpOptions: { apiVersion: "v1beta" } });
       try {
         session = await ai.live.connect({
           model: this.activeModel,
@@ -111,11 +110,6 @@ export class GeminiLiveClient {
               if (gen !== this.gen) return;
               console.info("[LIVE] closed", e?.code, failureSummary(e));
               this._rememberFailedKey(e);
-              const failure = classifyLiveFailure(e);
-              if (failure === "key_rotated" || failure === "quota" || failure === "server_error") {
-                this._stopForFailure(failure);
-                return;
-              }
               this.handlers.onStatus?.("reconnecting (connection ended)");
               if (!this.stopped) this._handleTransportError(e || new Error("connection closed"));
             },
@@ -124,21 +118,17 @@ export class GeminiLiveClient {
         break;
       } catch (error) {
         connectionError = error;
-        const failure = classifyLiveFailure(error);
-        if (failure === "key_rotated" || failure === "quota" || failure === "server_error") {
-          this._stopForFailure(failure);
-          throw error;
-        }
         if (!isKeyFailure(error) || attempt + 1 >= maxAttempts) throw error;
+        this._rememberFailedKey(error);
         console.warn(`[LIVE] key ${tokenInfo.keyIndex || attempt + 1}/${maxAttempts} rejected (${failureSummary(error)}); requesting another token`);
         const nextTokenInfo = await this._mintToken({
-          failedKeyIndex: tokenInfo.keyIndex,
-          failedKeyDay: tokenInfo.deviceDay,
-          reason: failureSummary(error),
+          failedKeyIndex: this.pendingFailedKeyIndex,
+          failedKeyDay: this.pendingFailedKeyDay,
+          reason: this.pendingFailedReason,
+          leaseId: this.leaseId,
         });
-        tokenInfo.token = nextTokenInfo.token;
-        tokenInfo.keyIndex = nextTokenInfo.keyIndex;
-        tokenInfo.deviceDay = nextTokenInfo.deviceDay;
+        tokenInfo = nextTokenInfo;
+        this.liveToken = tokenInfo.token;
         this.activeKeyIndex = nextTokenInfo.keyIndex;
         this.activeKeyDay = nextTokenInfo.deviceDay;
       }
@@ -175,6 +165,25 @@ export class GeminiLiveClient {
       this.hasOpenedOnce = true;
       this.handlers.onFirstReady?.();
     }
+  }
+
+  _wait(ms) {
+    return new Promise((resolve) => {
+      this.retryResolve = resolve;
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = null;
+        this.retryResolve = null;
+        resolve();
+      }, Math.max(0, ms));
+    });
+  }
+
+  _cancelWait() {
+    clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    const resolve = this.retryResolve;
+    this.retryResolve = null;
+    resolve?.();
   }
 
   _handleMessage(message) {
@@ -235,6 +244,7 @@ export class GeminiLiveClient {
     if (this.terminalNoticeSent) return;
     this.terminalNoticeSent = true;
     this.stopped = true;
+    this._cancelWait();
     this.ready = false;
     this.setupDone = false;
     clearTimeout(this.setupTimer);
@@ -244,12 +254,18 @@ export class GeminiLiveClient {
     this.gen += 1;
     try { this.session?.close(); } catch { /* already closed */ }
     this.session = null;
-    this.resumptionHandle = null;
-    this.handlers.onStatus?.(kind === "key_rotated" ? "restart session required" : kind === "quota" ? "quota exhausted" : "voice server unavailable", true);
+    this.handlers.onStatus?.("voice connection unavailable", true);
     this.handlers.onNotice?.(userNoticeForFailure(kind));
   }
 
-  abortForKeyRotation() { this._stopForFailure("key_rotated"); }
+  retry() {
+    if (!this.stopped) return;
+    this.stopped = false;
+    this.terminalNoticeSent = false;
+    this.connectionRetries = 0;
+    this.lastReconnectAt = 0;
+    void this._handleTransportError({ message: "manual retry", soft: true });
+  }
 
   _watch() {
     if (this.stopped || this.reconnecting || !this.ready || !this.session) return;
@@ -295,11 +311,6 @@ export class GeminiLiveClient {
   // One reconnect loop at a time. Everything else is dropped while it runs.
   async _handleTransportError(e) {
     if (this.stopped || this.reconnecting) return;
-    const failure = classifyLiveFailure(e);
-    if (failure === "key_rotated" || failure === "quota" || failure === "server_error") {
-      this._stopForFailure(failure);
-      return;
-    }
     const now = Date.now();
     if (this.lastReconnectAt && now - this.lastReconnectAt < 2500) return;
     this.lastReconnectAt = now;
@@ -308,51 +319,83 @@ export class GeminiLiveClient {
       if (this.upSince && Date.now() - this.upSince > STABLE_MS) this.connectionRetries = 0;
       const message = String(e?.message || e).toLowerCase();
       const unsupportedModel = /not found|not supported for bidi|does not exist|unknown model/.test(message);
-      const silentService = /watchdog|stuck-turn/.test(message);
-      if (silentService && this.activeKeyIndex && this.keyCount > 1 && this.silentKeySwitches < MAX_SILENT_KEY_SWITCHES) {
-        // connected but never answered: try another key before blaming the model
-        this.silentKeySwitches += 1;
-        this.pendingFailedKeyIndex = this.activeKeyIndex;
-        this.pendingFailedKeyDay = this.activeKeyDay;
-        this.pendingFailedReason = "no_reply (connected but the model stayed silent)";
-      } else if (this.activeModel === this.modelName && this.fallbackModelName && (unsupportedModel || isModelUnavailable(e) || silentService)) {
+      if (this.activeModel === this.modelName && this.fallbackModelName && (unsupportedModel || isModelUnavailable(e))) {
         this.activeModel = this.fallbackModelName;
-        this.resumptionHandle = null;
         this.handlers.onStatus?.("switching to backup model");
         await this.close({ keepHandle: true });
         await this.connect();
         return;
       }
-      let quotaSwitches = 0;
-      while (!this.stopped && this.connectionRetries < 5) {
-        const quotaHit = Boolean(this.pendingFailedKeyIndex) && quotaSwitches < 8;
-        // A quota hit is not a flaky link: the next token comes from another key, so it must not eat the retry budget.
-        if (quotaHit) quotaSwitches += 1; else this.connectionRetries += 1;
-        if (this.connectionRetries >= 2) this.resumptionHandle = null;   // stale handle: drop it
-        this.handlers.onStatus?.(quotaHit ? "switching to another key" : `reconnecting (${this.connectionRetries}/5)`);
-        const delay = quotaHit ? 500 : e?.soft && this.connectionRetries === 1 ? 0 : Math.min(2 ** this.connectionRetries * 1000, 10000);
-        if (delay) await new Promise((r) => setTimeout(r, delay));
+      let attempt = 0;
+      let lastError = e;
+      while (!this.stopped && attempt < RECOVERY_BACKOFF_MS.length) {
+        this.handlers.onStatus?.(`reconnecting (${attempt + 1}/${RECOVERY_BACKOFF_MS.length})`);
+        await this._wait(RECOVERY_BACKOFF_MS[attempt]);
         if (this.stopped) return;
         try {
           await this.close({ keepHandle: true });
           await this.connect(this.resumptionHandle);
           return;
         } catch (err) {
+          lastError = err;
           console.warn("[LIVE] reconnect failed", failureSummary(err));
-          if (/all_keys_unavailable/.test(String(err?.message))) {
-            this.handlers.onStatus?.("voice service busy - try again later", true);
-            return;
+          if (isKeyFailure(err)) this._rememberFailedKey(err);
+          if (err?.code === "all_keys_unavailable" && err.retryAfterSec > 0) {
+            this.handlers.onStatus?.(`voice is busy, retrying in ${err.retryAfterSec} s`);
+            await this._wait(err.retryAfterSec * 1000);
+            continue;
           }
+          attempt += 1;
         }
       }
-      if (!this.stopped) this.handlers.onStatus?.(`error: ${e?.message || e} - tap End and restart`, true);
+      if (!this.stopped) this._stopForFailure(classifyLiveFailure(lastError));
     } finally {
       this.reconnecting = false;
     }
   }
 
   async _mintToken(args = {}) {
-    return mintLiveToken({ ...args, expectedKeyVersion: args.expectedKeyVersion || this.keyVersion });
+    const request = { ...args, leaseId: args.leaseId || this.leaseId };
+    let reportPending = Boolean(request.failedKeyIndex);
+    let transientAttempt = 0;
+    while (!this.stopped) {
+      try {
+        const info = await mintLiveToken(request);
+        this.leaseId = info.leaseId || this.leaseId;
+        this.liveToken = info.token;
+        this.activeKeyIndex = info.keyIndex || this.activeKeyIndex;
+        this.activeKeyDay = info.deviceDay || this.activeKeyDay;
+        this.keyCount = info.keyCount || this.keyCount;
+        this.pendingFailedKeyIndex = null;
+        this.pendingFailedKeyDay = null;
+        this.pendingFailedReason = "";
+        return info;
+      } catch (error) {
+        if (reportPending) {
+          delete request.failedKeyIndex;
+          delete request.failedKeyDay;
+          delete request.reason;
+          reportPending = false;
+          this.pendingFailedKeyIndex = null;
+          this.pendingFailedKeyDay = null;
+          this.pendingFailedReason = "";
+        }
+        if (error?.code === "all_keys_unavailable") {
+          const retryAfterSec = Math.max(1, Number(error.retryAfterSec) || 1);
+          this.handlers.onStatus?.(`voice is busy, retrying in ${retryAfterSec} s`);
+          await this._wait(retryAfterSec * 1000);
+          continue;
+        }
+        if (classifyLiveFailure(error) === "transient" && transientAttempt < RECOVERY_BACKOFF_MS.length) {
+          this.handlers.onStatus?.(`reconnecting (${transientAttempt + 1}/${RECOVERY_BACKOFF_MS.length})`);
+          await this._wait(RECOVERY_BACKOFF_MS[transientAttempt]);
+          transientAttempt += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error("session_stopped");
   }
 
   async sendAudio(base64Pcm) {
@@ -395,12 +438,16 @@ export class GeminiLiveClient {
   }
 
   async close({ keepHandle = false } = {}) {
+    this._cancelWait();
     clearTimeout(this.goAwayTimer);
     clearTimeout(this.setupTimer);
     if (!keepHandle) {
       this.stopped = true;
       clearInterval(this.watchTimer);
       this.watchTimer = null;
+      releaseLiveLease(this.leaseId);
+      this.leaseId = "";
+      if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageHideListener);
     }
     this.gen += 1;
     this.ready = false;

@@ -1,3 +1,5 @@
+import { dispatchLocalDataChanged } from "./accountSync.js";
+
 const KEY = (id) => `rc_convo_${id}`;
 const MAX_TURNS = 20;
 
@@ -15,6 +17,7 @@ export function saveTurn(bookId, speaker, text) {
     const arr = JSON.parse(localStorage.getItem(KEY(bookId)) || "[]");
     arr.push({ s: speaker, t: String(text).slice(0, 220), at: new Date().toISOString() });
     localStorage.setItem(KEY(bookId), JSON.stringify(arr.slice(-MAX_TURNS)));
+    dispatchLocalDataChanged();
   } catch { /* ignore */ }
 }
 

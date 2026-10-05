@@ -33,8 +33,25 @@ test("offline fallback is stored by quote hash and avoids repeated failed calls"
   let update;
   const fetcher = async () => { calls += 1; throw new Error("offline"); };
   await ensureGemInsights([gem], (_id, value) => { update = value; }, fetcher);
-  assert.deepEqual(update.themes, ["self-awareness", "inner-change", "courage-and-action", "habits-and-identity"]);
+  assert.deepEqual(update.themes, ["self-awareness", "inner-change", "courage-and-action", "habits-and-discipline"]);
   assert.equal(update.insightHash, gemInsightHash(gem));
   await ensureGemInsights([{ ...gem, ...update }], () => {}, fetcher);
   assert.equal(calls, 1);
+});
+
+test("insight and embedding backfill continues through libraries larger than one 32-gem batch", async () => {
+  const gems = Array.from({ length: 40 }, (_, index) => ({ id: `gem-${index}`, bookTitle: "Book", quote: `A unique saved quote ${index}.` }));
+  const batches = [];
+  let updates = 0;
+  const fetcher = async (url, init) => {
+    const body = JSON.parse(init.body);
+    batches.push({ url, count: body.texts?.length || 1 });
+    if (url.endsWith("/api/gem-insight")) return { ok: true, json: async () => ({ themes: ["self-awareness", "inner-change"], core_idea: "A person's choices shape who they become." }) };
+    return { ok: true, json: async () => ({ embeddings: body.texts.map(() => [1, 0, 0]) }) };
+  };
+  const result = await ensureGemInsights(gems, () => { updates += 1; }, fetcher);
+  assert.equal(result.length, 40);
+  assert.equal(updates, 40);
+  assert.ok(batches.every((batch) => batch.count <= 32));
+  assert.equal(batches.filter((batch) => batch.url.endsWith("/api/gem-insight")).length, 40);
 });

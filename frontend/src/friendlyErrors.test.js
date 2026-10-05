@@ -25,11 +25,12 @@ test("raw technical text is never returned", () => {
   assert.equal(friendlyErrorMessage(null, "fallback"), "fallback");
 });
 
-test("live failures distinguish rotated keys from retryable network and quota errors", () => {
-  assert.equal(classifyLiveFailure({ code: "key_rotated" }), "key_rotated");
-  assert.equal(classifyLiveFailure({ code: 1008, reason: "policy violation" }), "key_rotated");
+test("live failures distinguish key faults from silence and retryable transport errors", () => {
+  assert.equal(classifyLiveFailure({ status: 403, message: "PERMISSION_DENIED" }), "key_fault");
+  assert.equal(classifyLiveFailure({ code: 1008, reason: "policy violation" }), "transient");
   assert.equal(classifyLiveFailure({ status: 429 }), "quota");
+  assert.equal(classifyLiveFailure({ message: "no_reply connected but the model stayed silent" }), "silent");
   assert.equal(classifyLiveFailure(new Error("Failed to fetch")), "network");
-  assert.match(userNoticeForFailure("key_rotated").message, /band karke dobara shuru/);
+  assert.doesNotMatch(userNoticeForFailure("key_fault").message, /session band karke/i);
   assert.doesNotMatch(userNoticeForFailure("quota").message, /saved baat/i);
 });

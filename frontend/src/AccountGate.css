@@ -1,0 +1,29 @@
+.account-gate-root { position: fixed; inset: 0; z-index: 800; display: grid; place-items: center; overflow-y: auto; padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); color: var(--text); background: radial-gradient(ellipse at 15% 12%, color-mix(in srgb,var(--primary) 20%,transparent), transparent 46%), radial-gradient(ellipse at 88% 88%, color-mix(in srgb,var(--accent) 12%,transparent), transparent 42%), linear-gradient(145deg,var(--bg-1),var(--bg-2) 56%,var(--bg-3)); }
+.account-gate-grid { position: fixed; inset: 0; pointer-events: none; opacity: .18; background-image: linear-gradient(color-mix(in srgb,var(--primary) 17%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--accent) 12%,transparent) 1px,transparent 1px); background-size: 38px 38px; mask-image: radial-gradient(ellipse at center,#000 0%,transparent 82%); }
+.account-gate-panel { position: relative; display: flex; flex-direction: column; align-items: center; width: min(100%,440px); padding: 34px 28px 27px; border: 1px solid color-mix(in srgb,var(--primary) 35%,var(--border)); border-radius: 27px; text-align: center; background: color-mix(in srgb,var(--surface) 94%,transparent); box-shadow: 0 26px 78px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.1); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); animation: accountPanelIn .55s cubic-bezier(.2,.8,.2,1) both; }
+.account-gate-mark { display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 18px; border: 1px solid color-mix(in srgb,var(--primary) 52%,var(--border)); border-radius: 18px; color: #fff; background: linear-gradient(145deg,var(--primary),var(--primary-2) 68%,#0e7490); box-shadow: 0 12px 30px color-mix(in srgb,var(--primary) 33%,transparent); }
+.account-gate-mark svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.account-gate-eyebrow { margin-bottom: 8px; color: var(--accent); font-size: 10px; font-weight: 900; letter-spacing: .19em; }
+.account-gate-panel h1 { max-width: 360px; margin: 0; color: var(--text); font-family: 'Fraunces',serif; font-size: 30px; font-weight: 650; line-height: 1.1; }
+.account-gate-lead { max-width: 340px; margin: 12px 0 20px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.account-gate-benefits { display: flex; flex-direction: column; align-self: stretch; gap: 9px; margin: 0 0 22px; text-align: left; }
+.account-gate-benefits span { display: flex; align-items: center; gap: 9px; color: color-mix(in srgb,var(--text) 84%,var(--muted)); font-size: 12px; font-weight: 700; }
+.account-gate-benefits svg { flex: 0 0 auto; color: var(--accent); }
+.account-gate-google { display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 49px; padding: 0 16px; border: 1px solid color-mix(in srgb,var(--primary) 46%,var(--border)); border-radius: 15px; color: #fff; font: 800 13px/1.2 inherit; cursor: pointer; background: linear-gradient(120deg,var(--primary),var(--primary-2)); box-shadow: 0 10px 24px color-mix(in srgb,var(--primary) 26%,transparent); transition: transform .15s ease,filter .15s ease; }
+.account-gate-google:hover { filter: brightness(1.08); }
+.account-gate-google:active { transform: scale(.985); }
+.account-gate-google:disabled,.account-gate-choices button:disabled { opacity: .55; cursor: wait; }
+.account-google-mark { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; color: #fff; font: 900 15px/1 Arial,sans-serif; background: conic-gradient(from 45deg,#34a853 0 25%,#4285f4 25% 50%,#ea4335 50% 75%,#fbbc05 75%); }
+.account-gate-foot { max-width: 330px; margin: 17px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.account-gate-setup { margin: 0; color: var(--accent); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.account-gate-error { align-self: stretch; margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb,var(--danger) 35%,var(--border)); border-radius: 13px; color: var(--danger); font-size: 11px; line-height: 1.45; background: color-mix(in srgb,var(--danger) 8%,var(--surface-2)); overflow-wrap: anywhere; }
+.account-gate-choices { display: flex; flex-direction: column; align-self: stretch; gap: 9px; }
+.account-gate-choices button { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 45px; padding: 0 12px; border: 1px solid var(--border); border-radius: 14px; color: var(--text); font: 800 11px/1.25 inherit; cursor: pointer; background: var(--surface-2); }
+.account-gate-choices button:first-child { border-color: color-mix(in srgb,var(--primary) 40%,var(--border)); color: var(--primary); }
+.account-gate-loading { display: flex; align-items: center; gap: 12px; padding: 13px; color: var(--text); font-size: 13px; }
+.account-gate-spinner { width: 24px; height: 24px; border: 2px solid color-mix(in srgb,var(--primary) 25%,transparent); border-top-color: var(--accent); border-radius: 50%; animation: accountSpin .8s linear infinite; }
+.account-gate-footer { position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); color: color-mix(in srgb,var(--muted) 76%,transparent); font-size: 9px; font-weight: 900; letter-spacing: .18em; }
+@keyframes accountPanelIn { from { opacity: 0; transform: translateY(16px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes accountSpin { to { transform: rotate(360deg); } }
+@media (max-width: 380px) { .account-gate-panel { padding: 28px 21px 22px; border-radius: 23px; } .account-gate-panel h1 { font-size: 27px; } }
+@media (prefers-reduced-motion: reduce) { .account-gate-panel,.account-gate-spinner { animation: none; } }

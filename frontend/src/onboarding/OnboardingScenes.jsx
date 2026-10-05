@@ -1,5 +1,5 @@
 import { AnimatePresence, motion as Motion } from "framer-motion";
-import { BookOpen, Brain, CalendarDays, Camera, Check, Flame, Gem, Languages, Play, RotateCcw, Smartphone, Sparkles, Zap } from "lucide-react";
+import { BookOpen, Brain, CalendarDays, Camera, Check, ChevronRight, Flame, Gem, Languages, MessageCircleMore, Play, RotateCcw, Smartphone, Sparkles, UserRound, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const LOOP = { repeat: Infinity, ease: "easeInOut" };
@@ -584,6 +584,24 @@ function SnapshotScene() {
   );
 }
 
+function SupportScene() {
+  return (
+    <div className="sc-support">
+      <Motion.div className="sc-support-profile" initial={{ opacity: 0, x: -18 }} animate={{ opacity: 1, x: 0 }} transition={{ type: "spring", stiffness: 180, damping: 18 }}>
+        <span><UserRound size={19} /></span><b>Profile</b><ChevronRight size={15} />
+      </Motion.div>
+      <Motion.div className="sc-support-tile" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: .2, type: "spring", stiffness: 180, damping: 18 }}>
+        <span><MessageCircleMore size={19} /></span><b>Help &amp; support</b><i />
+      </Motion.div>
+      <Motion.div className="sc-support-chat" initial={{ opacity: 0, y: 14, scale: .94 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: .42, type: "spring", stiffness: 180, damping: 18 }}>
+        <small><Sparkles size={12} /> Ask me anything</small>
+        <p>Confused about a feature?</p>
+        <b>Chat here, anytime.</b>
+      </Motion.div>
+    </div>
+  );
+}
+
 const SCENES = [
   { title: "Reading Companion", sub: "Tumhara padhne wala saathi", C: BrandScene },
   { title: "Kis ke liye?", sub: "Hindi aur Odia readers", C: WhoScene },
@@ -605,6 +623,7 @@ const SCENES = [
   { title: "Your language", sub: "Hindi · Odia · just speak", C: WhyLanguageScene },
   { title: "Ideas you can use", sub: "Gems, steps aur Mind Map", C: WhyApplicationScene },
   { title: "Camera ya snapshot", sub: "Page ek baar dikhao, phir bas poochho", C: SnapshotScene },
+  { title: "Help & support", sub: "Profile mein poochho, jo chaaho", C: SupportScene },
 ];
 
 export default function FeatureScene({ index }) {

@@ -1,3 +1,5 @@
+import { classifyGeminiFailure } from "../../shared/geminiFailure.mjs";
+
 export function errorDetails(error) {
   let serialized = "";
   try { serialized = JSON.stringify(error); } catch { /* not serializable */ }
@@ -6,14 +8,12 @@ export function errorDetails(error) {
 }
 
 export function isQuotaError(error) {
-  return /429|RESOURCE_EXHAUSTED|exhausted|quota|rate.?limit|too many requests/i.test(errorDetails(error));
+  return ["rate_limit_minute", "quota_daily"].includes(classifyGeminiFailure(error));
 }
 
-// Any reason a key itself should be skipped: limit reached, rejected, expired or blocked.
+// Only classifications that justify changing key health are reported to the server.
 export function isKeyFailure(error) {
-  if (isQuotaError(error)) return true;
-  if (Number(error?.code) === 1008) return true;
-  return /api.?key|permission_denied|unauthenticated|expired|billing|suspended|forbidden/i.test(errorDetails(error));
+  return ["rate_limit_minute", "quota_daily", "auth_permission_billing"].includes(classifyGeminiFailure(error));
 }
 
 // Short, secret-free description sent to the backend log, e.g. "1008 API key expired".

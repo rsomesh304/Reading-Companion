@@ -1,3 +1,5 @@
+import { dispatchLocalDataChanged } from "./accountSync.js";
+
 const STORAGE_KEY = "reading_companion_library";
 
 function load() {
@@ -129,6 +131,7 @@ export class Library {
     } catch (e) {
       console.warn("[LIBRARY] save failed (storage full?)", e);
     }
+    dispatchLocalDataChanged();
   }
 
   listBooks() {

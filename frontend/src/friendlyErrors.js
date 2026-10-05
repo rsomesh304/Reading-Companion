@@ -1,31 +1,28 @@
+import { classifyGeminiFailure } from "../../shared/geminiFailure.mjs";
+
 const HIDDEN = /^(connected|thinking|saying goodnight|session ending|checking in)/i;
 
 export function classifyLiveFailure(error) {
-	const message = String(error?.message || error?.reason || error || "").toLowerCase();
-	const code = Number(error?.status ?? error?.code ?? error?.error?.code ?? 0);
-	if (error?.code === "key_rotated" || /key_rotated|resumption.*(?:reject|invalid)|api.?key.*(?:invalid|changed|rotat|revok)|(?:401|403)\b/.test(message) || [1007, 1008].includes(code)) return "key_rotated";
-	if (code === 429 || /429|quota|resource_exhausted|rate.?limit|all_keys_unavailable/.test(message)) return "quota";
-	if (/failed to fetch|networkerror|network request|load failed|offline|socket hang up|econnreset/.test(message)) return "network";
-	if (code === 503 || /service unavailable|server_error|token_mint_failed/.test(message)) return "server_error";
-	return "unknown";
+	const failureClass = classifyGeminiFailure(error);
+	if (failureClass === "rate_limit_minute" || failureClass === "quota_daily") return "quota";
+	if (failureClass === "auth_permission_billing") return "key_fault";
+	if (failureClass === "silent") return "silent";
+	if (/failed to fetch|networkerror|network request|load failed|offline|socket hang up|econnreset/i.test(String(error?.message || error || ""))) return "network";
+	return "transient";
 }
 
 export function userNoticeForFailure(kind) {
-	if (kind === "key_rotated") return {
-		level: "error", code: "key_rotated", title: "Update aa gaya",
-		message: "Purana voice connection ab kaam nahi karega. Session band karke dobara shuru kijiye.",
-	};
 	if (kind === "quota") return {
 		level: "error", code: "quota_exceeded", title: "Voice service abhi busy hai",
-		message: "Naya reading session shuru karne se pehle thoda rukna padega. Yeh session dobara connect nahi ho pa raha.",
+		message: "Voice service abhi busy hai. Connection dobara try kijiye.",
 	};
-	if (kind === "server_error") return {
-		level: "error", code: "voice_server_error", title: "Voice service abhi nahi mil rahi",
-		message: "Voice service wapas aane par session dobara shuru kijiye.",
+	if (kind === "key_fault") return {
+		level: "error", code: "voice_key_unavailable", title: "Voice connection abhi nahi ban paaya",
+		message: "Doosra connection bhi kaam nahi kar paaya. Isi session mein dobara koshish kijiye.",
 	};
 	return {
-		level: "info", code: "network_reconnect", title: "Network connection ruk gaya",
-		message: "Internet wapas aate hi dobara connect karne ki koshish karunga.",
+		level: "info", code: "network_reconnect", title: "Voice connection ruk gaya",
+		message: "Connection dobara banane ki koshish kijiye.",
 	};
 }
 

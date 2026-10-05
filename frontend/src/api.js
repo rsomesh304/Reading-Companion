@@ -24,6 +24,21 @@ export async function apiFetch(path, init, { retries = 8, delayMs = 5000 } = {})
   throw lastError;
 }
 
+export async function apiFetchFast(path, init = {}, { timeoutMs = 12000 } = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const relayAbort = () => controller.abort(init.signal?.reason);
+  if (init.signal?.aborted) relayAbort();
+  else init.signal?.addEventListener("abort", relayAbort, { once: true });
+
+  try {
+    return await fetch(apiUrl(path), { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+    init.signal?.removeEventListener("abort", relayAbort);
+  }
+}
+
 export function warmBackend() {
   apiFetch("/api/health", { cache: "no-store" }, { retries: 12, delayMs: 5000 }).catch(() => {});
 }
