@@ -131,7 +131,7 @@ function stageTimestamp(report, key, currentStatus) {
 }
 
 // Presentation only: lays the report's existing status data out as timeline steps.
-// Several notes per status are supported when the report carries a history list; the resolution note is never included.
+// Each status shows one note: the most recent one from its history. The resolution note is never included.
 export function buildReportTimeline(report) {
   const status = normalizeReportStatus(report);
   const resolution = text(report?.resolutionNote || report?.resolution_note).toLowerCase();
@@ -143,9 +143,8 @@ export function buildReportTimeline(report) {
   const addNote = (stage, note, date) => {
     const body = text(note);
     if (!body || body.toLowerCase() === resolution) return;
-    const list = notesByStage.get(stage) || [];
-    if (!list.some((entry) => entry.text === body)) list.push({ text: body, date: date || null });
-    notesByStage.set(stage, list);
+    // History is chronological, so a later entry for the same status replaces the earlier note.
+    notesByStage.set(stage, [{ text: body, date: date || null }]);
   };
   history.forEach((entry) => {
     const stage = normalizeReportStatus({ status: entry?.status });
@@ -174,6 +173,29 @@ export function buildReportTimeline(report) {
     const date = historyDates.get(key) || notes[0]?.date || stageTimestamp(report, key, status) || (key === "sent" || key === "queued" ? created : key === "done" ? resolvedAt : null);
     return { key, label, state: stateName, notes, date: stateName === "upcoming" ? null : date };
   });
+}
+
+// Which icon a timeline node shows. A finished report's final step is a tick (or a cross when rejected);
+// only a stage that is still waiting on the team shows the clock.
+export function getTimelineNodeIcon(step) {
+  if (!step) return "none";
+  if (step.state === "done") return "check";
+  if (step.state === "current") {
+    if (step.key === "done") return "check";
+    if (step.key === "rejected") return "cross";
+    return "clock";
+  }
+  return "stage";
+}
+
+// How far along the flow a report is, from 0 to 1. Finished and rejected reports are complete.
+export function getTimelineProgress(steps = []) {
+  if (!steps.length) return 0;
+  const currentIndex = steps.findIndex((step) => step.state === "current");
+  if (currentIndex < 0) return 0;
+  const last = steps[currentIndex];
+  if (last.key === "done" || last.key === "rejected") return 1;
+  return steps.length > 1 ? currentIndex / (steps.length - 1) : 0;
 }
 
 // Supabase timestamps are UTC; a value without an offset is treated as UTC too.

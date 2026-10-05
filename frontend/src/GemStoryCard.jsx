@@ -8,6 +8,7 @@ import "@fontsource/playfair-display/600.css";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
+import { useBackLayer } from "./backStack.js";
 import "./GemStoryCard.css";
 
 const W = 1080;
@@ -37,6 +38,7 @@ export default function GemStoryCard({ gem, author, onClose }) {
   const cardRef = useRef(null);
   const [styleId, setStyleId] = useState("noir");
   const [menuOpen, setMenuOpen] = useState(false);
+  useBackLayer(menuOpen, () => setMenuOpen(false));
   const cur = STYLES.find((s) => s.id === styleId) || STYLES[0];
   const [scale, setScale] = useState(0.3);
   const [busy, setBusy] = useState(false);

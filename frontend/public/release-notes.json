@@ -1,6 +1,39 @@
 {
   "releases": [
     {
+      "version": "2.1.0",
+      "pulse": true,
+      "date": "2026-10-11",
+      "title": "Smarter reminders, clearer progress",
+      "items": [
+        { "type": "improve", "text": "Help & Support actions (New chat, Chat history, App tour) now live as neat icon buttons in the header, so nothing covers the chat" },
+        { "type": "fix", "text": "Help chat now explains release labels (Major update, UI enhancement, A new chapter, Signature update) and every Your Reports stage correctly, with matching animations" },
+        { "type": "fix", "text": "Hinglish questions in Help chat get Hinglish answers" },
+        { "type": "improve", "text": "Help & Support status is now a compact pill, the toolbar is tidier, and the chat uses a simple Send button instead of a mic" },
+        { "type": "fix", "text": "Help chat animations now reliably appear under answers, and the chat replies in your language: English, Hindi or Hinglish" },
+        { "type": "improve", "text": "If notifications were blocked, a friendly banner explains how to turn them back on for your device" },
+        { "type": "feature", "text": "Help chat shows dedicated animations for every app feature and setting, picked by the AI to match your question" },
+        { "type": "feature", "text": "You get a push notification when the status of an issue you reported changes" },
+        { "type": "improve", "text": "Every gem card now has its own colour" },
+        { "type": "fix", "text": "The bottom-dock Profile icon is a perfect circle again" },
+        { "type": "fix", "text": "Mind Map full screen works again" },
+        { "type": "fix", "text": "The Done step in the report timeline stays grey until the issue is actually done" },
+        { "type": "fix", "text": "Your Reports only shows reports you submitted yourself, never content from anyone else" },
+        { "type": "feature", "text": "Push notifications deliver app updates and important announcements to your phone's notification tray" },
+        { "type": "feature", "text": "Smart study reminders learn when you usually read and nudge you shortly before that time, with an opt-in toggle in Settings" },
+        { "type": "feature", "text": "Fixed-in versions on your reports are now links that open the matching Release History entry" },
+        { "type": "feature", "text": "Help & Support shows whether the AI assistant is online, with a friendly note telling you to expect a live AI answer or built-in guide answers" },
+        { "type": "improve", "text": "The report status timeline has been redesigned with animated progress, and completed stages now show a tick instead of a clock" },
+        { "type": "improve", "text": "Back now goes exactly one step up from nested screens, sheets and dialogs instead of leaving the whole section" },
+        { "type": "improve", "text": "Ghost Mode now switches on quietly; your companion only explains it when you ask, and points app questions to Help & guide" },
+        { "type": "improve", "text": "Help & Support opens with the message box ready straight away, and the blinking cursor next to your name is gone" },
+        { "type": "fix", "text": "The Help & Support message box stays visible just above the keyboard while you type" },
+        { "type": "fix", "text": "Gem details are no longer clipped; every card, including Real-life application, scrolls fully into view" },
+        { "type": "fix", "text": "Mind Map shows the animated dotted connection lines between linked gems across books again" },
+        { "type": "fix", "text": "Chapter vocabulary lists scroll again so every difficult word is reachable" },
+        { "type": "fix", "text": "Edited status notes no longer appear twice; each stage shows only its latest note" }
+      ]
+    },{
       "version": "2.0.0",
       "date": "2026-10-05",
       "major": true,

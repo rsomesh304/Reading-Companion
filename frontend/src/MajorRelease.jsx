@@ -1,5 +1,5 @@
 import { motion as Motion } from "framer-motion";
-import { BookOpen, Bug, Palette, Sparkles, Wrench } from "lucide-react";
+import { Bell, BookOpen, Bug, Palette, Sparkles, Wrench } from "lucide-react";
 import "./MajorRelease.css";
 
 const GROUPS = [
@@ -12,9 +12,10 @@ const GROUPS = [
 export default function MajorReleaseCard({ release, variant = "major" }) {
   const items = release.items || [];
   const isUi = variant === "ui";
-  const isV2 = String(release.version || "").startsWith("2.");
+  const isPulse = variant === "pulse";
+  const isV2 = !isPulse && String(release.version || "").startsWith("2.");
   return (
-    <Motion.article className={`mj-card ${isUi ? "ui" : ""} ${isV2 ? "v2" : ""}`} initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.5, ease: "easeOut" }}>
+    <Motion.article className={`mj-card ${isUi ? "ui" : ""} ${isV2 ? "v2" : ""} ${isPulse ? "pulse" : ""}`} initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.5, ease: "easeOut" }}>
       <span className="mj-aurora" aria-hidden="true" />
       <span className="mj-orb a" aria-hidden="true" />
       <span className="mj-orb b" aria-hidden="true" />
@@ -27,9 +28,17 @@ export default function MajorReleaseCard({ release, variant = "major" }) {
         </div>
       )}
       <div className="mj-head">
-        <span className="mj-badge">{isV2 ? <BookOpen size={13} /> : isUi ? <Palette size={12} /> : <Sparkles size={12} />} {isV2 ? "A new chapter" : isUi ? "UI enhancement" : "Major update"}</span>
+        <span className="mj-badge">{isPulse ? <Bell size={12} /> : isV2 ? <BookOpen size={13} /> : isUi ? <Palette size={12} /> : <Sparkles size={12} />} {isPulse ? "Signature update" : isV2 ? "A new chapter" : isUi ? "UI enhancement" : "Major update"}</span>
         <span className="mj-date">{release.date || "Recently updated"}</span>
       </div>
+      {isPulse && (
+        <div className="mj-pulse" aria-hidden="true">
+          <span className="mj-ring r1" /><span className="mj-ring r2" /><span className="mj-ring r3" />
+          <span className="mj-bell"><Bell size={26} /></span>
+          <span className="mj-chip c1">Report updated</span>
+          <span className="mj-chip c2">Time to read</span>
+        </div>
+      )}
       {isV2 ? (
         <div className="mj-v2-intro">
           <div className="mj-v2-number" aria-label="Version 2">02</div>

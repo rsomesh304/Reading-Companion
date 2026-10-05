@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { getAiProviderOrder, readTextCompletion, requestTextCompletion, streamTextCompletion } from "./aiTextProviders.js";
 import { normalizeGemEchoCatalog, validateGemEchoCandidates, validateGemEchoPairs } from "./gemEchoes.js";
 import { classifyGeminiFailure, KeyPool } from "./geminiKeyPool.js";
+import { buildPushPayload, createPushService, normalizeReminderMinute, normalizeSubscription } from "./pushNotifications.js";
 import { buildReportEmailHtml, buildReportEmailSubject } from "./reportEmailTemplate.js";
 import { cleanRewrite, stepsPreserved } from "./reportRewrite.js";
 import { formatTicketNumber, screenshotObjectPath } from "./reportTicket.js";
@@ -54,6 +55,15 @@ function loadHelpGuide() {
     return null;
   });
   return helpGuidePromise;
+}
+
+let helpAnimationsPromise;
+function loadHelpAnimations() {
+  helpAnimationsPromise ||= import("../frontend/src/helpAnimations.js").catch((error) => {
+    console.warn("[AI HELP] animations unavailable:", error?.message || error);
+    return null;
+  });
+  return helpAnimationsPromise;
 }
 
 function allowAiRequest(feature, ip) {
@@ -200,6 +210,20 @@ app.post("/api/ai/report-rewrite", async (req, res) => {
   }
 });
 
+app.get("/api/ai/help/status", async (req, res) => {
+  const providers = getAiProviderOrder("help");
+  const helpGuide = providers.length ? await loadHelpGuide() : null;
+  res.set("Cache-Control", "no-store");
+  res.json({ available: Boolean(providers.length && helpGuide), providers });
+});
+
+function detectReplyLanguage(text) {
+  if (/[\u0900-\u097F]/.test(text)) return "Hindi in Devanagari script";
+  const hinglish = /\b(kaise|kya|kyu|kyon|kab|kahan|kaha|mujhe|mera|meri|mere|karun|karu|karna|karo|kar|hai|hain|nahi|nahin|aur|ko|ka|ki|ke|se|me|mein|par|liye|chahiye|batao|bataiye|samajh|samjha|dikha|dikhao|kitab|wala|wali|ho|hota|hoti|sakta|sakti|abhi|bhi|toh|lekin|agar|apna|apni|kuch|kaun|kitna|jo|woh|yeh|yah|rha|rhi|raha|rahi|kaisa|kaisi|kyunki|isme|usme|baad|pehle|phir|mujhko|humko|sab|tha|thi|dekh|dekhna|dikha|batana)\b/gi;
+  const hits = (text.match(hinglish) || []).length;
+  return hits >= 2 || (hits >= 1 && text.trim().split(/\s+/).length <= 4) ? "Hinglish (Hindi written in English letters; never Devanagari)" : "English";
+}
+
 app.post("/api/ai/help", async (req, res) => {
   const question = typeof req.body?.question === "string" ? req.body.question.trim().slice(0, 700) : "";
   if (!question) return res.status(400).json({ error: "help_question_required" });
@@ -265,12 +289,43 @@ app.post("/api/ai/help", async (req, res) => {
         }));
       }
     }
+    const replyLanguage = detectReplyLanguage(question);
+    let animationIds = null;
+    const animationCatalogue = await loadHelpAnimations();
+    if (animationCatalogue) {
+      try {
+        const pick = await requestTextCompletion({
+          feature: "help",
+          providerOrder: providers,
+          messages: [
+            {
+              role: "system",
+              content: `Pick which animated guides to show under the answer to the user's question about the Reading Companion app. Reply with at most 3 ids from this list, comma-separated, most relevant first, and nothing else. Reply NONE if the question is not about an app feature, setting or screen. Choose the most specific id (for example the Appearance settings for colour theme questions, never a generic one). Match by meaning in English, Hindi or Hinglish. Use set-releases for questions about version history, release types or labels such as Major update, UI enhancement, A new chapter or Signature update. Use support-reports for questions about report stages, status or the status timeline. Use support-help only when the question is about the Help & Guide chat itself, its chat history, new chat or app tour. Never pick an id that is not clearly what the user asked about; reply NONE instead.\n${animationCatalogue.describeAnimationsForPrompt()}`,
+            },
+            ...history.slice(-2),
+            { role: "user", content: question },
+          ],
+          maxTokens: 40,
+          stream: false,
+          signal: controller.signal,
+          providerTimeoutMs: 3500,
+        });
+        const raw = await readTextCompletion(pick.response);
+        animationIds = /\bNONE\b/i.test(raw) ? [] : animationCatalogue.sanitizeAnimationIds(raw.split(/[\s,]+/), 3);
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        console.warn("[AI HELP] animation pick unavailable; client keywords will be used");
+      }
+    }
+    const animationNote = animationIds?.length
+      ? `\n\nThe app will show animated guides for: ${animationIds.map((id) => animationCatalogue.getHelpAnimation(id)?.title).filter(Boolean).join(", ")}. Make sure your answer explains exactly those parts, accurately, and do not mention the animations.`
+      : "";
     const messages = [
       {
         role: "system",
         content: `You are the friendly in-app helper for Reading Companion, talking to one reader like a knowledgeable friend, not a manual.
 
-Language: reply in the same language and style as the user's latest message. English gets English, Hindi in Devanagari gets Hindi in Devanagari, and Hindi written in English letters (Hinglish, e.g. \"kitab kaise add karun\") gets Hinglish in English letters only, never Devanagari script. Never switch language on your own.
+Language: reply in the same language and style as the user's latest message. English gets English, Hindi in Devanagari gets Hindi in Devanagari, and Hindi written in English letters (Hinglish, e.g. \"kitab kaise add karun\") gets Hinglish in English letters only, never Devanagari script. Every user message ends with a [Reply language: ...] tag added by the app: you MUST write the whole answer in exactly that language and never mention the tag. Never switch language on your own.
 
 How to answer:
 - First read the guide excerpt below carefully, then explain it in your own natural words. Never paste or list the excerpt mechanically, and do not start with "Memory has two tabs"-style dry sentences.
@@ -284,10 +339,10 @@ Accuracy: use only facts in the guide excerpt or the topic summaries. Never inve
 Topics the guide covers (one-line summaries; the user may write in any language, so match by meaning):\n${topicIndex}
 
 Guide excerpt:
-${excerpt || "No guide entry matched."}`,
+${excerpt || "No guide entry matched."}${animationNote}`,
       },
       ...history,
-      { role: "user", content: question },
+      { role: "user", content: `${question}\n\n[Reply language: ${replyLanguage}. Write the entire answer in this language, even if earlier messages or the guide excerpt are in another language.]` },
     ];
     res.on("close", () => { if (!res.writableEnded) controller.abort(); });
     for (let index = 0; index < providers.length; index += 1) {
@@ -307,6 +362,7 @@ ${excerpt || "No guide entry matched."}`,
           res.status(200).set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive" });
           res.flushHeaders?.();
         }
+        if (animationIds) res.write(`data: ${JSON.stringify({ type: "animations", ids: animationIds })}\n\n`);
         let providerEventSent = false;
         await streamTextCompletion(attempt.response, (token) => {
           if (!providerEventSent && token.trim()) {
@@ -473,6 +529,7 @@ app.post("/api/bug-reports", limitReportScreenshotUploads, async (req, res) => {
       steps: report.steps || "",
       screenshots: createdPaths,
       reporter: String(report.reporter || "Reader").trim().slice(0, 80),
+      push_endpoint: typeof report.pushEndpoint === "string" && report.pushEndpoint.length <= 1024 && report.pushEndpoint.startsWith("https://") ? report.pushEndpoint : null,
       app_version: report.appVersion || null,
       device: report.device || {},
       created_at: report.createdAt || new Date().toISOString(),
@@ -978,14 +1035,172 @@ app.post("/api/token/release", (req, res) => {
   return res.json({ ok: true, released: geminiKeyPool.releaseLease(leaseId) });
 });
 
-app.get("/api/keys/status", (req, res) => {
+// Returns true when the request carries ADMIN_TOKEN; otherwise sends 404 (unset) or 403 and returns false.
+function requireAdmin(req, res) {
   const adminToken = process.env.ADMIN_TOKEN || "";
-  if (!adminToken) return res.sendStatus(404);
+  if (!adminToken) {
+    res.sendStatus(404);
+    return false;
+  }
   const supplied = req.get("x-admin-token") || "";
   const expected = Buffer.from(adminToken);
   const actual = Buffer.from(supplied);
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return res.sendStatus(403);
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    res.sendStatus(403);
+    return false;
+  }
+  return true;
+}
+
+app.get("/api/keys/status", (req, res) => {
+  if (!requireAdmin(req, res)) return;
   return res.json({ keys: geminiKeyPool.status() });
+});
+
+// ---------------------------------------------------------------
+// Push notifications (Web Push / VAPID)
+// ---------------------------------------------------------------
+const pushService = createPushService({
+  supabaseUrl: SUPABASE_URL,
+  serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY || "",
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || "",
+  vapidSubject: process.env.VAPID_SUBJECT || "",
+});
+const pushSubscribeWindows = new Map();
+
+function allowPushSubscribe(ip) {
+  const now = Date.now();
+  const window = pushSubscribeWindows.get(ip);
+  if (window && now - window.startedAt < 60 * 60 * 1000) {
+    if (window.count >= 30) return false;
+    window.count += 1;
+  } else {
+    pushSubscribeWindows.set(ip, { startedAt: now, count: 1 });
+  }
+  if (pushSubscribeWindows.size > 2000) {
+    for (const [key, entry] of pushSubscribeWindows) if (now - entry.startedAt >= 60 * 60 * 1000) pushSubscribeWindows.delete(key);
+  }
+  return true;
+}
+
+async function readSupabaseUserId(req) {
+  const token = (req.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
+  try {
+    const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return null;
+    const user = await response.json();
+    return typeof user?.id === "string" ? user.id : null;
+  } catch {
+    return null;
+  }
+}
+
+app.get("/api/push/config", (req, res) => {
+  res.json({ enabled: pushService.configured, publicKey: pushService.configured ? pushService.publicKey : "" });
+});
+
+app.post("/api/push/subscription", async (req, res) => {
+  if (!pushService.configured) return res.status(503).json({ error: "push_not_configured" });
+  if (!allowPushSubscribe(req.ip || req.socket.remoteAddress || "unknown")) return res.status(429).json({ error: "push_rate_limited" });
+  const subscription = normalizeSubscription(req.body?.subscription);
+  if (!subscription) return res.status(400).json({ error: "invalid_subscription" });
+  const prefs = req.body?.preferences || {};
+  try {
+    await pushService.save(subscription, {
+      userId: await readSupabaseUserId(req),
+      announcements: prefs.announcements !== false,
+      remindersEnabled: prefs.reminders === true,
+      reminderMinute: normalizeReminderMinute(prefs.reminderMinute),
+      timezone: prefs.timezone,
+      userAgent: req.get("user-agent"),
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("[PUSH] save failed:", error.message);
+    return res.status(500).json({ error: "push_save_failed" });
+  }
+});
+
+app.delete("/api/push/subscription", async (req, res) => {
+  if (!pushService.configured) return res.status(503).json({ error: "push_not_configured" });
+  const subscription = normalizeSubscription(req.body?.subscription);
+  if (!subscription) return res.status(400).json({ error: "invalid_subscription" });
+  try {
+    await pushService.remove(subscription.endpoint, subscription.auth);
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("[PUSH] remove failed:", error.message);
+    return res.status(500).json({ error: "push_remove_failed" });
+  }
+});
+
+// Developer broadcast: curl -X POST -H "x-admin-token: ..." -d '{"title":"...","body":"..."}'
+app.post("/api/push/send", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  if (!pushService.configured) return res.status(503).json({ error: "push_not_configured" });
+  const payload = buildPushPayload(req.body || {});
+  if (!payload) return res.status(400).json({ error: "title_required" });
+  try {
+    return res.json(await pushService.broadcast(payload));
+  } catch (error) {
+    console.error("[PUSH] broadcast failed:", error.message);
+    return res.status(500).json({ error: "push_broadcast_failed" });
+  }
+});
+
+const REPORT_STATUS_LABELS = {
+  seen: "Seen", review: "Under review", rejected: "Rejected", approved: "Approved",
+  in_progress: "Work in progress", testing: "Testing", done: "Completed",
+};
+
+// Supabase Database Webhook (bug_reports UPDATE) -> push to the reporter's device.
+app.post("/api/push/report-status", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  if (!pushService.configured) return res.status(503).json({ error: "push_not_configured" });
+  const record = req.body?.record;
+  const previous = req.body?.old_record;
+  if (!record || !record.push_endpoint) return res.json({ skipped: "no_endpoint" });
+  const norm = (s) => String(s ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const status = norm(record.status);
+  if (previous && norm(previous.status) === status) return res.json({ skipped: "status_unchanged" });
+  const label = REPORT_STATUS_LABELS[status];
+  if (!label) return res.json({ skipped: "status_not_notifiable" });
+  const version = status === "done" && record.resolved_in_version ? ` in v${record.resolved_in_version}` : "";
+  const payload = buildPushPayload({
+    title: "Your report was updated",
+    body: `${record.ticket_number ? "Report #" + record.ticket_number : "Your report"} is now ${label}${version}`,
+    url: "/?open=reports",
+    tag: `report-${record.id}`,
+  });
+  if (!payload) return res.json({ skipped: "invalid_payload" });
+  try {
+    return res.json(await pushService.sendToEndpoint(record.push_endpoint, payload));
+  } catch (error) {
+    console.error("[PUSH] report status failed:", error.message);
+    return res.status(500).json({ error: "push_report_status_failed" });
+  }
+});
+
+let reminderRunInFlight = null;
+function runStudyReminders() {
+  if (!pushService.configured) return Promise.resolve({ due: 0, sent: 0, failed: 0, removed: 0 });
+  reminderRunInFlight ||= pushService.runReminders()
+    .catch((error) => {
+      console.error("[PUSH] reminder run failed:", error.message);
+      return { error: "reminder_run_failed" };
+    })
+    .finally(() => { reminderRunInFlight = null; });
+  return reminderRunInFlight;
+}
+
+// External cron ping keeps reminders punctual when the host sleeps between requests.
+app.post("/api/push/reminders/run", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  return res.json(await runStudyReminders());
 });
 
 // ---------------------------------------------------------------
@@ -1681,4 +1896,8 @@ async function buildImageryBriefFromQuote(quote, bookTitle) {
 const PORT = process.env.PORT || 8787;
 app.listen(PORT, () => {
   console.log(`[BACKEND] Token server running on http://localhost:${PORT}`);
+  if (pushService.configured) {
+    setInterval(runStudyReminders, 5 * 60 * 1000).unref();
+    console.log("[PUSH] Study reminder scheduler started");
+  }
 });

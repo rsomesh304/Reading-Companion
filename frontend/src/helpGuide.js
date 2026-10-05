@@ -245,17 +245,17 @@ export const HELP_GUIDE = [
   {
     id: "updates",
     title: "App updates and release notes",
-    keywords: ["update", "updates", "version", "release notes", "what's new", "check for updates", "new version", "update now", "badge"],
+    keywords: ["update", "updates", "version", "release notes", "what's new", "check for updates", "new version", "update now", "badge", "major update", "ui enhancement", "new chapter", "signature update", "release type", "release types", "label", "labels", "version history", "release history", "types of updates"],
     screen: "settings",
-    content: "Settings, Check for updates looks for a new version; a red dot on Settings and Profile means one is ready. Update available lists what is new, with Update now to install. Version & release notes shows the history of changes.",
+    content: "Settings, Check for updates looks for a new version; a red dot on Settings and Profile means one is ready. Update available lists what is new, with Update now to install. Version & release notes shows the history of changes, and each release card carries a label for its kind: Major update (a big release with many changes), UI enhancement (a visual polish release), A new chapter (a landmark 2.x release that opens a new era of the app) and Signature update (a standout feature, shown with a special animated card). Tap a card to see exactly what changed in it. New kinds of labels may appear in future releases.",
   },
   {
     id: "report-issue",
     title: "Report an issue or idea",
-    keywords: ["report", "bug", "issue", "problem", "idea", "feature", "feedback", "improve with ai", "screenshot", "undo", "redo", "steps", "severity", "your reports", "status"],
+    keywords: ["report", "bug", "issue", "problem", "idea", "feature", "feedback", "improve with ai", "screenshot", "undo", "redo", "steps", "severity", "your reports", "status", "stage", "stages", "timeline", "status timeline", "queued", "seen", "approved", "testing", "rejected", "report status", "fixed in"],
     screen: "report",
     demo: "report",
-    content: "Profile, Report an issue. Raise an issue: choose a category (Bug, Issue, New feature, Improvement), where it happened, how serious (for bugs and issues), a title, details, optional steps and up to four screenshots, then Submit. Improve with AI shows a cleaner version of your text; Use suggestion applies it and Keep mine ignores it, and Undo or Redo switches between the two on your device. Only the text you submit is sent. Your reports lists your reports, filterable by type, with a status from Sent through Seen, In review, Approved, In progress and Testing to Done; refresh to update.",
+    content: "Profile, Report an issue. Raise an issue: choose a category (Bug, Issue, New feature, Improvement), where it happened, how serious (for bugs and issues), a title, details, optional steps and up to four screenshots, then Submit. Improve with AI shows a cleaner version of your text; Use suggestion applies it and Keep mine ignores it, and Undo or Redo switches between the two on your device. Only the text you submit is sent. Your reports lists your reports, filterable by type, with a status from Sent through Seen, In review, Approved, In progress and Testing to Done; refresh to update. Stages in order: Queued (saved on your device until it can be sent), Sent (reached the developer), Seen (the developer opened it), In review (being checked), Approved (accepted to be worked on), In progress (a fix is being built), Testing (the fix is being verified) and Done (finished; it may show the version it shipped in as a tappable link to that release in Release History). Rejected means it will not be taken forward, and the developer may leave a short note on a stage. Steps not reached yet stay grey.",
   },
   {
     id: "help-privacy",

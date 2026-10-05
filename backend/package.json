@@ -3,12 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "push:send": "node scripts/send-push.js",
+    "push:keys": "web-push generate-vapid-keys"
   },
   "dependencies": {
     "@google/genai": "^1.52.0",
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
-    "express": "^4.22.3"
+    "express": "^4.22.3",
+    "web-push": "^3.6.7"
   }
 }
