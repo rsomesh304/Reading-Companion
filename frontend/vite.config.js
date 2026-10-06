@@ -37,6 +37,8 @@ export default defineConfig({
   ],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    __DOCS_BUILT_AT__: JSON.stringify(new Date().toISOString()),
+    __DOCS_COMMIT__: JSON.stringify((process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7)),
   },
   server: {
     host: true,
