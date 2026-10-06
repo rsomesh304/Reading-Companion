@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Play, Pause, ChevronLeft, ChevronRight, Lightbulb, AlertTriangle, Info, HelpCircle, Copy, Check } from "lucide-react";
 import HelpAnimations from "../HelpAnimations.jsx";
 import "../HelpGuideScreen.css";
 import { DIAGRAMS, FLOWS } from "./registry.js";
 import { slugify } from "./text.js";
+import { Diagram as DiagramSvg } from "./diagram.jsx";
 
 export function Inline({ text }) {
   const parts = String(text).split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
@@ -16,24 +17,7 @@ export function Inline({ text }) {
 
 export function Diagram({ id, active = [] }) {
   const spec = DIAGRAMS[id];
-  const byId = useMemo(() => Object.fromEntries(spec.nodes.map((n) => [n.id, n])), [spec]);
-  const center = (n) => [n.x + n.w / 2, n.y + n.h / 2];
-  return (
-    <svg className="dx-diagram" viewBox={`0 0 ${spec.w} ${spec.h}`} role="img" aria-label="Diagram">
-      {spec.edges.map(([a, b, via = []], i) => {
-        const pts = [center(byId[a]), ...via, center(byId[b])];
-        const on = active.includes(a) && active.includes(b);
-        return <polyline key={i} points={pts.map((p) => p.join(",")).join(" ")} className={`dx-edge${on ? " on" : ""}`} />;
-      })}
-      {spec.nodes.map((n) => (
-        <g key={n.id} className={`dx-node${active.includes(n.id) ? " on" : ""}`}>
-          <rect x={n.x} y={n.y} width={n.w} height={n.h} rx="10" />
-          <text x={n.x + n.w / 2} y={n.y + n.h / 2 - (n.sub ? 3 : -4)} textAnchor="middle" className="dx-node-label">{n.label}</text>
-          {n.sub && <text x={n.x + n.w / 2} y={n.y + n.h / 2 + 11} textAnchor="middle" className="dx-node-sub">{n.sub}</text>}
-        </g>
-      ))}
-    </svg>
-  );
+  return spec ? <DiagramSvg id={id} spec={spec} active={active} /> : null;
 }
 
 export function FlowPlayer({ id }) {

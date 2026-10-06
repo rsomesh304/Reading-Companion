@@ -1,15 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BookMarked, ChevronLeft, ChevronRight, Copy, EyeOff, List, Search, X, Lock } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, BookMarked, Check, ChevronLeft, ChevronRight, Copy, EyeOff, List, Lock, Moon, Search, PanelRight, Sparkles, Sun, X } from "lucide-react";
 import { checkDocsAccess } from "../docsAccess.js";
 import { useBackLayer } from "../backStack.js";
 import { setDocsUnlocked } from "../docsUnlock.js";
-import { PAGES, GROUPS, getConfirms, searchDocs } from "./content.js";
-import { loadDocsContent } from "./registry.js";
+import { PAGES, GROUPS, getConfirms } from "./content.js";
+import { FLOWS, loadDocsContent } from "./registry.js";
+import { pageToMarkdown } from "./text.js";
+import { GROUP_ICON, PageIcon, pageIcon } from "./icons.js";
+import { useDocsTheme } from "./theme.js";
+import SearchBox from "./SearchBox.jsx";
+import Palette from "./Palette.jsx";
+import HelperPanel from "./HelperPanel.jsx";
+import { useHelper } from "./helper.js";
 import { Block } from "./blocks.jsx";
 import DocsHome from "./DocsHome.jsx";
 import "./docs.css";
+import "./docs-ui.css";
 
 const VISITED_KEY = "rc_docs_visited";
+const RECENT_KEY = "rc_docs_recent";
 const store = {
   get(key) { try { return window.localStorage.getItem(key); } catch { return null; } },
   set(key, value) { try { window.localStorage.setItem(key, value); } catch { /* storage unavailable */ } },
@@ -92,49 +101,30 @@ function EmptyDocs({ onBack, missing }) {
 function Toc({ currentId, visited, onPick, onAnchor, current }) {
   return (
     <nav className="dx-toc" aria-label="Table of contents">
-      {GROUPS.map((group) => (
-        <div key={group} className="dx-toc-group">
-          <h5>{group}</h5>
-          {PAGES.filter((pg) => pg.group === group).map((pg) => (
-            <div key={pg.id}>
-              <button type="button" className={`dx-toc-item${pg.id === currentId ? " on" : ""}${visited.includes(pg.id) ? " seen" : ""}`} onClick={() => onPick(pg.id)}>{pg.title}</button>
-              {pg.id === currentId && current && current.blocks.filter((b) => b.type === "h2").map((b) => (
-                <button type="button" key={b.text} className="dx-toc-sub" onClick={() => onAnchor(b.text)}>{b.text}</button>
-              ))}
-            </div>
-          ))}
-        </div>
-      ))}
+      {GROUPS.map((group) => {
+        const GIcon = GROUP_ICON[group];
+        return (
+          <div key={group} className="dx-toc-group">
+            <h5>{GIcon && <GIcon size={12} aria-hidden="true" />}{group}</h5>
+            {PAGES.filter((pg) => pg.group === group).map((pg) => {
+              const Icon = pageIcon(pg);
+              return (
+                <div key={pg.id}>
+                  <button type="button" className={`dx-toc-item${pg.id === currentId ? " on" : ""}${visited.includes(pg.id) ? " seen" : ""}`} onClick={() => onPick(pg.id)}>
+                    <Icon size={15} aria-hidden="true" /><span>{pg.title}</span>
+                  </button>
+                  {pg.id === currentId && current && current.blocks.filter((b) => b.type === "h2").map((b) => (
+                    <button type="button" key={b.text} className="dx-toc-sub" onClick={() => onAnchor(b.text)}>{b.text}</button>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
     </nav>
   );
 }
-
-function SearchPanel({ onPick, onClose }) {
-  const [query, setQuery] = useState("");
-  const results = useMemo(() => searchDocs(query), [query]);
-  const inputRef = useRef(null);
-  useEffect(() => { inputRef.current?.focus(); }, []);
-  return (
-    <div className="dx-search" role="dialog" aria-label="Search docs">
-      <div className="dx-search-box">
-        <Search size={16} aria-hidden="true" />
-        <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search the docs" aria-label="Search the docs" />
-        <button type="button" className="dx-icon" onClick={onClose} aria-label="Close search"><X size={16} /></button>
-      </div>
-      <div className="dx-search-list">
-        {query && !results.length && <p className="dx-small">No matches. Try a simpler word.</p>}
-        {results.map((r) => (
-          <button type="button" key={r.id} onClick={() => onPick(r.id, r.heading)}>
-            <b>{r.title}</b>
-            <span>{r.group}{r.heading ? ` · ${r.heading}` : ""}</span>
-          </button>
-        ))}
-        {!query && <p className="dx-small">Try “Vercel”, “rollback”, “push”, “Ghost Mode” or “environment”.</p>}
-      </div>
-    </div>
-  );
-}
-
 function Stamp() {
   const built = typeof __DOCS_BUILT_AT__ === "string" ? __DOCS_BUILT_AT__ : "";
   const commit = typeof __DOCS_COMMIT__ === "string" ? __DOCS_COMMIT__ : "";
@@ -152,7 +142,21 @@ function ConfirmList({ onPick }) {
   );
 }
 
-function Article({ page, onPickPage, scrollRef }) {
+function PageActions({ page, onAsk }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    const text = pageToMarkdown(page, FLOWS);
+    navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {});
+  };
+  return (
+    <div className="dx-actions">
+      <button type="button" onClick={copy}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy page"}</button>
+      <button type="button" className="ai" onClick={onAsk}><Sparkles size={14} />Ask about this page</button>
+    </div>
+  );
+}
+
+function Article({ page, onPickPage, onAsk, scrollRef }) {
   const bodyRef = useRef(null);
   useEffect(() => {
     const root = scrollRef.current;
@@ -163,10 +167,11 @@ function Article({ page, onPickPage, scrollRef }) {
     return () => io.disconnect();
   }, [page, scrollRef]);
   return (
-    <article className="dx-article" ref={bodyRef}>
-      <span className="dx-kicker">{page.group}</span>
+    <article className="dx-article dx-page-in" ref={bodyRef} key={page.id}>
+      <span className="dx-kicker"><PageIcon page={page} size={13} />{page.group}</span>
       <h1>{page.title}</h1>
       <p className="dx-lead">{page.summary}</p>
+      <PageActions page={page} onAsk={onAsk} />
       {page.blocks.map((block, i) => (
         <div className="dx-reveal" key={`${page.id}-${i}`}>
           {block.type === "stamp" ? <Stamp /> : block.type === "confirmlist" ? <ConfirmList onPick={onPickPage} /> : <Block block={block} />}
@@ -178,11 +183,15 @@ function Article({ page, onPickPage, scrollRef }) {
 
 function DocsApp({ nav }) {
   const wide = useWide();
+  const [theme, toggleTheme] = useDocsTheme();
+  const helper = useHelper();
   const [openId, setOpenId] = useState(null);
   const [tocOpen, setTocOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [palette, setPalette] = useState(null);
+  const [helperOpen, setHelperOpen] = useState(false);
   const [progress, setProgress] = useState(0);
   const [visited, setVisited] = useState(() => { try { return JSON.parse(store.get(VISITED_KEY) || "[]"); } catch { return []; } });
+  const [recents, setRecents] = useState(() => { try { return JSON.parse(store.get(RECENT_KEY) || "[]").filter((id) => PAGES.some((p) => p.id === id)); } catch { return []; } });
   const scrollRef = useRef(null);
   const pendingAnchor = useRef("");
 
@@ -191,20 +200,36 @@ function DocsApp({ nav }) {
 
   useBackLayer(openId !== null, () => setOpenId(null));
   useBackLayer(tocOpen && !wide, () => setTocOpen(false));
-  useBackLayer(searchOpen, () => setSearchOpen(false));
 
   const openPage = useCallback((id, anchorText = "") => {
     pendingAnchor.current = anchorText;
     setOpenId(id);
     setTocOpen(false);
-    setSearchOpen(false);
+    setPalette(null);
     setVisited((prev) => {
       if (prev.includes(id)) return prev;
       const next = [...prev, id];
       store.set(VISITED_KEY, JSON.stringify(next));
       return next;
     });
+    setRecents((prev) => {
+      const next = [id, ...prev.filter((x) => x !== id)].slice(0, 6);
+      store.set(RECENT_KEY, JSON.stringify(next));
+      return next;
+    });
   }, []);
+
+  const openPalette = useCallback((detail = {}) => setPalette({ mode: detail.mode || "search", origin: detail.origin || null }), []);
+
+  useEffect(() => {
+    const onKey = (event) => {
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(event.target?.tagName || "") || event.target?.isContentEditable;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
+      else if (event.key === "/" && !typing && !event.metaKey && !event.ctrlKey) { event.preventDefault(); openPalette(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openPalette]);
 
   const scrollToHeading = useCallback((text) => {
     setTocOpen(false);
@@ -234,32 +259,42 @@ function DocsApp({ nav }) {
   const back = () => (openId !== null ? setOpenId(null) : nav.goBack());
   const prev = index > 0 ? PAGES[index - 1] : null;
   const next = index >= 0 && index < PAGES.length - 1 ? PAGES[index + 1] : null;
+  const askAboutPage = () => setHelperOpen(true);
+  const showSide = wide && !helperOpen;
 
   return (
-    <div className="dx-root">
+    <div className="dx-root" data-dx-theme={theme}>
       <header className="dx-bar">
         <button type="button" className="dx-icon" onClick={back} aria-label="Back"><ArrowLeft size={18} /></button>
-        <div className="dx-bar-title"><strong>{page ? page.title : "Docs"}</strong><span>{page ? page.group : "Reading Companion handbook"}</span></div>
-        <button type="button" className="dx-icon" onClick={() => setSearchOpen(true)} aria-label="Search"><Search size={18} /></button>
+        {wide || !page ? (
+          <div className="dx-brand"><span className="dx-logo"><BookMarked size={16} /></span><strong>Handbook</strong></div>
+        ) : (
+          <div className="dx-bar-title"><strong>{page.title}</strong><span>{page.group}</span></div>
+        )}
+        {wide ? <div className="dx-bar-search"><SearchBox variant="bar" onOpen={openPalette} /></div> : <div className="dx-spacer" />}
+        {!wide && <button type="button" className="dx-icon" onClick={() => openPalette()} aria-label="Search"><Search size={18} /></button>}
+        <button type="button" className="dx-icon" onClick={() => setHelperOpen((v) => !v)} aria-label="Docs Helper" aria-pressed={helperOpen}>{wide ? <PanelRight size={18} /> : <Sparkles size={18} />}</button>
+        <button type="button" className="dx-icon" onClick={toggleTheme} aria-label={theme === "light" ? "Switch to dark" : "Switch to light"}>{theme === "light" ? <Moon size={18} /> : <Sun size={18} />}</button>
         {!wide && <button type="button" className="dx-icon" onClick={() => setTocOpen(true)} aria-label="Table of contents"><List size={18} /></button>}
         <div className="dx-progress" aria-hidden="true"><i style={{ transform: `scaleX(${page ? progress : 0})` }} /></div>
       </header>
 
       <div className="dx-body">
-        {wide && <aside className="dx-side"><Toc currentId={openId} visited={visited} onPick={openPage} onAnchor={scrollToHeading} current={page} /></aside>}
+        {showSide && <aside className="dx-side"><Toc currentId={openId} visited={visited} onPick={openPage} onAnchor={scrollToHeading} current={page} /></aside>}
         <div className="dx-scroll" ref={scrollRef} onScroll={onScroll}>
           {page ? (
             <>
-              <Article page={page} onPickPage={openPage} scrollRef={scrollRef} />
+              <Article page={page} onPickPage={openPage} onAsk={askAboutPage} scrollRef={scrollRef} />
               <footer className="dx-pager">
                 {prev ? <button type="button" onClick={() => openPage(prev.id)}><ChevronLeft size={16} /><span><em>Previous</em>{prev.title}</span></button> : <i />}
                 {next ? <button type="button" className="next" onClick={() => openPage(next.id)}><span><em>Next</em>{next.title}</span><ChevronRight size={16} /></button> : <i />}
               </footer>
             </>
           ) : (
-            <DocsHome pages={PAGES} groups={GROUPS} visited={visited} onOpen={openPage} onSearch={() => setSearchOpen(true)} onHide={hideDocs} />
+            <DocsHome pages={PAGES} groups={GROUPS} visited={visited} recents={recents} onOpen={openPage} onSearch={openPalette} onHide={hideDocs} />
           )}
         </div>
+        {wide && helperOpen && <aside className="dx-helper-side"><HelperPanel wide theme={theme} helper={helper} page={page} onOpen={openPage} onClose={() => setHelperOpen(false)} /></aside>}
       </div>
 
       {!wide && tocOpen && (
@@ -275,11 +310,11 @@ function DocsApp({ nav }) {
           </div>
         </div>
       )}
-      {searchOpen && <SearchPanel onPick={openPage} onClose={() => setSearchOpen(false)} />}
+      {!wide && helperOpen && <HelperPanel theme={theme} helper={helper} page={page} onOpen={openPage} onClose={() => setHelperOpen(false)} />}
+      {palette && <Palette theme={theme} helper={helper} recents={recents} pageId={openId} initialMode={palette.mode} origin={palette.origin} onOpen={openPage} onClose={() => setPalette(null)} />}
     </div>
   );
 }
-
 function useDocsContent(enabled) {
   const [state, setState] = useState(PAGES.length ? "ready" : "loading");
   useEffect(() => {

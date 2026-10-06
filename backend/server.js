@@ -9,6 +9,7 @@ import { getAiProviderOrder, readTextCompletion, requestTextCompletion, streamTe
 import { normalizeGemEchoCatalog, validateGemEchoCandidates, validateGemEchoPairs } from "./gemEchoes.js";
 import { classifyGeminiFailure, KeyPool } from "./geminiKeyPool.js";
 import { verifyDocsOwner, loadDocsBundle } from "./docsAccess.js";
+import { buildChunks, retrieve, buildMessages, pickCited } from "./docsHelper.js";
 import { buildPushPayload, createPushService, normalizeReminderMinute, normalizeSubscription } from "./pushNotifications.js";
 import { buildReportEmailHtml, buildReportEmailSubject } from "./reportEmailTemplate.js";
 import { cleanRewrite, stepsPreserved } from "./reportRewrite.js";
@@ -1092,6 +1093,45 @@ app.get("/api/docs/content", async (req, res) => {
   }
 });
 
+// Docs Helper: answers from the private docs bundle with Groq. Owner-only, rate limited per user.
+let docsChunksCache = { at: 0, chunks: [] };
+const docsAskWindows = new Map();
+app.post("/api/docs/ask", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const access = await verifyDocsOwner({ authorization: req.get("authorization") || "" });
+  if (!access.allowed) return res.status(403).json({ error: "forbidden" });
+  const now = Date.now();
+  const entry = docsAskWindows.get(access.userId);
+  if (entry && now - entry.startedAt < 10 * 60 * 1000) {
+    if (entry.count >= 20) return res.status(429).json({ error: "rate_limited" });
+    entry.count += 1;
+  } else {
+    docsAskWindows.set(access.userId, { startedAt: now, count: 1 });
+  }
+  const question = typeof req.body?.question === "string" ? req.body.question.trim() : "";
+  if (question.length < 2 || question.length > 500) return res.status(400).json({ error: "bad_question" });
+  try {
+    if (!docsChunksCache.chunks.length || now - docsChunksCache.at > 5 * 60 * 1000) {
+      const bundle = await loadDocsBundle();
+      docsChunksCache = { at: now, chunks: bundle ? buildChunks(bundle) : [] };
+    }
+    const sources = retrieve(docsChunksCache.chunks, question, { pageId: String(req.body?.pageId || "") });
+    if (!sources.length) {
+      return res.json({ answer: docsChunksCache.chunks.length ? "I could not find that in the docs. Try a different keyword, such as a service name (Vercel, Supabase) or a topic like rollback." : "The docs have not been published yet.", sources: [] });
+    }
+    const { response } = await requestTextCompletion({
+      feature: "docs",
+      providerOrder: process.env.GROQ_API_KEY ? ["groq"] : [],
+      messages: buildMessages({ question, sources, history: req.body?.history }),
+      maxTokens: 450,
+      providerTimeoutMs: 15000,
+    });
+    const answer = await readTextCompletion(response);
+    return res.json({ answer, sources: pickCited(answer, sources) });
+  } catch {
+    return res.status(503).json({ error: "ai_unavailable" });
+  }
+});
 // ---------------------------------------------------------------
 // Push notifications (Web Push / VAPID)
 // ---------------------------------------------------------------

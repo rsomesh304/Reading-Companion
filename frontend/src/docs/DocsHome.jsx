@@ -1,99 +1,115 @@
-import { useMemo, useState } from "react";
-import { ArrowRight, BookMarked, ChevronDown, Compass, EyeOff, Layers, Library, Rocket, Search, Sparkles } from "lucide-react";
-import "./docs-home.css";
+import { useMemo } from "react";
+import { ArrowRight, BookMarked, Clock3, Compass, EyeOff, LifeBuoy, Rocket, History } from "lucide-react";
+import SearchBox from "./SearchBox.jsx";
+import { GROUP_ICON, pageIcon } from "./icons.js";
 
-const META = {
-  "Start here": { Icon: Sparkles, a: "#ffb454", b: "#ff7a6b", blurb: "Why the app exists and who it is for" },
-  "Product tour": { Icon: Compass, a: "#34e0a1", b: "#22b8cf", blurb: "Every screen, button and feature" },
-  Architecture: { Icon: Layers, a: "#6ea8ff", b: "#8b7bff", blurb: "How the pieces fit together" },
-  "Run it": { Icon: Rocket, a: "#ff8a5c", b: "#ff5c8a", blurb: "Deploys, services and fixing things" },
-  Reference: { Icon: Library, a: "#c39bff", b: "#ff7ad9", blurb: "Settings, history and limits" },
-};
-const QUICK = [
-  ["ops-runbook", "Something broke?"],
-  ["arch-flows", "Data flows"],
-  ["ref-env", "All settings"],
-  ["ref-changelog", "What changed"],
+const PATHS = [
+  { id: "welcome", title: "Understand the app", text: "Why it exists, who it is for and how the features connect.", Icon: Compass, tone: "a", art: "tour" },
+  { id: "ops-map", title: "Deployment and setup", text: "Every service, what it does and where its settings live.", Icon: Rocket, tone: "b", art: "deploy" },
+  { id: "ops-runbook", title: "Fix a problem", text: "Site down, bad deploy, key limit, DNS. Step by step.", Icon: LifeBuoy, tone: "c", art: "fix" },
+  { id: "ref-changelog", title: "Recent changes", text: "What shipped, what was fixed, version by version.", Icon: History, tone: "d", art: "log" },
 ];
+const BLURB = {
+  "Start here": "The story and principles",
+  "Product tour": "Every screen and button",
+  Architecture: "How the pieces fit",
+  "Run it": "Services, deploys, runbook",
+  Reference: "Settings, history, limits",
+};
 
-export default function DocsHome({ pages, groups, visited, onOpen, onSearch, onHide }) {
-  const [open, setOpen] = useState(null);
-  const byGroup = useMemo(() => Object.fromEntries(groups.map((g) => [g, pages.filter((p) => p.group === g)])), [pages, groups]);
-  const nextUnread = pages.find((p) => !visited.includes(p.id)) || pages[0];
+// Small dotted-line illustrations, one per quick-start path.
+function Art({ kind }) {
+  const dot = { fill: "none", stroke: "currentColor", strokeWidth: 1.2, strokeDasharray: "2 4", strokeLinecap: "round", opacity: 0.55 };
+  const solid = { fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" };
+  return (
+    <svg viewBox="0 0 160 90" aria-hidden="true" className="dh2-art">
+      {kind === "tour" && (<><rect x="14" y="12" width="56" height="66" rx="10" {...solid} /><rect x="22" y="22" width="40" height="8" rx="3" {...solid} opacity="0.6" /><rect x="22" y="38" width="28" height="6" rx="3" {...solid} opacity="0.4" /><path d="M70 45 C90 45 90 25 112 25" {...dot} /><path d="M70 45 C90 45 90 65 112 65" {...dot} /><circle cx="122" cy="25" r="10" {...solid} /><circle cx="122" cy="65" r="10" {...solid} /></>)}
+      {kind === "deploy" && (<><rect x="10" y="30" width="36" height="30" rx="8" {...solid} /><rect x="62" y="30" width="36" height="30" rx="8" {...solid} /><rect x="114" y="30" width="36" height="30" rx="8" {...solid} /><path d="M46 45 H62 M98 45 H114" {...dot} /><path d="M54 40 l8 5 -8 5" {...solid} /></>)}
+      {kind === "fix" && (<><circle cx="80" cy="45" r="26" {...dot} /><circle cx="80" cy="45" r="14" {...solid} /><path d="M80 38 v8 M80 51 v1" {...solid} /><path d="M20 45 H50 M110 45 H140" {...dot} /></>)}
+      {kind === "log" && (<><path d="M30 10 V80" {...dot} /><circle cx="30" cy="22" r="5" {...solid} /><circle cx="30" cy="46" r="5" {...solid} /><circle cx="30" cy="70" r="5" {...solid} /><rect x="46" y="16" width="70" height="10" rx="4" {...solid} opacity="0.6" /><rect x="46" y="41" width="96" height="10" rx="4" {...solid} opacity="0.45" /><rect x="46" y="65" width="56" height="10" rx="4" {...solid} opacity="0.3" /></>)}
+    </svg>
+  );
+}
+
+export default function DocsHome({ pages, groups, visited, recents, onOpen, onSearch, onHide }) {
+  const byId = useMemo(() => Object.fromEntries(pages.map((p) => [p.id, p])), [pages]);
+  const paths = PATHS.filter((p) => byId[p.id]);
+  const recent = (recents || []).map((id) => byId[id]).filter(Boolean).slice(0, 4);
   const done = pages.filter((p) => visited.includes(p.id)).length;
   const pct = pages.length ? Math.round((done / pages.length) * 100) : 0;
-  const quick = QUICK.filter(([id]) => pages.some((p) => p.id === id));
-  const started = done > 0;
+  const nextUnread = pages.find((p) => !visited.includes(p.id));
 
   return (
-    <div className="dh">
-      <div className="dh-glow" aria-hidden="true"><i /><i /></div>
-
-      <header className="dh-hero">
-        <span className="dh-badge"><BookMarked size={14} /> Private handbook</span>
-        <h1>Reading Companion<span>Handbook</span></h1>
-        <p>What exists, why it exists, how it runs, and what to do when it breaks.</p>
-        <button type="button" className="dh-search" onClick={onSearch}>
-          <Search size={18} />
-          <span>Search the docs</span>
-        </button>
+    <div className="dh2">
+      <header className="dh2-hero">
+        <div className="dh2-dots" aria-hidden="true" />
+        <span className="dh2-badge"><BookMarked size={13} aria-hidden="true" />Reading Companion handbook</span>
+        <h1>Everything about the app,<br /><em>in one place.</em></h1>
+        <p>What exists, why it exists, how it runs, and what to do when something breaks. Search it, or just ask.</p>
+        <SearchBox variant="hero" onOpen={onSearch} />
+        {nextUnread && (
+          <button type="button" className="dh2-continue" onClick={() => onOpen(nextUnread.id)}>
+            {done ? "Continue where you left off" : "Start with the basics"}<b>{nextUnread.title}</b><ArrowRight size={14} aria-hidden="true" />
+          </button>
+        )}
       </header>
 
-      {nextUnread && (
-        <button type="button" className="dh-continue" onClick={() => onOpen(nextUnread.id)}>
-          <span className="dh-continue-text">
-            <em>{started ? "Continue reading" : "Start here"}</em>
-            <b>{nextUnread.title}</b>
-          </span>
-          <span className="dh-continue-go"><ArrowRight size={18} /></span>
-        </button>
-      )}
-
-      <div className="dh-stats">
-        <div className="dh-meter"><i style={{ width: `${pct}%` }} /></div>
-        <span>{done} of {pages.length} pages read</span>
-      </div>
-
-      <ul className="dh-list">
-        {groups.map((g, i) => {
-          const list = byGroup[g] || [];
-          const meta = META[g] || META["Start here"];
-          const read = list.filter((p) => visited.includes(p.id)).length;
-          const isOpen = open === g;
-          return (
-            <li key={g} className={`dh-card${isOpen ? " open" : ""}`} style={{ "--a": meta.a, "--b": meta.b, "--i": i }}>
-              <button type="button" className="dh-card-head" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : g)}>
-                <span className="dh-icon"><meta.Icon size={22} /></span>
-                <span className="dh-card-text">
-                  <b>{g}</b>
-                  <small>{meta.blurb}</small>
-                  <span className="dh-bar"><i style={{ width: list.length ? `${(read / list.length) * 100}%` : 0 }} /></span>
-                </span>
-                <span className="dh-count">{read}/{list.length}</span>
-                <ChevronDown size={18} className="dh-chev" />
-              </button>
-              <div className="dh-pages" hidden={!isOpen}>
-                {list.map((p, n) => (
-                  <button type="button" key={p.id} onClick={() => onOpen(p.id)}>
-                    <span className="dh-num">{n + 1}</span>
-                    <span className="dh-page-title">{p.title}</span>
-                    {visited.includes(p.id) && <span className="dh-dot" aria-label="Read" />}
-                  </button>
-                ))}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-
-      {quick.length > 0 && (
-        <div className="dh-quick">
-          <h2>Jump straight to</h2>
-          <div>{quick.map(([id, label]) => <button type="button" key={id} onClick={() => onOpen(id)}>{label}</button>)}</div>
+      <section aria-label="Quick start" className="dh2-sec">
+        <h2>Start here</h2>
+        <div className="dh2-paths">
+          {paths.map((p, i) => (
+            <button type="button" key={p.id} className={`dh2-path t-${p.tone}`} style={{ "--i": i }} onClick={() => onOpen(p.id)}>
+              <Art kind={p.art} />
+              <span className="dh2-path-ico"><p.Icon size={18} aria-hidden="true" /></span>
+              <b>{p.title}</b>
+              <small>{p.text}</small>
+              <ArrowRight size={16} className="dh2-go" aria-hidden="true" />
+            </button>
+          ))}
         </div>
+      </section>
+
+      {recent.length > 0 && (
+        <section aria-label="Recently viewed" className="dh2-sec">
+          <h2><Clock3 size={14} aria-hidden="true" />Recently viewed</h2>
+          <div className="dh2-recent">
+            {recent.map((p) => { const Icon = pageIcon(p); return (
+              <button type="button" key={p.id} onClick={() => onOpen(p.id)}><Icon size={15} aria-hidden="true" /><span><b>{p.title}</b><small>{p.group}</small></span></button>
+            ); })}
+          </div>
+        </section>
       )}
 
-      <button type="button" className="dh-hide" onClick={onHide}><EyeOff size={14} /> Hide the Docs card</button>
+      <section aria-label="Browse by section" className="dh2-sec">
+        <h2>Browse by section</h2>
+        <div className="dh2-groups">
+          {groups.map((g, i) => {
+            const list = pages.filter((p) => p.group === g);
+            const read = list.filter((p) => visited.includes(p.id)).length;
+            const GIcon = GROUP_ICON[g];
+            return (
+              <div key={g} className="dh2-group" style={{ "--i": i }}>
+                <div className="dh2-group-head">
+                  <span className="dh2-group-ico">{GIcon && <GIcon size={17} aria-hidden="true" />}</span>
+                  <div><b>{g}</b><small>{BLURB[g]}</small></div>
+                  <em>{read}/{list.length}</em>
+                </div>
+                <ul>
+                  {list.map((p) => { const Icon = pageIcon(p); return (
+                    <li key={p.id}><button type="button" onClick={() => onOpen(p.id)}><Icon size={14} aria-hidden="true" /><span>{p.title}</span>{visited.includes(p.id) && <i aria-label="Read" />}</button></li>
+                  ); })}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <footer className="dh2-foot">
+        <div className="dh2-meter" role="img" aria-label={`${pct}% read`}><i style={{ width: `${pct}%` }} /></div>
+        <span>{done} of {pages.length} pages read</span>
+        <button type="button" onClick={onHide}><EyeOff size={13} aria-hidden="true" />Hide the Docs card</button>
+      </footer>
     </div>
   );
 }
