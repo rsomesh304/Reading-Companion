@@ -3,9 +3,11 @@
     {
       "version": "2.1.0",
       "pulse": true,
-      "date": "2026-10-11",
+      "date": "2026-10-06",
       "title": "Smarter reminders, clearer progress",
       "items": [
+        { "type": "fix", "text": "Corrected the release date shown for this version in Release History" },
+        { "type": "improve", "text": "Small behind-the-scenes reliability and polish improvements" },
         { "type": "improve", "text": "Help & Support actions (New chat, Chat history, App tour) now live as neat icon buttons in the header, so nothing covers the chat" },
         { "type": "fix", "text": "Help chat now explains release labels (Major update, UI enhancement, A new chapter, Signature update) and every Your Reports stage correctly, with matching animations" },
         { "type": "fix", "text": "Hinglish questions in Help chat get Hinglish answers" },

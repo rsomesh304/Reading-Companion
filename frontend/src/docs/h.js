@@ -1,0 +1,15 @@
+export const p = (text) => ({ type: "p", text });
+export const h2 = (text) => ({ type: "h2", text });
+export const h3 = (text) => ({ type: "h3", text });
+export const ul = (...items) => ({ type: "ul", items });
+export const ol = (...items) => ({ type: "ol", items });
+export const tip = (text) => ({ type: "callout", kind: "tip", text });
+export const warn = (text) => ({ type: "callout", kind: "warn", text });
+export const info = (text) => ({ type: "callout", kind: "info", text });
+export const confirm = (text) => ({ type: "callout", kind: "confirm", text });
+export const code = (text) => ({ type: "code", text });
+export const table = (head, rows) => ({ type: "table", head, rows });
+export const diagram = (id, caption) => ({ type: "diagram", id, caption });
+export const flow = (id) => ({ type: "flow", id });
+export const demo = (id, caption) => ({ type: "demo", id, caption });
+export const anim = (...ids) => ({ type: "anim", ids });

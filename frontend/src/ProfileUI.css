@@ -189,3 +189,7 @@
 @media (max-width: 380px) { .pf-screen { --pf-avatar-size: 96px; } .pf-hero { gap: 10px; padding: 20px 12px 18px; } .pf-stats { gap: 5px; } .pf-stats div { padding: 9px 2px; } .pf-stats span { font-size: 8.5px; letter-spacing: .06em; } }
 @media (max-width: 360px) { .ac-identity { padding: 19px 15px 16px; } .ac-title-row { grid-template-columns: 46px minmax(0,1fr); gap: 12px; } .ac-mark { width: 46px; height: 46px; border-radius: 15px; } .ac-title-row h2 { font-size: 24px; } .ac-email { align-items: flex-start; flex-direction: column; } }
 @media (prefers-reduced-motion: reduce) { .pf-fx { display: none; } .pf-ring,.pf-blob,.pf-fx i,.pf-star,.pf-hero::after,.pf-tile.settings .pf-tile-ic svg,.set-update-dot,.ac-state.working i,.ac-sync-line span::after,.ac-sync-button .spinning { animation: none; } .set-bar i { transition: none; } }
+
+.pf-tile.docs { grid-column: 1 / -1; flex-direction: row; align-items: center; border-color: color-mix(in srgb, #22d3ee 34%, var(--border)); }
+.pf-tile.docs .pf-tile-text { flex: 1; }
+.pf-tile.docs .pf-tile-ic { background: linear-gradient(135deg,#0ea5e9,#8b5cf6); }

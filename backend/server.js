@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { getAiProviderOrder, readTextCompletion, requestTextCompletion, streamTextCompletion } from "./aiTextProviders.js";
 import { normalizeGemEchoCatalog, validateGemEchoCandidates, validateGemEchoPairs } from "./gemEchoes.js";
 import { classifyGeminiFailure, KeyPool } from "./geminiKeyPool.js";
+import { verifyDocsOwner } from "./docsAccess.js";
 import { buildPushPayload, createPushService, normalizeReminderMinute, normalizeSubscription } from "./pushNotifications.js";
 import { buildReportEmailHtml, buildReportEmailSubject } from "./reportEmailTemplate.js";
 import { cleanRewrite, stepsPreserved } from "./reportRewrite.js";
@@ -1055,6 +1056,26 @@ function requireAdmin(req, res) {
 app.get("/api/keys/status", (req, res) => {
   if (!requireAdmin(req, res)) return;
   return res.json({ keys: geminiKeyPool.status() });
+});
+
+// Owner-only gate for the in-app docs (DOCS_OWNER_USER_IDS lists the allowed Supabase user ids).
+const docsAccessWindows = new Map();
+app.get("/api/docs/access", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const now = Date.now();
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const window = docsAccessWindows.get(ip);
+  if (window && now - window.startedAt < 60 * 60 * 1000) {
+    if (window.count >= 60) return res.status(429).json({ allowed: false, reason: "rate_limited" });
+    window.count += 1;
+  } else {
+    docsAccessWindows.set(ip, { startedAt: now, count: 1 });
+  }
+  if (docsAccessWindows.size > 2000) {
+    for (const [key, entry] of docsAccessWindows) if (now - entry.startedAt >= 60 * 60 * 1000) docsAccessWindows.delete(key);
+  }
+  const result = await verifyDocsOwner({ authorization: req.get("authorization") || "" });
+  return res.json(result);
 });
 
 // ---------------------------------------------------------------

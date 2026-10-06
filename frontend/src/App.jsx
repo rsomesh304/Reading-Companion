@@ -80,7 +80,7 @@ import {
     WifiOff,
     X as XIcon
 } from "lucide-react";
-import { Component, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Component, Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAccount } from "./AccountContext.js";
 import AccountGate from "./AccountGate.jsx";
@@ -145,6 +145,9 @@ import { findApproxSpokenVariant } from "./pronunciationObservation.js";
 import ServiceNotice from "./ServiceNotice.jsx";
 import { getRecap, saveTurn } from "./sessionMemory.js";
 import { AboutScreen, AccountScreen, ReportScreen, SettingsScreen } from "./SettingsScreens.jsx";
+import { useDocsUnlocked } from "./docsUnlock.js";
+import DocsAccessCard from "./DocsAccessCard.jsx";
+const DocsScreen = lazy(() => import("./docs/DocsScreen.jsx"));
 import { prepareSnapshot } from "./snapshotCapture.js";
 import { resolveStorySource } from "./story/resolveStorySource.js";
 import StoryTheatre from "./story/StoryTheatre.jsx";
@@ -582,6 +585,7 @@ function AppCore() {
     goAccount: () => navigateTo("account"),
     goSettings: () => navigateTo("settings"),
     goAbout: () => navigateTo("about"),
+    goDocs: () => navigateTo("docs"),
     goReport: () => navigateTo("report"),
     goHelp: () => navigateTo("help"),
     openNewBook,
@@ -614,11 +618,12 @@ function AppCore() {
             {screen === "account" && <AccountScreen nav={nav} />}
                         {screen === "settings" && <SettingsScreen nav={nav} stores={{ profile: profileStore, library, memory: memoryStore, gems: gemsStore }} />}
             {screen === "about" && <AboutScreen nav={nav} />}
+            {screen === "docs" && <Suspense fallback={<div role="status" style={{ flex: 1, display: "grid", placeItems: "center", color: "var(--muted)" }}>Opening docs…</div>}><DocsScreen nav={nav} /></Suspense>}
             {screen === "report" && <ReportScreen nav={nav} stores={{ profile: profileStore }} />}
             {screen === "help" && <HelpGuideScreen nav={nav} userName={profileStore.data.name === "Reader" ? "there" : profileStore.data.name} />}
           </div>
           {screen === "dashboard" && <PushPrompt library={library} />}
-          {screen !== "help" && <BottomNav active={["account", "settings", "about", "report"].includes(screen) ? "profile" : screen} onNavigate={(id) => navigateTo(id)} badges={badges} />}
+          {screen !== "help" && screen !== "docs" && <BottomNav active={["account", "settings", "about", "report"].includes(screen) ? "profile" : screen} onNavigate={(id) => navigateTo(id)} badges={badges} />}
         </div>
       )}
 
@@ -2458,6 +2463,7 @@ const PROFILE_FLAKES = Array.from({ length: 22 }, (_, i) => {
 });
 
 function ProfileScreen({ nav }) {
+  const docsUnlocked = useDocsUnlocked();
   const [name, setName] = useState(profileStore.data.name);
   const mascot = useMascotPreference();
   const [, forceUpdate] = useState(0);
@@ -2587,6 +2593,8 @@ function ProfileScreen({ nav }) {
           <span className="pf-tile-ic"><Info size={20} /></span>
           <span className="pf-tile-text"><b>About</b><small>Why this exists & Who has built this</small></span>
         </button>
+        {docsUnlocked && <DocsAccessCard onOpen={nav.goDocs} />}
+
       </Motion.section>
 
       <p className="pf-foot">Reading Companion · v{APP_VERSION}</p>
