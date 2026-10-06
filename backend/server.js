@@ -5,11 +5,12 @@ import express from "express";
 import { timingSafeEqual } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fetchAuthorBio, findBooks, fetchTocByIsbn, parseVisionChapters, validateImages, TOC_VISION_PROMPT } from "./bookLookup.js";
+import { fetchAuthorBio, fetchBookDetails, findBooks, fetchTocByIsbn, parseVisionChapters, validateImages, TOC_VISION_PROMPT } from "./bookLookup.js";
 import { getAiProviderOrder, readTextCompletion, requestTextCompletion, streamTextCompletion } from "./aiTextProviders.js";
 import { normalizeGemEchoCatalog, validateGemEchoCandidates, validateGemEchoPairs } from "./gemEchoes.js";
 import { classifyGeminiFailure, KeyPool } from "./geminiKeyPool.js";
 import { verifyDocsOwner, loadDocsBundle } from "./docsAccess.js";
+import { registerDocsNarration } from "./docsNarration.js";
 import { buildChunks, retrieve, buildMessages, pickCited } from "./docsHelper.js";
 import { buildPushPayload, createPushService, normalizeReminderMinute, normalizeSubscription } from "./pushNotifications.js";
 import { buildReportEmailHtml, buildReportEmailSubject } from "./reportEmailTemplate.js";
@@ -45,6 +46,7 @@ const REPORT_TYPES = new Set(["bug", "issue", "feature", "enhance"]);
 const AI_REQUEST_LIMITS = {
   report: { perIpHour: 5, serviceDaily: 40 },
   help: { perIpHour: 20, serviceDaily: 180 },
+  docsNarration: { perIpHour: 80, serviceDaily: 600 },
   tocScan: { perIpHour: 40, serviceDaily: 400 },
   bookSearch: { perIpHour: 90, serviceDaily: 4000 },
 };
@@ -1106,6 +1108,15 @@ app.get("/api/docs/content", async (req, res) => {
   }
 });
 
+registerDocsNarration(app, {
+  verifyDocsOwner,
+  allowAiRequestForResponse,
+  refundAiRequest,
+  finishAiRequest,
+  generateGeminiContent,
+  redactSecrets,
+});
+
 // Docs Helper: answers from the private docs bundle with Groq. Owner-only, rate limited per user.
 let docsChunksCache = { at: 0, chunks: [] };
 const docsAskWindows = new Map();
@@ -1710,6 +1721,12 @@ app.post("/api/book-lookup/search", async (req, res) => {
   const title = typeof req.body?.title === "string" ? req.body.title : "";
   const result = await findBooks(title, { googleKey: process.env.GOOGLE_BOOKS_API_KEY || "" });
   return res.json(result);
+});
+
+app.post("/api/book-lookup/details", async (req, res) => {
+  if (!allowAiRequest("bookSearch", bookLookupIp(req))) return res.status(429).json({ error: "too_many_requests" });
+  const candidate = req.body && typeof req.body === "object" ? req.body : {};
+  return res.json(await fetchBookDetails(candidate));
 });
 
 app.post("/api/book-lookup/toc", async (req, res) => {

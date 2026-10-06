@@ -76,17 +76,26 @@
 .dx-node.on rect { fill: rgba(139, 92, 246, 0.28); stroke: var(--primary); stroke-width: 1.8; }
 .dx-node-label { fill: var(--text); font-size: 10.5px; font-weight: 700; }
 .dx-node-sub { fill: var(--muted); font-size: 8.5px; }
-.dx-flow-card { margin-top: 10px; padding: 12px; border-radius: 14px; background: var(--surface-2); animation: dx-rise 0.35s ease both; }
-.dx-flow-card h4 { margin: 2px 0 4px; font-size: 15px; }
-.dx-flow-card p { margin: 0; font-size: 13.5px; color: var(--muted); }
-.dx-flow-count { font-size: 11px; color: var(--accent); }
-.dx-flow-ctl { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.dx-flow-count { font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; }
+.dx-flow-ctl { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .dx-flow-ctl button { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; }
 .dx-flow-ctl button.play { background: linear-gradient(135deg, var(--primary), var(--primary-2)); color: #fff; border: 0; }
+.dx-flow-ctl button[aria-pressed="true"] { border-color: var(--primary); color: var(--primary); }
 .dx-flow-ctl button:disabled { opacity: 0.4; }
 .dx-dots { margin-left: auto; display: flex; gap: 6px; }
 .dx-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
 .dx-dots i.on { background: var(--accent); } .dx-dots i.done { background: var(--primary); }
+.dx-flow-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.dx-flow-speed { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.dx-flow-speed button { min-width: 52px; padding: 7px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); font-size: 12px; cursor: pointer; }
+.dx-flow-speed button.on { color: var(--text); border-color: var(--primary); background: color-mix(in srgb, var(--primary) 16%, transparent); }
+.dx-flow-note { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
+.dx-flow-transcript { margin-top: 12px; padding: 12px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-2); animation: dx-rise 0.35s ease both; }
+.dx-flow-transcript span { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+.dx-flow-transcript h4 { margin: 6px 0 4px; font-size: 15px; }
+.dx-flow-transcript p { margin: 0; font-size: 13.5px; color: var(--muted); }
+.spin { animation: dx-spin 1s linear infinite; }
+@keyframes dx-spin { to { transform: rotate(360deg); } }
 
 .dx-anim { margin: 14px 0; border-radius: 18px; overflow: hidden; }
 .dx-demo-hint { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
@@ -151,12 +160,17 @@
   .dx-scroll { padding: 0 40px 60px; }
   .dx-article { font-size: 16px; }
 }
+@media (max-width: 640px) {
+  .dx-flow-meta { align-items: stretch; }
+  .dx-flow-speed { width: 100%; }
+  .dx-flow-speed button { flex: 1 1 0; min-width: 0; }
+}
 @keyframes dx-dash { to { stroke-dashoffset: -16; } }
 @keyframes dx-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes dx-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes dx-up { from { transform: translateY(100%); } to { transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .dx-reveal { opacity: 1; transform: none; transition: none; }
-  .dx-edge, .dx-hero, .dx-flow-card, .dx-sheet, .dx-scrim, .dx-stack span { animation: none; }
+  .dx-edge, .dx-hero, .dx-flow-transcript, .dx-sheet, .dx-scrim, .dx-stack span, .spin { animation: none; }
   .dx-scroll { scroll-behavior: auto; }
 }

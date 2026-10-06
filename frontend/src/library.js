@@ -108,6 +108,7 @@ function normalize(book) {
     title: book.title || "Untitled",
     coverImage: book.coverImage || "",
     coverUrl: book.coverUrl || "",
+    isbn: book.isbn || "",
     authorName: book.authorName || "",
     authorBio: book.authorBio || "",
     authorPortrait: book.authorPortrait || "",
@@ -151,12 +152,13 @@ export class Library {
     this._save();
     return book;
   }
-  updateBookMeta(id, { coverImage, coverUrl, authorName, authorBio, authorPortrait, authorPortraits } = {}) {
+  updateBookMeta(id, { coverImage, coverUrl, isbn, authorName, authorBio, authorPortrait, authorPortraits } = {}) {
     const raw = this.data.books[id];
     if (!raw) return;
     const book = normalize(raw);
     if (typeof coverImage === "string") book.coverImage = coverImage;
     if (typeof coverUrl === "string") book.coverUrl = coverUrl;
+    if (typeof isbn === "string") book.isbn = isbn.trim();
     if (typeof authorName === "string") book.authorName = authorName.trim();
     if (typeof authorBio === "string") book.authorBio = authorBio.trim();
     if (typeof authorPortrait === "string") book.authorPortrait = authorPortrait;

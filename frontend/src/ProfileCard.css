@@ -1,10 +1,16 @@
 /* Profile card: a "reader pass" with a slow iridescent rim and soft ripples */
-.pc { --pc-a: #7c5cff; --pc-b: #3ec6e0; --pc-c: #ffb454; position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; padding: 22px 18px 20px; border-radius: 28px; text-align: center; color: var(--text); background: linear-gradient(165deg, color-mix(in srgb, var(--pc-a) 11%, var(--surface)), var(--surface) 60%); box-shadow: var(--shadow); }
+.pc { overflow: hidden; --pc-a: #7c5cff; --pc-b: #3ec6e0; --pc-c: #ffb454; position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; padding: 22px 18px 20px; border-radius: 28px; text-align: center; color: var(--text); background: linear-gradient(165deg, color-mix(in srgb, var(--pc-a) 11%, var(--surface)), var(--surface) 60%); box-shadow: var(--shadow); }
 .pc-rim { position: absolute; inset: 0; z-index: -1; border-radius: inherit; padding: 1.5px; background: linear-gradient(120deg, var(--pc-a), var(--pc-b), var(--pc-c), var(--pc-a)) 0 0 / 300% 100%; -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); opacity: 0.7; animation: pcRim 14s linear infinite; }
-.pc-ripples { position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit; pointer-events: none; }
-.pc-ripples i { position: absolute; left: 50%; top: 86px; width: 150px; height: 150px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--pc-a) 26%, transparent); translate: -50% -50%; animation: pcRipple 7s ease-out infinite; }
-.pc-ripples i:nth-child(2) { animation-delay: -2.3s; } .pc-ripples i:nth-child(3) { animation-delay: -4.6s; }
-.pc-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 99px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--pc-a); background: color-mix(in srgb, var(--pc-a) 12%, transparent); }
+.pc-stage { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 124px; margin: 2px 0; }
+.pc-stage .pc-avatar { margin: 0; }
+.pc-ripples { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; }
+.pc-ripples i { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--pc-a) 55%, transparent); animation: pcRipple 6.6s ease-out infinite; will-change: transform, opacity; }
+.pc-ripples i:nth-child(2) { animation-delay: -2.2s; } .pc-ripples i:nth-child(3) { animation-delay: -4.4s; }
+.pc-float { position: absolute; inset: 0; pointer-events: none; }
+.pc-float i { position: absolute; display: grid; place-items: center; opacity: 0.5; transform: translate(-50%, -50%); animation: pcDrift 8s ease-in-out infinite; will-change: transform; }
+.pc-float b { font-family: "Fraunces", serif; font-weight: 700; letter-spacing: -0.02em; }
+[data-theme="light"] .pc-float i { opacity: 0.5; }
+@media (max-width: 340px) { .pc-float i:nth-child(n+7) { display: none; } }.pc-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 99px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--pc-a); background: color-mix(in srgb, var(--pc-a) 12%, transparent); }
 .pc-avatar { position: relative; width: 104px; height: 104px; margin: 4px 0 2px; flex: 0 0 auto; }
 .pc-photo { position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 50%; overflow: hidden; cursor: pointer; background: var(--surface-2); box-shadow: 0 0 0 4px var(--surface), 0 0 0 6px color-mix(in srgb, var(--pc-a) 55%, transparent), 0 16px 30px -12px color-mix(in srgb, var(--pc-a) 60%, transparent); }
 .pc-photo .avatar-img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
@@ -23,8 +29,9 @@
 .pc-swatch.on { border-color: var(--text); box-shadow: 0 0 0 3px var(--surface); }
 .pc-remove { grid-column: 1 / -1; min-height: 40px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
 @keyframes pcRim { to { background-position: 300% 0; } }
-@keyframes pcRipple { 0% { transform: scale(0.7); opacity: 0.9; } 100% { transform: scale(2.6); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .pc-rim, .pc-ripples i { animation: none; } .pc-ripples { display: none; } }
+@keyframes pcRipple { 0% { transform: scale(1); opacity: 0.75; } 100% { transform: scale(2.7); opacity: 0; } }
+@keyframes pcDrift { 0%, 100% { transform: translate(-50%, -50%) translateY(0) rotate(-6deg); } 50% { transform: translate(-50%, -50%) translateY(-9px) rotate(6deg); } }
+@media (prefers-reduced-motion: reduce) { .pc-rim, .pc-float i { animation: none; } .pc-ripples { display: none; } }
 
 /* Photo cropper */
 .pcrop-wrap { position: fixed; inset: 0; z-index: 3200; display: grid; place-items: center; padding: 16px; }

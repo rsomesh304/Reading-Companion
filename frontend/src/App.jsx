@@ -144,6 +144,7 @@ import { Profile } from "./profile.js";
 import "./ProfileUI.css";
 import "./ProfileCard.css";
 import AvatarCropper from "./AvatarCropper";
+import ProfileFloaters from "./ProfileFloaters";
 import { findApproxSpokenVariant } from "./pronunciationObservation.js";
 import ServiceNotice from "./ServiceNotice.jsx";
 import { getRecap, saveTurn } from "./sessionMemory.js";
@@ -548,11 +549,12 @@ function AppCore() {
     const wanted = title.trim().toLowerCase();
     return library.listBooks().find((b) => b.title.trim().toLowerCase() === wanted) || null;
   }
-  async function createBookFromSearch({ title, authorName, coverUrl, portrait, bio, chapters }) {
+  async function createBookFromSearch({ title, authorName, coverUrl, isbn, portrait, bio, chapters }) {
     const book = library.getOrCreateBook(title);
     const authors = String(authorName || "").split(/\s*(?:,|&| and )\s*/i).filter(Boolean);
     const small = portrait ? await shrinkDataUrl(portrait) : "";
     library.updateBookMeta(book.id, {
+      isbn: isbn || "",
       authorName: authorName || "",
       authorBio: bio || "",
       coverUrl: coverUrl || "",
@@ -2536,10 +2538,12 @@ function ProfileScreen({ nav }) {
 
       <Motion.section className="pc" {...rise(0)}>
         <span className="pc-rim" aria-hidden="true" />
-        <span className="pc-ripples" aria-hidden="true"><i /><i /><i /></span>
         <div className="pc-badge">Reader profile</div>
 
+        <div className="pc-stage">
+        <ProfileFloaters />
         <div className="pc-avatar">
+          <span className="pc-ripples" aria-hidden="true"><i /><i /><i /></span>
           <button type="button" className="pc-photo" onClick={() => fileInputRef.current?.click()} aria-label="Change photo">
             {renderAvatar(34)}
           </button>
@@ -2547,6 +2551,7 @@ function ProfileScreen({ nav }) {
             <CameraIcon size={13} />
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarPick} />
+        </div>
         </div>
 
         <input className="pc-name" value={name} maxLength={30} onChange={(e) => setName(e.target.value)} onBlur={() => profileStore.setName(name)} aria-label="Your name" />
