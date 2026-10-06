@@ -569,19 +569,37 @@ function AppCore() {
     const wanted = title.trim().toLowerCase();
     return library.listBooks().find((b) => b.title.trim().toLowerCase() === wanted) || null;
   }
-  function createBookFromSearch({ title, authorName, coverUrl, portrait, chapters }) {
+  async function createBookFromSearch({ title, authorName, coverUrl, portrait, bio, chapters }) {
     const book = library.getOrCreateBook(title);
+    const authors = String(authorName || "").split(/\s*(?:,|&| and )\s*/i).filter(Boolean);
+    const small = portrait ? await shrinkDataUrl(portrait) : "";
     library.updateBookMeta(book.id, {
-      authorName,
+      authorName: authorName || "",
+      authorBio: bio || "",
       coverUrl: coverUrl || "",
-      ...(portrait ? { authorPortrait: portrait, authorPortraits: [{ name: authorName, dataUrl: portrait, sourceUrl: null }] } : {}),
+      ...(small ? { authorPortrait: small, authorPortraits: [{ name: authors[0] || authorName, dataUrl: small, sourceUrl: null }] } : {}),
     });
     library.setChapterOutline(book.id, chapters.map((c) => ({ chapterNumber: c.number, title: c.title, startPage: c.startPage })));
     setNewBookModalOpen(false);
     notify(`"${title}" added with ${chapters.length} chapters.`, "success");
     if (screen !== "library") navigateTo("library");
+    if (!small && authors.length) {
+      try {
+        const res = await fetch(apiUrl("/api/author-portrait"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ authorName, bookTitle: title }),
+        });
+        const data = await res.json();
+        if (res.ok && (data?.portraits || []).some((p) => p.dataUrl)) {
+          const list = await Promise.all(data.portraits.map(async (p) => ({ name: p.name, dataUrl: p.dataUrl ? await shrinkDataUrl(p.dataUrl) : null })));
+          library.updateBookMeta(book.id, { authorPortrait: list.find((p) => p.dataUrl)?.dataUrl || "", authorPortraits: list });
+        }
+      } catch {
+        // portrait stays optional; the author can add one from the Library
+      }
+    }
   }
-
   function goBack() {
     popRoute();
   }
@@ -651,10 +669,10 @@ function AppCore() {
           chapterNumber={recapModal.chapterNumber}
           onStart={startSessionFromRecap}
           onStory={() => openStoryFromRecap(recapModal.bookId)}
-          onClose={nav.goBack}
+          onClose={() => setRecapModal(null)}
         />
       )}
-      {newBookModalOpen && <NewBookModal onCreate={createBookAndOpenSession} onCreateFromSearch={createBookFromSearch} findExisting={findExistingBook} onClose={nav.goBack} />}
+      {newBookModalOpen && <NewBookModal onCreate={createBookAndOpenSession} onCreateFromSearch={createBookFromSearch} findExisting={findExistingBook} onClose={() => setNewBookModalOpen(false)} />}
       <UpdateManager
         paused={screen === "session" || showOnboarding}
         onUpdateState={setUpdateState}
@@ -1557,6 +1575,11 @@ function LibraryScreen({ nav }) {
   const [portraitError, setPortraitError] = useState(false);
 
   function refresh() { setBooks(library.listBooks()); }
+  useEffect(() => {
+    const sync = () => setBooks(library.listBooks());
+    window.addEventListener("rc:local-data-changed", sync);
+    return () => window.removeEventListener("rc:local-data-changed", sync);
+  }, []);
   function handleDeleteConfirmed() {
     if (confirmDelete) { library.deleteBook(confirmDelete.id); setConfirmDelete(null); refresh(); }
   }

@@ -19,9 +19,9 @@ export const HELP_GUIDE = [
   {
     id: "add-book",
     title: "Add a book",
-    keywords: ["add book", "new book", "add", "create", "title", "start a new book", "first book"],
+    keywords: ["add book", "new book", "add", "create", "title", "start a new book", "first book", "search a book", "search book", "find book", "table of contents", "chapters", "scan contents", "book not found"],
     screen: "library",
-    content: "In Library tap Add book (plus icon). The Start a new book card asks for the book title. Type it and tap Start (or press Enter) to create the book and open its reading session. Cancel closes the card.",
+    content: "In Library tap Add book (plus icon). The Start a new book card asks for the book title. Type it and tap Start (or press Enter) to create the book and open its reading session. Cancel closes the card and keeps you in Library. The card offers two ways: Add manually (type the title yourself, as above) or Search a book. Search a book: type a title, pick the right match from public book catalogue data, and the app fetches the author, an author photo (a clean avatar if none is found) and the table of contents. You can review and edit the chapters, then Add to library; the book shows up in Library immediately with the author chip filled in. If the catalogue has no table of contents, you can upload photos of the contents page and the app reads the chapter names from them. If the book is not found, you get a friendly message and can switch to Add manually. Chapters are never invented. A book already in your Library is not added twice.",
   },
   {
     id: "library",

@@ -94,6 +94,13 @@ export async function findBooks(title, { fetchImpl = fetch, googleKey = "" } = {
   }
 }
 
+// The app numbers chapters itself, so printed prefixes such as "Chapter 3" or "4." are removed.
+export function cleanChapterTitle(title) {
+  const original = clean(title);
+  const stripped = original.replace(/^(?:chapter|chap\.?|ch\.?|part)\s*(?:\d+|[ivxlc]+)\b\s*[:.\-–—)]*\s*/i, "").replace(/^\d{1,3}\s*[:.\-–—)]\s*/, "").replace(/^\d{1,3}\s+(?=[A-Za-z])/, "").trim();
+  return stripped.length >= 2 ? stripped : original;
+}
+
 export function normalizeToc(raw) {
   if (!Array.isArray(raw)) return [];
   const rows = raw
@@ -106,7 +113,7 @@ export function normalizeToc(raw) {
     .filter((e) => e.title && e.title.length <= 160);
   const top = rows.filter((e) => e.level === 0);
   const chosen = top.length >= 2 ? top : rows;
-  return chosen.slice(0, MAX_CHAPTERS).map((e, i) => ({ number: i + 1, title: e.label && !/^\d+$/.test(e.label) ? `${e.label} ${e.title}`.trim() : e.title, startPage: e.page }));
+  return chosen.slice(0, MAX_CHAPTERS).map((e, i) => ({ number: i + 1, title: cleanChapterTitle(e.title), startPage: e.page }));
 }
 
 // A table of contents is only trusted if it has at least two real entries.
@@ -129,7 +136,7 @@ export function parseVisionChapters(text) {
   const seen = new Set();
   const out = [];
   for (const e of list) {
-    const title = clean(e?.title);
+    const title = cleanChapterTitle(e?.title);
     if (!title || title.length > 160) continue;
     const page = Number.parseInt(String(e?.page ?? ""), 10);
     const key = norm(title);
@@ -156,4 +163,20 @@ export function validateImages(images, { maxCount = 6, maxBytesEach = 1_800_000 
     out.push({ mimeType: m[1], data: m[2] });
   }
   return out;
+}
+
+// Short author blurb from Wikipedia, only when the page clearly describes a writer.
+export async function fetchAuthorBio(name, { fetchImpl = fetch } = {}) {
+  const who = clean(name).slice(0, 80);
+  if (!who) return "";
+  try {
+    const j = await getJson(fetchImpl, `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(who.replace(/ /g, "_"))}?redirect=true`, { timeoutMs: 6000 });
+    const text = clean(j?.extract);
+    const hint = `${j?.description || ""} ${text.slice(0, 200)}`;
+    if (j?.type !== "standard" || !/author|writer|novelist|poet|essayist|journalist|philosopher|psychologist|engineer|speaker|entrepreneur|scientist|historian|economist/i.test(hint)) return "";
+    const sentences = text.match(/[^.!?]+[.!?]+(?:\s|$)/g) || [text];
+    return sentences.slice(0, 3).join("").trim().slice(0, 420);
+  } catch {
+    return "";
+  }
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { findBooks, normalizeToc, fetchTocByIsbn, parseVisionChapters, validateImages } from "./bookLookup.js";
+import { cleanChapterTitle, findBooks, normalizeToc, fetchTocByIsbn, parseVisionChapters, validateImages } from "./bookLookup.js";
 
 const json = (body, status = 200) => Promise.resolve({ ok: status < 400, status, json: async () => body });
 
@@ -36,4 +36,12 @@ test("vision output never gains chapters and bad input is empty", () => {
 test("image validation", () => {
   assert.equal(validateImages(["data:text/html;base64,AAAA"]), null);
   assert.equal(validateImages(["data:image/jpeg;base64,AAAA"]).length, 1);
+});
+
+test("printed chapter prefixes are removed", () => {
+  assert.equal(cleanChapterTitle("Chapter 2 Meaningful Names"), "Meaningful Names");
+  assert.equal(cleanChapterTitle("3. Functions"), "Functions");
+  assert.equal(cleanChapterTitle("Chapter 4: Comments"), "Comments");
+  assert.equal(cleanChapterTitle("Chapter 7"), "Chapter 7");
+  assert.equal(cleanChapterTitle("1984 Revisited"), "1984 Revisited");
 });

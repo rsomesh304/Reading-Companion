@@ -14,7 +14,7 @@ async function post(path, body) {
 }
 
 // Phone photos are large: shrink and re-encode before upload. The result only lives in memory.
-function compressImage(file, maxSide = 1600, quality = 0.72) {
+function compressImage(file, maxSide = 1280, quality = 0.7) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -62,6 +62,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
   const [book, setBook] = useState(null);
   const [chapters, setChapters] = useState([]);
   const [portrait, setPortrait] = useState("");
+  const [bio, setBio] = useState("");
   const [brave, setBrave] = useState({ available: false, candidate: "", busy: false });
   const [photos, setPhotos] = useState([]);
   const [step, setStep] = useState(0);
@@ -91,7 +92,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
   }
 
   async function choose(candidate) {
-    setBook(candidate); setChapters([]); setPortrait(""); setPhotos([]); setFromScan(false);
+    setBook(candidate); setChapters([]); setPortrait(""); setBio(""); setPhotos([]); setFromScan(false);
     setBrave({ available: false, candidate: "", busy: false });
     const existing = findExisting?.(candidate.title);
     if (existing) { setMessage(`"${existing.title}" is already in your library.`); setStage("duplicate"); return; }
@@ -111,6 +112,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
     const photo = await photoJob;
     if (!alive.current) return;
     if (photo?.dataUrl) setPortrait(photo.dataUrl);
+    if (photo?.bio) setBio(photo.bio);
     setBrave({ available: Boolean(photo?.braveAvailable) && !photo?.dataUrl, candidate: "", busy: false });
     if (toc.chapters?.length) { setChapters(toc.chapters); setStage("review"); }
     else setStage("scan");
@@ -164,7 +166,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
     const duplicate = findExisting?.(book.title);
     if (duplicate) { setMessage(`"${duplicate.title}" is already in your library.`); setStage("duplicate"); return; }
     setStage("working"); setStep(3); setFailed(null);
-    window.setTimeout(() => onSave({ title: book.title.trim(), authorName: book.authors.join(", "), coverUrl: book.coverUrl, portrait, chapters: clean }), 450);
+    window.setTimeout(() => onSave({ title: book.title.trim(), authorName: book.authors.join(", "), coverUrl: book.coverUrl, portrait, bio, chapters: clean }), 450);
   }
 
   const author = book?.authors[0] || "";

@@ -5,7 +5,7 @@ import express from "express";
 import { timingSafeEqual } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { findBooks, fetchTocByIsbn, parseVisionChapters, validateImages, TOC_VISION_PROMPT } from "./bookLookup.js";
+import { fetchAuthorBio, findBooks, fetchTocByIsbn, parseVisionChapters, validateImages, TOC_VISION_PROMPT } from "./bookLookup.js";
 import { getAiProviderOrder, readTextCompletion, requestTextCompletion, streamTextCompletion } from "./aiTextProviders.js";
 import { normalizeGemEchoCatalog, validateGemEchoCandidates, validateGemEchoPairs } from "./gemEchoes.js";
 import { classifyGeminiFailure, KeyPool } from "./geminiKeyPool.js";
@@ -1717,26 +1717,77 @@ app.post("/api/book-lookup/author-photo", async (req, res) => {
   if (!name) return res.status(400).json({ error: "missing_author_name" });
   const book = typeof req.body?.bookTitle === "string" ? req.body.bookTitle.trim().slice(0, 160) : "";
   const allowBrave = req.body?.allowBrave === true && Boolean(BRAVE_KEY);
-  const found = await portraitForOne(name, book, new Set(), { noBrave: !allowBrave });
-  if (!found?.dataUrl) return res.json({ dataUrl: null, braveAvailable: Boolean(BRAVE_KEY) && !allowBrave });
-  return res.json({ dataUrl: found.dataUrl, source: found.source, needsConfirm: found.source === "brave" });
+  const [found, bio] = await Promise.all([portraitForOne(name, book, new Set(), { noBrave: !allowBrave }), req.body?.allowBrave === true ? Promise.resolve("") : fetchAuthorBio(name)]);
+  if (!found?.dataUrl) return res.json({ dataUrl: null, bio, braveAvailable: Boolean(BRAVE_KEY) && !allowBrave });
+  return res.json({ dataUrl: found.dataUrl, bio, source: found.source, needsConfirm: found.source === "brave" });
 });
 
-// Photos of the contents page are read in memory in one vision call and never stored.
+// Contents-page photos are read in memory by a vision model and never stored.
+// Gemini 2.5 Flash (thinking off, its own quota separate from the live reading model) comes first;
+// OpenRouter is the fallback when Gemini is slow, rate limited or unavailable.
+const TOC_SCAN_MODEL = process.env.TOC_SCAN_MODEL || "gemini-2.5-flash";
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+const OPENROUTER_VISION_MODEL = process.env.OPENROUTER_VISION_MODEL || "google/gemini-2.5-flash";
+const TOC_SCAN_TIMEOUT_MS = 40_000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label}_timeout`)), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function scanTocWithGemini(images) {
+  const parts = [{ text: TOC_VISION_PROMPT }, ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } }))];
+  const response = await withTimeout(generateGeminiContent({
+    model: TOC_SCAN_MODEL,
+    contents: [{ role: "user", parts }],
+    config: { temperature: 0, responseMimeType: "application/json", thinkingConfig: { thinkingBudget: 0 } },
+  }), TOC_SCAN_TIMEOUT_MS, "gemini");
+  return response.text;
+}
+
+async function scanTocWithOpenRouter(images) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), TOC_SCAN_TIMEOUT_MS);
+  try {
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      signal: ctl.signal,
+      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json", "X-Title": "Reading Companion" },
+      body: JSON.stringify({
+        model: OPENROUTER_VISION_MODEL,
+        temperature: 0,
+        max_tokens: 2500,
+        messages: [{ role: "user", content: [{ type: "text", text: TOC_VISION_PROMPT }, ...images.map((img) => ({ type: "image_url", image_url: { url: `data:${img.mimeType};base64,${img.data}` } }))] }],
+      }),
+    });
+    if (!r.ok) throw new Error(`openrouter_http_${r.status}`);
+    const j = await r.json();
+    return j?.choices?.[0]?.message?.content || "";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 app.post("/api/book-lookup/toc-scan", async (req, res) => {
   let images = validateImages(req.body?.images);
   if (!images) return res.status(400).json({ error: "invalid_images" });
   if (!allowAiRequestForResponse(req, res, "tocScan")) return undefined;
   try {
-    const parts = [{ text: TOC_VISION_PROMPT }, ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } }))];
-    const response = await generateGeminiContent({
-      model: MEMORY_SUMMARY_MODEL,
-      contents: [{ role: "user", parts }],
-      config: { temperature: 0, responseMimeType: "application/json" },
-    });
-    return res.json({ chapters: parseVisionChapters(response.text) });
+    let text = "";
+    let via = "gemini";
+    try {
+      text = await scanTocWithGemini(images);
+    } catch (error) {
+      console.warn("[TOC SCAN] gemini failed:", redactSecrets(error?.message, 140));
+      if (!OPENROUTER_API_KEY) throw error;
+      via = "openrouter";
+      text = await scanTocWithOpenRouter(images);
+    }
+    console.info(`[TOC SCAN] ${via} ok`);
+    return res.json({ chapters: parseVisionChapters(text) });
   } catch (error) {
-    console.warn("[TOC SCAN] failed:", String(error?.message || error).slice(0, 160));
+    console.warn("[TOC SCAN] failed:", redactSecrets(error?.message, 140));
     return res.status(503).json({ error: "scan_unavailable" });
   } finally {
     images = null;
