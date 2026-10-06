@@ -5,6 +5,7 @@ import express from "express";
 import { timingSafeEqual } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findBooks, fetchTocByIsbn, parseVisionChapters, validateImages, TOC_VISION_PROMPT } from "./bookLookup.js";
 import { getAiProviderOrder, readTextCompletion, requestTextCompletion, streamTextCompletion } from "./aiTextProviders.js";
 import { normalizeGemEchoCatalog, validateGemEchoCandidates, validateGemEchoPairs } from "./gemEchoes.js";
 import { classifyGeminiFailure, KeyPool } from "./geminiKeyPool.js";
@@ -27,6 +28,7 @@ app.set("trust proxy", 1);
 app.use(cors());
 app.use("/api/bug-reports/screenshots", express.json({ limit: "7mb" }));
 app.use("/api/bug-reports", express.json({ limit: "7mb" }));
+app.use("/api/book-lookup/toc-scan", express.json({ limit: "10mb" }));
 app.use(express.json());
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
@@ -41,6 +43,8 @@ const REPORT_TYPES = new Set(["bug", "issue", "feature", "enhance"]);
 const AI_REQUEST_LIMITS = {
   report: { perIpHour: 5, serviceDaily: 40 },
   help: { perIpHour: 20, serviceDaily: 180 },
+  tocScan: { perIpHour: 12, serviceDaily: 120 },
+  bookSearch: { perIpHour: 90, serviceDaily: 4000 },
 };
 const aiIpWindows = new Map();
 const aiDailyCounts = new Map();
@@ -1547,9 +1551,9 @@ const PORTRAIT_SOURCES = [
 function splitAuthors(s) {
   return String(s || "").split(/\s*(?:,|&|\+|;|\band\b|\bwith\b)\s*/i).map((x) => x.trim()).filter((x) => x.length > 2).slice(0, 4);
 }
-async function portraitForOne(name, book, skip) {
+async function portraitForOne(name, book, skip, { noBrave = false } = {}) {
   const sourcePriority = { "wikipedia-rest": 0, wikipedia: 1, wikidata: 2, "openlibrary-authors": 3, openlibrary: 4, brave: 5 };
-  const sources = [...PORTRAIT_SOURCES].sort((a, b) => sourcePriority[a.name] - sourcePriority[b.name]);
+  const sources = PORTRAIT_SOURCES.filter((s) => !(noBrave && s.name === "brave")).sort((a, b) => sourcePriority[a.name] - sourcePriority[b.name]);
   const exhausted = [];
   const rateLimited = new Set();
   for (const source of sources) {
@@ -1611,6 +1615,58 @@ app.post("/api/author-portrait", async (req, res) => {
     return res.status(busy ? 503 : 404).json({ error: busy ? "sources_busy" : "no_image_found" });
   }
   return res.json({ dataUrl: first.dataUrl, sourceUrl: first.sourceUrl, portraits });
+});
+// ---------------------------------------------------------------
+// Library "Search a book": public catalogue details only (never the book itself).
+// ---------------------------------------------------------------
+const bookLookupIp = (req) => req.ip || req.socket.remoteAddress || "unknown";
+
+app.post("/api/book-lookup/search", async (req, res) => {
+  if (!allowAiRequest("bookSearch", bookLookupIp(req))) return res.status(429).json({ error: "too_many_requests" });
+  const title = typeof req.body?.title === "string" ? req.body.title : "";
+  const result = await findBooks(title, { googleKey: process.env.GOOGLE_BOOKS_API_KEY || "" });
+  return res.json(result);
+});
+
+app.post("/api/book-lookup/toc", async (req, res) => {
+  if (!allowAiRequest("bookSearch", bookLookupIp(req))) return res.status(429).json({ error: "too_many_requests" });
+  const isbns = Array.isArray(req.body?.isbns) ? req.body.isbns.filter((v) => typeof v === "string").slice(0, 4) : [];
+  return res.json(await fetchTocByIsbn(isbns));
+});
+
+// Wikipedia/Wikidata and Open Library first. Brave image search only runs when the client asks for it,
+// and the client must show the result to the user for confirmation.
+app.post("/api/book-lookup/author-photo", async (req, res) => {
+  if (!allowAiRequest("bookSearch", bookLookupIp(req))) return res.status(429).json({ error: "too_many_requests" });
+  const name = typeof req.body?.authorName === "string" ? splitAuthors(req.body.authorName)[0] : "";
+  if (!name) return res.status(400).json({ error: "missing_author_name" });
+  const book = typeof req.body?.bookTitle === "string" ? req.body.bookTitle.trim().slice(0, 160) : "";
+  const allowBrave = req.body?.allowBrave === true && Boolean(BRAVE_KEY);
+  const found = await portraitForOne(name, book, new Set(), { noBrave: !allowBrave });
+  if (!found?.dataUrl) return res.json({ dataUrl: null, braveAvailable: Boolean(BRAVE_KEY) && !allowBrave });
+  return res.json({ dataUrl: found.dataUrl, source: found.source, needsConfirm: found.source === "brave" });
+});
+
+// Photos of the contents page are read in memory in one vision call and never stored.
+app.post("/api/book-lookup/toc-scan", async (req, res) => {
+  let images = validateImages(req.body?.images);
+  if (!images) return res.status(400).json({ error: "invalid_images" });
+  if (!allowAiRequestForResponse(req, res, "tocScan")) return undefined;
+  try {
+    const parts = [{ text: TOC_VISION_PROMPT }, ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } }))];
+    const response = await generateGeminiContent({
+      model: MEMORY_SUMMARY_MODEL,
+      contents: [{ role: "user", parts }],
+      config: { temperature: 0, responseMimeType: "application/json" },
+    });
+    return res.json({ chapters: parseVisionChapters(response.text) });
+  } catch (error) {
+    console.warn("[TOC SCAN] failed:", String(error?.message || error).slice(0, 160));
+    return res.status(503).json({ error: "scan_unavailable" });
+  } finally {
+    images = null;
+    finishAiRequest();
+  }
 });
 // ---------------------------------------------------------------
 // POST /api/mascot-line

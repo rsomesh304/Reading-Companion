@@ -94,6 +94,7 @@ import { AudioPlayback } from "./audioPlayback.js";
 import BookTile from "./BookTile.jsx";
 import { CameraCapture } from "./cameraCapture.js";
 import { EmptyGemsArt, EmptyLibraryArt } from "./components/EmptyStateArt.jsx";
+import BookSearchFlow from "./components/BookSearchFlow.jsx";
 import MascotCharacter from "./components/MascotCharacter.jsx";
 import { describeLiveStatus, friendlyErrorMessage } from "./friendlyErrors.js";
 import { GeminiLiveClient } from "./geminiLiveClient.js";
@@ -561,6 +562,23 @@ function AppCore() {
     navigateTo("session", { activeBookId: book.id });
   }
 
+  function findExistingBook(title) {
+    const wanted = title.trim().toLowerCase();
+    return library.listBooks().find((b) => b.title.trim().toLowerCase() === wanted) || null;
+  }
+  function createBookFromSearch({ title, authorName, coverUrl, portrait, chapters }) {
+    const book = library.getOrCreateBook(title);
+    library.updateBookMeta(book.id, {
+      authorName,
+      coverUrl: coverUrl || "",
+      ...(portrait ? { authorPortrait: portrait, authorPortraits: [{ name: authorName, dataUrl: portrait, sourceUrl: null }] } : {}),
+    });
+    library.setChapterOutline(book.id, chapters.map((c) => ({ chapterNumber: c.number, title: c.title, startPage: c.startPage })));
+    setNewBookModalOpen(false);
+    notify(`"${title}" added with ${chapters.length} chapters.`, "success");
+    if (screen !== "library") navigateTo("library");
+  }
+
   function goBack() {
     popRoute();
   }
@@ -631,7 +649,7 @@ function AppCore() {
           onClose={nav.goBack}
         />
       )}
-      {newBookModalOpen && <NewBookModal onCreate={createBookAndOpenSession} onClose={nav.goBack} />}
+      {newBookModalOpen && <NewBookModal onCreate={createBookAndOpenSession} onCreateFromSearch={createBookFromSearch} findExisting={findExistingBook} onClose={nav.goBack} />}
       <UpdateManager
         paused={screen === "session" || showOnboarding}
         onUpdateState={setUpdateState}
@@ -858,31 +876,60 @@ function BottomNav({ active, onNavigate, badges = {} }) {
 
 // ==================== NEW BOOK MODAL ====================
 
-function NewBookModal({ onCreate, onClose }) {
+function NewBookModal({ onCreate, onCreateFromSearch, findExisting, onClose }) {
+  const [view, setView] = useState("choose");
   const [title, setTitle] = useState("");
   const mascot = useMascotPreference();
 
+  function toManual(prefill, reason) {
+    if (prefill) setTitle(prefill);
+    if (reason === "notfound") notify("That book wasn't found in the public catalogue. You can add it manually.", "info", 5200);
+    setView("manual");
+  }
+
   return (
     <Motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={INTERACTION_SPRING} onClick={onClose}>
-      <Motion.div className="modal-card elevated" initial={{ opacity: 0, y: 18, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={INTERACTION_SPRING} onClick={(e) => e.stopPropagation()}>
-        <div className="new-book-hero">
-          <MascotCharacter characterId={mascot} size={120} animated context="reader is about to start a new book" bubblePosition="above"/>
-        </div>
-        <h2>Start a new book</h2>
-        <input
-          autoFocus className="title-input" placeholder="Book title..."
-          value={title} onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && title.trim() && onCreate(title)}
-        />
-        <div className="modal-actions">
-          <button className="icon-button ghost" onClick={onClose}>Cancel</button>
-          <button className="primary-button" disabled={!title.trim()} onClick={() => onCreate(title)}>Start</button>
-        </div>
+      <Motion.div className={`modal-card elevated${view === "search" ? " bsf-card" : ""}`} initial={{ opacity: 0, y: 18, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={INTERACTION_SPRING} onClick={(e) => e.stopPropagation()}>
+        {view === "choose" && (
+          <>
+            <h2>Add a book</h2>
+            <div className="nb-choose">
+              <button type="button" className="nb-choice" onClick={() => setView("search")}>
+                <span className="nb-choice-ico"><Search size={20} /></span>
+                <span><b>Search a book</b><small>Find it by title. Author and chapters are filled in for you.</small></span>
+              </button>
+              <button type="button" className="nb-choice plain" onClick={() => setView("manual")}>
+                <span className="nb-choice-ico"><Pencil size={20} /></span>
+                <span><b>Add manually</b><small>Type the title and add details as you read.</small></span>
+              </button>
+            </div>
+            <div className="modal-actions"><button className="icon-button ghost" onClick={onClose}>Cancel</button></div>
+          </>
+        )}
+        {view === "search" && (
+          <BookSearchFlow initialTitle={title} findExisting={findExisting} onSave={onCreateFromSearch} onManual={toManual} onClose={onClose} />
+        )}
+        {view === "manual" && (
+          <>
+            <div className="new-book-hero">
+              <MascotCharacter characterId={mascot} size={120} animated context="reader is about to start a new book" bubblePosition="above"/>
+            </div>
+            <h2>Start a new book</h2>
+            <input
+              autoFocus className="title-input" placeholder="Book title..."
+              value={title} onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && title.trim() && onCreate(title)}
+            />
+            <div className="modal-actions">
+              <button className="icon-button ghost" onClick={() => setView("choose")}>Back</button>
+              <button className="primary-button" disabled={!title.trim()} onClick={() => onCreate(title)}>Start</button>
+            </div>
+          </>
+        )}
       </Motion.div>
     </Motion.div>
   );
 }
-
 // ==================== PRE-SESSION RECAP MODAL ====================
 
 function PreSessionRecapModal({ book, chapterNumber, onStart, onStory, onClose }) {
