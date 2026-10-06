@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, BookMarked, Check, ChevronLeft, ChevronRight, Copy, EyeOff, List, Lock, Moon, Search, PanelRight, Sparkles, Sun, X } from "lucide-react";
+import { ArrowLeft, BookMarked, Check, ChevronLeft, ChevronRight, Copy, EyeOff, List, Lock, Moon, Search, Sparkles, Sun, X } from "lucide-react";
 import { checkDocsAccess } from "../docsAccess.js";
 import { useBackLayer } from "../backStack.js";
 import { setDocsUnlocked } from "../docsUnlock.js";
@@ -10,7 +10,7 @@ import { GROUP_ICON, PageIcon, pageIcon } from "./icons.js";
 import { useDocsTheme } from "./theme.js";
 import SearchBox from "./SearchBox.jsx";
 import Palette from "./Palette.jsx";
-import HelperPanel from "./HelperPanel.jsx";
+import ChatPage from "./ChatPage.jsx";
 import { useHelper } from "./helper.js";
 import { Block } from "./blocks.jsx";
 import DocsHome from "./DocsHome.jsx";
@@ -188,7 +188,7 @@ function DocsApp({ nav }) {
   const [openId, setOpenId] = useState(null);
   const [tocOpen, setTocOpen] = useState(false);
   const [palette, setPalette] = useState(null);
-  const [helperOpen, setHelperOpen] = useState(false);
+  const [chat, setChat] = useState(false);
   const [progress, setProgress] = useState(0);
   const [visited, setVisited] = useState(() => { try { return JSON.parse(store.get(VISITED_KEY) || "[]"); } catch { return []; } });
   const [recents, setRecents] = useState(() => { try { return JSON.parse(store.get(RECENT_KEY) || "[]").filter((id) => PAGES.some((p) => p.id === id)); } catch { return []; } });
@@ -219,7 +219,7 @@ function DocsApp({ nav }) {
     });
   }, []);
 
-  const openPalette = useCallback((detail = {}) => setPalette({ mode: detail.mode || "search", origin: detail.origin || null }), []);
+  const openPalette = useCallback((detail = {}) => setPalette({ origin: detail.origin || null }), []);
 
   useEffect(() => {
     const onKey = (event) => {
@@ -259,8 +259,13 @@ function DocsApp({ nav }) {
   const back = () => (openId !== null ? setOpenId(null) : nav.goBack());
   const prev = index > 0 ? PAGES[index - 1] : null;
   const next = index >= 0 && index < PAGES.length - 1 ? PAGES[index + 1] : null;
-  const askAboutPage = () => setHelperOpen(true);
-  const showSide = wide && !helperOpen;
+  const openChat = useCallback((question = "") => {
+    setPalette(null);
+    setChat(true);
+    if (question) helper.ask(question, page?.id || "");
+  }, [helper, page]);
+  const askAboutPage = () => openChat(page ? `Summarise “${page.title}” and tell me what to watch out for.` : "");
+  const showSide = wide;
 
   return (
     <div className="dx-root" data-dx-theme={theme}>
@@ -271,9 +276,8 @@ function DocsApp({ nav }) {
         ) : (
           <div className="dx-bar-title"><strong>{page.title}</strong><span>{page.group}</span></div>
         )}
-        {wide ? <div className="dx-bar-search"><SearchBox variant="bar" onOpen={openPalette} /></div> : <div className="dx-spacer" />}
+        {wide ? <div className="dx-bar-search"><SearchBox variant="bar" onOpen={openPalette} onAsk={() => openChat()} /></div> : <div className="dx-spacer" />}
         {!wide && <button type="button" className="dx-icon" onClick={() => openPalette()} aria-label="Search"><Search size={18} /></button>}
-        <button type="button" className="dx-icon" onClick={() => setHelperOpen((v) => !v)} aria-label="Docs Helper" aria-pressed={helperOpen}>{wide ? <PanelRight size={18} /> : <Sparkles size={18} />}</button>
         <button type="button" className="dx-icon" onClick={toggleTheme} aria-label={theme === "light" ? "Switch to dark" : "Switch to light"}>{theme === "light" ? <Moon size={18} /> : <Sun size={18} />}</button>
         {!wide && <button type="button" className="dx-icon" onClick={() => setTocOpen(true)} aria-label="Table of contents"><List size={18} /></button>}
         <div className="dx-progress" aria-hidden="true"><i style={{ transform: `scaleX(${page ? progress : 0})` }} /></div>
@@ -291,10 +295,9 @@ function DocsApp({ nav }) {
               </footer>
             </>
           ) : (
-            <DocsHome pages={PAGES} groups={GROUPS} visited={visited} recents={recents} onOpen={openPage} onSearch={openPalette} onHide={hideDocs} />
+            <DocsHome pages={PAGES} groups={GROUPS} visited={visited} recents={recents} onOpen={openPage} onSearch={openPalette} onAsk={() => openChat()} onHide={hideDocs} />
           )}
         </div>
-        {wide && helperOpen && <aside className="dx-helper-side"><HelperPanel wide theme={theme} helper={helper} page={page} onOpen={openPage} onClose={() => setHelperOpen(false)} /></aside>}
       </div>
 
       {!wide && tocOpen && (
@@ -310,8 +313,8 @@ function DocsApp({ nav }) {
           </div>
         </div>
       )}
-      {!wide && helperOpen && <HelperPanel theme={theme} helper={helper} page={page} onOpen={openPage} onClose={() => setHelperOpen(false)} />}
-      {palette && <Palette theme={theme} helper={helper} recents={recents} pageId={openId} initialMode={palette.mode} origin={palette.origin} onOpen={openPage} onClose={() => setPalette(null)} />}
+      {chat && <ChatPage theme={theme} helper={helper} page={page} onOpen={(id, a) => { setChat(false); openPage(id, a); }} onClose={() => setChat(false)} />}
+      {palette && <Palette theme={theme} recents={recents} origin={palette.origin} onOpen={openPage} onAsk={openChat} onClose={() => setPalette(null)} />}
     </div>
   );
 }

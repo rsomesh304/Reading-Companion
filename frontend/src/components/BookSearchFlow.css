@@ -17,18 +17,6 @@
 .bsf-msg.err { background: color-mix(in srgb, #f5a524 14%, transparent); }
 .bsf-msg.err svg { color: #f5a524; }
 
-.bsf-orb { width: 64px; height: 64px; margin: 6px auto 0; display: grid; place-items: center; border-radius: 50%; color: #fff; background: linear-gradient(135deg, var(--primary), var(--primary-2)); animation: bsfPulse 1.8s ease-in-out infinite; }
-@keyframes bsfPulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 45%, transparent); } 50% { box-shadow: 0 0 0 16px transparent; } }
-.bsf-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.bsf-steps li { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 14px; transition: color 0.3s; animation: bsfIn 0.4s calc(var(--i) * 80ms) both; }
-.bsf-steps li.active { color: var(--text); font-weight: 600; }
-.bsf-steps li.done { color: var(--text); }
-.bsf-steps li.fail { color: #f5a524; font-weight: 600; }
-.bsf-dot { width: 24px; height: 24px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; border: 1.5px solid var(--border); transition: background 0.3s, border-color 0.3s; }
-.bsf-steps li.active .bsf-dot { border-color: var(--primary); color: var(--primary); }
-.bsf-steps li.done .bsf-dot { background: var(--primary); border-color: var(--primary); color: #fff; }
-.bsf-steps li.fail .bsf-dot { border-color: #f5a524; color: #f5a524; }
-.bsf .spin { animation: bsfSpin 0.9s linear infinite; }
 @keyframes bsfSpin { to { transform: rotate(360deg); } }
 @keyframes bsfIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -36,12 +24,13 @@
 .bsf-results li { animation: bsfIn 0.35s calc(var(--i) * 50ms) both; }
 .bsf-results button { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
 .bsf-results button:hover { border-color: var(--primary); }
-.bsf-results img, .bsf-nocover { width: 40px; height: 58px; flex: 0 0 auto; object-fit: cover; border-radius: 6px; background: var(--surface-2); display: grid; place-items: center; color: var(--muted); }
+
 .bsf-results b, .bsf-results small, .bsf-book b, .bsf-book small { display: block; }
 .bsf-results small, .bsf-book small { color: var(--muted); font-size: 12px; }
 
 .bsf-book { display: flex; align-items: center; gap: 12px; }
-.bsf-book > span { flex: 1; min-width: 0; }
+.bsf-book-text { flex: 1; min-width: 0; }
+.bsf-by { display: flex !important; align-items: center; gap: 6px; padding-left: 8px; }
 .bsf-avatar { flex: 0 0 auto; border-radius: 50%; object-fit: cover; }
 .bsf-avatar-fallback { display: grid; place-items: center; font-weight: 700; font-size: 14px; color: #fff; background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
 .bsf-title { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--text); font-weight: 700; font-size: 15px; }
@@ -72,5 +61,54 @@
 .nb-choice b, .nb-choice small { display: block; }
 .nb-choice small { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
 
-@media (prefers-reduced-motion: reduce) { .bsf-orb, .bsf .spin, .bsf-steps li, .bsf-results li { animation: none; } }
+
 .modal-card.bsf-card { max-width: 460px; }
+
+/* Book cover: always 2:3, never an oval; falls back to a styled placeholder */
+.bsf-cover { position: relative; flex: 0 0 auto; display: block; aspect-ratio: 2 / 3; border-radius: 8px; overflow: hidden; background: linear-gradient(145deg, #7c5cff, #3ec6e0); box-shadow: 0 6px 16px rgba(76, 61, 160, 0.28); }
+.bsf-cover.sm { width: 40px; border-radius: 6px; box-shadow: none; }
+.bsf-cover.md { width: 52px; }
+.bsf-cover.lg { width: 104px; border-radius: 12px; box-shadow: 0 14px 30px rgba(76, 61, 160, 0.38); }
+.bsf-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bsf-cover-ph { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255, 255, 255, 0.92); background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%) 0 0 / 220% 100%, linear-gradient(145deg, #7c5cff, #3ec6e0); animation: bsfShimmer 2.4s linear infinite; }
+.bsf-cover-ph::before { content: ""; position: absolute; left: 12%; top: 0; bottom: 0; width: 2px; background: rgba(255, 255, 255, 0.35); }
+@keyframes bsfShimmer { from { background-position: 160% 0, 0 0; } to { background-position: -60% 0, 0 0; } }
+
+/* Progress screen */
+.bsf-work { display: flex; flex-direction: column; gap: 14px; align-items: stretch; }
+.bsf-stage { position: relative; display: grid; place-items: center; padding: 10px 0 2px; }
+.bsf-stage .bsf-cover { animation: bsfFloat 3.6s ease-in-out infinite; }
+.bsf-glow { position: absolute; width: 170px; height: 170px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, #7c5cff 38%, transparent), transparent 68%); filter: blur(6px); animation: bsfBreathe 3.6s ease-in-out infinite; }
+.bsf-sparkle { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: #3ec6e0; opacity: 0; animation: bsfSpark 3s ease-in-out infinite; }
+.bsf-sparkle.s1 { left: calc(50% - 86px); top: 38px; }
+.bsf-sparkle.s2 { left: calc(50% + 78px); top: 70px; background: #ffb454; animation-delay: 1s; }
+.bsf-sparkle.s3 { left: calc(50% + 56px); top: 14px; background: #7c5cff; animation-delay: 2s; }
+.bsf-work-title { margin: 0; text-align: center; font-weight: 700; font-size: 15px; }
+.bsf-bar { height: 6px; border-radius: 99px; overflow: hidden; background: var(--surface-2); }
+.bsf-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #7c5cff, #3ec6e0, #ffb454); background-size: 200% 100%; transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1); animation: bsfFlow 2.4s linear infinite; }
+.bsf-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.bsf-steps li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 14px; transition: border-color 0.35s, background 0.35s, color 0.35s, transform 0.35s; animation: bsfIn 0.4s calc(var(--i) * 80ms) both; }
+.bsf-steps li.active { color: var(--text); font-weight: 600; border-color: color-mix(in srgb, #7c5cff 60%, transparent); background: color-mix(in srgb, #7c5cff 9%, var(--surface)); transform: scale(1.01); }
+.bsf-steps li.done { color: var(--text); border-color: color-mix(in srgb, #20b486 45%, transparent); }
+.bsf-steps li.fail { color: #d9890b; font-weight: 600; border-color: #f5a524; background: color-mix(in srgb, #f5a524 10%, var(--surface)); }
+.bsf-step-label { flex: 1; min-width: 0; }
+.bsf-step-state { font-size: 11.5px; font-weight: 600; opacity: 0.85; }
+.bsf-steps li.done .bsf-step-state { color: #20b486; }
+.bsf-dot { position: relative; width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; background: var(--surface-2); color: var(--muted); transition: background 0.35s, color 0.35s; }
+.bsf-dot svg { grid-area: 1 / 1; transition: opacity 0.3s, transform 0.35s; }
+.bsf-dot-check { opacity: 0; transform: scale(0.4) rotate(-40deg); }
+.bsf-steps li.active .bsf-dot { color: #fff; background: linear-gradient(135deg, #7c5cff, #3ec6e0); animation: bsfPulse 1.8s ease-in-out infinite; }
+.bsf-steps li.done .bsf-dot { color: #fff; background: #20b486; }
+.bsf-steps li.done .bsf-dot-icon { opacity: 0; transform: scale(0.4); }
+.bsf-steps li.done .bsf-dot-check { opacity: 1; transform: none; }
+.bsf-steps li.fail .bsf-dot { color: #fff; background: #f5a524; }
+@keyframes bsfPulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, #7c5cff 45%, transparent); } 50% { box-shadow: 0 0 0 8px transparent; } }
+@keyframes bsfFloat { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-6px) rotate(1deg); } }
+@keyframes bsfBreathe { 0%, 100% { transform: scale(0.92); opacity: 0.7; } 50% { transform: scale(1.08); opacity: 1; } }
+@keyframes bsfSpark { 0%, 100% { opacity: 0; transform: scale(0.4); } 50% { opacity: 0.9; transform: scale(1.1); } }
+@keyframes bsfFlow { to { background-position: 200% 0; } }
+@keyframes bsfIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .bsf-stage .bsf-cover, .bsf-glow, .bsf-sparkle, .bsf-bar span, .bsf-cover-ph, .bsf-steps li, .bsf-steps li.active .bsf-dot, .bsf-results li { animation: none; }
+  .bsf-sparkle { display: none; }
+}

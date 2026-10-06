@@ -31,7 +31,7 @@ function Art({ kind }) {
   );
 }
 
-export default function DocsHome({ pages, groups, visited, recents, onOpen, onSearch, onHide }) {
+export default function DocsHome({ pages, groups, visited, recents, onOpen, onSearch, onAsk, onHide }) {
   const byId = useMemo(() => Object.fromEntries(pages.map((p) => [p.id, p])), [pages]);
   const paths = PATHS.filter((p) => byId[p.id]);
   const recent = (recents || []).map((id) => byId[id]).filter(Boolean).slice(0, 4);
@@ -46,7 +46,7 @@ export default function DocsHome({ pages, groups, visited, recents, onOpen, onSe
         <span className="dh2-badge"><BookMarked size={13} aria-hidden="true" />Reading Companion handbook</span>
         <h1>Everything about the app,<br /><em>in one place.</em></h1>
         <p>What exists, why it exists, how it runs, and what to do when something breaks. Search it, or just ask.</p>
-        <SearchBox variant="hero" onOpen={onSearch} />
+        <SearchBox variant="hero" onOpen={onSearch} onAsk={onAsk} />
         {nextUnread && (
           <button type="button" className="dh2-continue" onClick={() => onOpen(nextUnread.id)}>
             {done ? "Continue where you left off" : "Start with the basics"}<b>{nextUnread.title}</b><ArrowRight size={14} aria-hidden="true" />

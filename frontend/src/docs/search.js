@@ -10,6 +10,18 @@ export const SCOPES = [
   { id: "changelog", label: "Changelog", match: (p) => p.id === "ref-changelog" },
 ];
 
+// Suggested topics come from the live docs content, so they stay correct when the docs change.
+export function scopeSuggestions(pages, scope, limit = 8) {
+  const match = SCOPES.find((s) => s.id === scope)?.match;
+  const inScope = match ? pages.filter(match) : pages;
+  if (inScope.length === 1) {
+    const page = inScope[0];
+    const heads = page.blocks.filter((b) => b.type === "h2").slice(0, limit).map((b) => ({ page, heading: b.text }));
+    if (heads.length) return heads;
+  }
+  return inScope.slice(0, limit).map((page) => ({ page, heading: "" }));
+}
+
 const words = (text) => String(text).toLowerCase().split(/[^a-z0-9_]+/).filter(Boolean);
 
 // Edit distance of 1 (insert, delete, substitute, swap) is enough to forgive typical typos.

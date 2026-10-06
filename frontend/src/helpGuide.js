@@ -218,7 +218,7 @@ export const HELP_GUIDE = [
     title: "Profile, avatar and companion",
     keywords: ["profile", "avatar", "photo", "name", "mascot", "companion", "owl", "robot", "sprout", "fox", "book", "change photo", "remove photo", "icon"],
     screen: "profile",
-    content: "Profile has your photo (camera button to upload, Remove photo to clear) or six icon avatars, your editable name, streak chip and four stat boxes (Streak, Books, Words, Gems). Your companion section lets you pick Owl, Robot, Sprout, Fox or Book as your reading mascot. Tiles below open Account, Settings, Help & guide, Report an issue and About.",
+    content: "Profile has a card with your photo, editable name and a Change avatar button. Upload a photo with the camera button and you can drag and zoom to crop it in a circle before saving. Tap Change avatar to expand six icon avatars and pick one (Remove photo is in the same tray). Your companion section lets you pick Owl, Robot, Sprout, Fox or Book as your reading mascot. Tiles below open Account, Settings, Help & guide, Report an issue and About.",
   },
   {
     id: "account-sync",

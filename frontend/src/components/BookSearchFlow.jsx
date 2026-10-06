@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, BookOpen, Camera, Check, ImagePlus, Loader2, Plus, Search, Trash2, UserRound, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BookOpen, Camera, Check, ImagePlus, LibraryBig, ListChecks, Plus, Search, Trash2, UserRound, X } from "lucide-react";
 import { apiFetch } from "../api.js";
 import "./BookSearchFlow.css";
 
@@ -7,8 +7,8 @@ const STEPS = ["Finding the book", "Fetching chapters", "Getting author details"
 const MAX_PHOTOS = 6;
 
 
-async function post(path, body) {
-  const response = await apiFetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, { retries: 4, delayMs: 4000 });
+async function post(path, body, retries = 4) {
+  const response = await apiFetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, { retries, delayMs: 4000 });
   if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status}`), { status: response.status });
   return response.json();
 }
@@ -39,15 +39,34 @@ function Avatar({ name, src, size = 44 }) {
     : <span className="bsf-avatar bsf-avatar-fallback" style={{ width: size, height: size }} aria-hidden="true">{initials || <UserRound size={size / 2} />}</span>;
 }
 
+function Cover({ src, size = "md" }) {
+  const [badSrc, setBad] = useState("");
+  const bad = badSrc === src;
+  return (
+    <span className={`bsf-cover ${size}`} aria-hidden="true">
+      {src && !bad
+        ? <img src={src} alt="" onError={() => setBad(src)} onLoad={(e) => { if (e.currentTarget.naturalWidth < 24) setBad(src); }} />
+        : <span className="bsf-cover-ph"><BookOpen size={size === "lg" ? 30 : 20} /></span>}
+    </span>
+  );
+}
+
+const STEP_ICONS = [Search, ListChecks, UserRound, LibraryBig];
+
 function Progress({ step, failedStep }) {
   return (
     <ol className="bsf-steps" aria-label="Progress">
       {STEPS.map((label, i) => {
         const state = failedStep === i ? "fail" : i < step ? "done" : i === step ? "active" : "idle";
+        const Icon = STEP_ICONS[i];
         return (
           <li key={label} className={state} style={{ "--i": i }}>
-            <span className="bsf-dot">{state === "done" ? <Check size={14} /> : state === "active" ? <Loader2 size={14} className="spin" /> : state === "fail" ? <X size={14} /> : null}</span>
-            <span>{label}</span>
+            <span className="bsf-dot">
+              <Icon size={16} className="bsf-dot-icon" />
+              <Check size={16} className="bsf-dot-check" />
+            </span>
+            <span className="bsf-step-label">{label}</span>
+            <span className="bsf-step-state">{state === "done" ? "Done" : state === "active" ? "Working" : state === "fail" ? "Failed" : ""}</span>
           </li>
         );
       })}
@@ -55,6 +74,23 @@ function Progress({ step, failedStep }) {
   );
 }
 
+function Working({ step, failed, cover, title }) {
+  const pct = Math.min(100, Math.round(((step + (failed == null ? 0.5 : 0)) / STEPS.length) * 100));
+  return (
+    <div className="bsf-work">
+      <div className="bsf-stage">
+        <span className="bsf-glow" aria-hidden="true" />
+        <Cover src={cover} size="lg" />
+        <span className="bsf-sparkle s1" aria-hidden="true" />
+        <span className="bsf-sparkle s2" aria-hidden="true" />
+        <span className="bsf-sparkle s3" aria-hidden="true" />
+      </div>
+      {title && <p className="bsf-work-title">{title}</p>}
+      <div className="bsf-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><span style={{ width: `${pct}%` }} /></div>
+      <Progress step={step} failedStep={failed} />
+    </div>
+  );
+}
 export default function BookSearchFlow({ initialTitle = "", findExisting, onSave, onManual, onClose }) {
   const [stage, setStage] = useState("query"); // query | results | working | scan | review | error
   const [query, setQuery] = useState(initialTitle);
@@ -144,14 +180,16 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
     setStage("working"); setStep(1); setFailed(null);
     lastAction.current = () => scan();
     try {
-      const data = await post("/api/book-lookup/toc-scan", { images: photos });
+      const data = await post("/api/book-lookup/toc-scan", { images: photos }, 0);
       if (!alive.current) return;
       if (!data.chapters?.length) { setMessage("I could not read any chapters from those photos. Try a clearer, well-lit photo of the contents page."); setStage("scan"); return; }
       setChapters(data.chapters); setFromScan(true); setPhotos([]); setStage("review");
     } catch (error) {
       if (!alive.current) return;
       if (error.status === 429) setMessage("You have scanned a lot of pages for now. Please try again in a while, or add the book manually.");
-      else setMessage("Reading the photos failed. Try again.");
+      else if (error.status === 400) setMessage("Those photos could not be used. Add clear JPG or PNG photos of the contents page and try again.");
+      else if (error.status) setMessage("The photo reader is busy right now. Please try again in a moment, or add the book manually.");
+      else setMessage("Could not reach the server to read your photos. Check your connection and try again.");
       setFailed(1); setStage("error");
     }
   }
@@ -160,13 +198,18 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
   const removeChapter = (i) => setChapters((list) => list.filter((_, n) => n !== i));
   const addChapter = () => setChapters((list) => [...list, { number: list.length + 1, title: "", startPage: null }]);
 
-  function save() {
+  async function save() {
     const clean = chapters.map((c) => ({ ...c, title: c.title.trim() })).filter((c) => c.title).map((c, i) => ({ ...c, number: i + 1 }));
     if (!book.title.trim() || !clean.length) return;
     const duplicate = findExisting?.(book.title);
     if (duplicate) { setMessage(`"${duplicate.title}" is already in your library.`); setStage("duplicate"); return; }
     setStage("working"); setStep(3); setFailed(null);
-    window.setTimeout(() => onSave({ title: book.title.trim(), authorName: book.authors.join(", "), coverUrl: book.coverUrl, portrait, bio, chapters: clean }), 450);
+    lastAction.current = () => save();
+    try {
+      await onSave({ title: book.title.trim(), authorName: book.authors.join(", "), coverUrl: book.coverUrl, portrait, bio, chapters: clean });
+    } catch {
+      if (alive.current) { setFailed(3); setMessage("The book could not be saved. Your chapters are kept, so tap Try again."); setStage("error"); }
+    }
   }
 
   const author = book?.authors[0] || "";
@@ -197,14 +240,13 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
 
       {stage === "working" && (
         <div className="bsf-body">
-          <div className="bsf-orb" aria-hidden="true"><BookOpen size={26} /></div>
-          <Progress step={step} failedStep={failed} />
+          <Working step={step} failed={failed} cover={book?.coverUrl} title={book?.title} />
         </div>
       )}
 
       {stage === "error" && (
         <div className="bsf-body">
-          <Progress step={failed ?? 0} failedStep={failed} />
+          <Working step={failed ?? 0} failed={failed} cover={book?.coverUrl} title={book?.title} />
           <p className="bsf-msg err"><AlertTriangle size={16} />{message}</p>
           <div className="bsf-actions">
             <button type="button" className="icon-button ghost" onClick={() => onManual(book?.title || query.trim(), "manual")}>Add manually</button>
@@ -220,7 +262,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
             {results.map((b, i) => (
               <li key={b.key} style={{ "--i": i }}>
                 <button type="button" onClick={() => choose(b)}>
-                  {b.coverUrl ? <img src={b.coverUrl} alt="" loading="lazy" /> : <span className="bsf-nocover"><BookOpen size={18} /></span>}
+                  <Cover src={b.coverUrl} size="sm" />
                   <span><b>{b.title}</b><small>{b.authors.join(", ")}{b.year ? ` · ${b.year}` : ""}</small></span>
                 </button>
               </li>
@@ -239,7 +281,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
 
       {stage === "scan" && book && (
         <div className="bsf-body">
-          <div className="bsf-book"><Avatar name={author} src={portrait} /><span><b>{book.title}</b><small>{author}</small></span></div>
+          <div className="bsf-book"><Cover src={book.coverUrl} /><span className="bsf-book-text"><b>{book.title}</b><small>{author || "Author unknown"}</small></span></div>
           <p className="bsf-msg"><AlertTriangle size={16} />I could not find this book's chapters online.</p>
           <h3 className="bsf-sub">Upload the book's contents page</h3>
           <p className="bsf-hint">Take a clear photo of the contents page. If it spans more pages, add them all (up to {MAX_PHOTOS}). Photos are read once and not stored.</p>
@@ -264,10 +306,10 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
       {stage === "review" && book && (
         <div className="bsf-body">
           <div className="bsf-book">
-            <Avatar name={author} src={portrait || brave.candidate} />
-            <span>
+            <Cover src={book.coverUrl} />
+            <span className="bsf-book-text">
               <input className="bsf-title" value={book.title} onChange={(e) => setBook({ ...book, title: e.target.value })} aria-label="Book title" />
-              <small>{author}</small>
+              <small className="bsf-by"><Avatar name={author} src={portrait || brave.candidate} size={20} />{author || "Author unknown"}</small>
             </span>
           </div>
           {brave.available && <button type="button" className="bsf-link" disabled={brave.busy} onClick={findPhotoOnline}>{brave.busy ? "Searching the web…" : "No photo found. Search the web for one?"}</button>}

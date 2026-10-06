@@ -45,7 +45,7 @@ const REPORT_TYPES = new Set(["bug", "issue", "feature", "enhance"]);
 const AI_REQUEST_LIMITS = {
   report: { perIpHour: 5, serviceDaily: 40 },
   help: { perIpHour: 20, serviceDaily: 180 },
-  tocScan: { perIpHour: 12, serviceDaily: 120 },
+  tocScan: { perIpHour: 40, serviceDaily: 400 },
   bookSearch: { perIpHour: 90, serviceDaily: 4000 },
 };
 const aiIpWindows = new Map();
@@ -107,6 +107,15 @@ function allowAiRequestForResponse(req, res, feature) {
   }
   activeAiRequests += 1;
   return true;
+}
+
+// A failed scan is not the user's fault, so it must not use up their hourly allowance.
+function refundAiRequest(feature, ip) {
+  const window = aiIpWindows.get(`${feature}:${ip}`);
+  if (window && window.count > 0) window.count -= 1;
+  const dailyKey = `${new Date().toISOString().slice(0, 10)}:${feature}`;
+  const daily = aiDailyCounts.get(dailyKey);
+  if (daily > 0) aiDailyCounts.set(dailyKey, daily - 1);
 }
 
 function finishAiRequest() {
@@ -1725,7 +1734,7 @@ app.post("/api/book-lookup/author-photo", async (req, res) => {
 // Contents-page photos are read in memory by a vision model and never stored.
 // Gemini 2.5 Flash (thinking off, its own quota separate from the live reading model) comes first;
 // OpenRouter is the fallback when Gemini is slow, rate limited or unavailable.
-const TOC_SCAN_MODEL = process.env.TOC_SCAN_MODEL || "gemini-2.5-flash";
+const TOC_SCAN_MODEL = process.env.TOC_SCAN_MODEL || "gemini-3.5-flash-lite";
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const OPENROUTER_VISION_MODEL = process.env.OPENROUTER_VISION_MODEL || "google/gemini-2.5-flash";
 const TOC_SCAN_TIMEOUT_MS = 40_000;
@@ -1741,7 +1750,7 @@ async function scanTocWithGemini(images) {
   const response = await withTimeout(generateGeminiContent({
     model: TOC_SCAN_MODEL,
     contents: [{ role: "user", parts }],
-    config: { temperature: 0, responseMimeType: "application/json", thinkingConfig: { thinkingBudget: 0 } },
+    config: { temperature: 0, responseMimeType: "application/json", ...(/2\.5/.test(TOC_SCAN_MODEL) ? { thinkingConfig: { thinkingBudget: 0 } } : {}) },
   }), TOC_SCAN_TIMEOUT_MS, "gemini");
   return response.text;
 }
@@ -1788,7 +1797,8 @@ app.post("/api/book-lookup/toc-scan", async (req, res) => {
     return res.json({ chapters: parseVisionChapters(text) });
   } catch (error) {
     console.warn("[TOC SCAN] failed:", redactSecrets(error?.message, 140));
-    return res.status(503).json({ error: "scan_unavailable" });
+    refundAiRequest("tocScan", req.ip || req.socket.remoteAddress || "unknown");
+    return res.status(502).json({ error: "scan_unavailable" });
   } finally {
     images = null;
     finishAiRequest();

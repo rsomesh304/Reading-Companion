@@ -48,7 +48,6 @@
 .dx-toc-item.on svg { color: var(--primary); }
 .dx-toc-item.seen::after { content: ""; margin-left: auto; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: 0.8; flex: 0 0 auto; }
 .dx-toc-sub { padding-left: 34px; }
-.dx-helper-side { flex: 0 0 360px; min-width: 0; border-left: 1px solid var(--border); display: flex; background: var(--bg-2); }
 
 /* Article */
 .dx-kicker { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
@@ -160,23 +159,16 @@
 @keyframes dxMorph { from { opacity: 0; transform: scale(0.82); border-radius: 20px; } to { opacity: 1; transform: none; } }
 .dxp-rim { position: absolute; inset: -1.5px; border-radius: inherit; background: conic-gradient(from var(--ang, 0deg), var(--dx-glow-a), var(--dx-glow-b), var(--dx-glow-c), var(--dx-glow-a)); animation: dxSpin 6s linear infinite; opacity: 0.55; transition: opacity 0.3s, filter 0.3s; }
 .dxp.typing .dxp-rim { opacity: 1; animation-duration: 1.8s; filter: blur(0.3px) drop-shadow(0 0 10px var(--primary)); }
-.dxp.ask .dxp-rim { background: conic-gradient(from var(--ang, 0deg), var(--dx-glow-c), var(--primary-2), var(--dx-glow-b), var(--dx-glow-c)); }
 .dxp-in { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg-2); border-radius: inherit; overflow: hidden; padding-top: env(safe-area-inset-top, 0px); }
 .dxp-head { display: flex; align-items: center; gap: 10px; padding: 12px 12px 8px 16px; }
 .dxp-ic { color: var(--primary); flex: 0 0 auto; }
-.dxp.ask .dxp-ic { color: var(--primary-2); }
 .dxp-head input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 17px; padding: 8px 0; font-family: inherit; }
 .dxp-head input::placeholder { color: var(--muted); }
 .dxp-close { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
-.dxp-modes { display: flex; align-items: center; gap: 6px; padding: 0 12px 8px; }
-.dxp-modes button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; min-height: 32px; border-radius: 99px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 600; cursor: pointer; }
-.dxp-modes button.on { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
-.dxp-modes .dxp-clear { margin-left: auto; border: 0; }
 .dxp-scopes { display: flex; gap: 6px; padding: 0 12px 10px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border); }
 .dxp-scopes::-webkit-scrollbar { display: none; }
-.dxp-scopes button { flex: 0 0 auto; padding: 6px 11px; min-height: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 12px; cursor: pointer; }
+.dxp-scopes button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px; min-height: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 12px; cursor: pointer; }
 .dxp-scopes button.on { color: var(--primary); border-color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
-.dxp-modes + .dxp-body { border-top: 1px solid var(--border); }
 .dxp-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 8px 12px; }
 .dxp-sec { display: flex; align-items: center; gap: 6px; margin: 10px 8px 4px; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
 .dxp-item { display: flex; align-items: center; border-radius: 12px; animation: dxItem 0.3s var(--d, 0ms) both; }
@@ -192,7 +184,9 @@
 .dxp mark { background: color-mix(in srgb, var(--accent) 28%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 .dxp-enter { color: var(--primary); flex: 0 0 auto; } .dxp-enter.dim { opacity: 0.35; }
 .dxp-alt { width: 40px; height: 40px; margin-right: 6px; display: grid; place-items: center; border: 0; border-radius: 10px; background: transparent; color: var(--primary-2); cursor: pointer; }
-.dxp-none { padding: 16px; text-align: center; color: var(--muted); font-size: 13.5px; }
+.dxp-none { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 22px 16px; text-align: center; color: var(--muted); font-size: 13.5px; }
+.dxp-none b { color: var(--text); }
+.dxp-none button { padding: 7px 14px; min-height: 36px; border-radius: 10px; border: 1px solid var(--primary); background: transparent; color: var(--primary); font-weight: 600; cursor: pointer; }
 .dxp-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted); }
 .dxp-foot kbd { margin: 0 3px 0 6px; }
 .dxp-send { padding: 7px 16px; min-height: 36px; border: 0; border-radius: 10px; color: #fff; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--primary-2)); cursor: pointer; }
@@ -227,28 +221,25 @@
 .dxa-think i:nth-child(2) { animation-delay: 0.15s; } .dxa-think i:nth-child(3) { animation-delay: 0.3s; }
 @keyframes dxDot { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
 
-/* Helper panel (side on desktop, sheet on phones) */
-.dxh.side { flex: 1; display: flex; min-width: 0; color: var(--text); }
-.dxh.side .dxh-card { flex: 1; border-radius: 0; }
-.dxh:not(.side) { position: fixed; left: 0; right: 0; z-index: 2900; display: flex; align-items: flex-end; color: var(--text); }
-.dxh-scrim { position: absolute; inset: 0; border: 0; background: rgba(6, 9, 20, 0.5); animation: dxFade 0.25s both; }
-.dxh-card { position: relative; display: flex; flex-direction: column; min-height: 0; background: var(--bg-2); }
-.dxh:not(.side) .dxh-card { width: 100%; height: 86%; border-radius: 22px 22px 0 0; border: 1px solid var(--border); animation: dxSlide 0.3s cubic-bezier(0.2, 0.9, 0.25, 1) both; }
-@keyframes dxSlide { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
-.dxh-card header { display: flex; align-items: center; gap: 10px; padding: 12px; border-bottom: 1px solid var(--border); }
-.dxh-card header div { flex: 1; min-width: 0; } .dxh-card header b, .dxh-card header small { display: block; }
-.dxh-card header small { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dxh-orb { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; color: #fff; background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
-.dxh-clear { border: 0; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
-.dxh-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px; }
-.dxh-form { display: flex; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); }
-.dxh-form input { flex: 1; min-width: 0; padding: 11px 13px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 16px; font-family: inherit; outline: 0; }
-.dxh-form input:focus { border-color: var(--primary); }
-.dxh-form button { width: 44px; border: 0; border-radius: 12px; color: #fff; cursor: pointer; background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
-.dxh-form button:disabled { opacity: 0.45; }
-
+/* Docs Helper chat page */
+.dxc { position: fixed; left: 0; right: 0; z-index: 2900; display: flex; flex-direction: column; background: var(--bg-1); color: var(--text); animation: dxSlide 0.3s cubic-bezier(0.2, 0.9, 0.25, 1) both; }
+.dxc * { box-sizing: border-box; }
+@keyframes dxSlide { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.dxc-head { display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 10px; border-bottom: 1px solid var(--border); background: var(--bg-2); }
+.dxc-head div { flex: 1; min-width: 0; } .dxc-head b, .dxc-head small { display: block; }
+.dxc-head small { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dxh-orb { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; color: #fff; background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
+.dxh-clear { border: 0; background: transparent; color: var(--muted); font-size: 12.5px; min-height: 36px; padding: 0 6px; cursor: pointer; }
+.dxc-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px; }
+.dxc-inner { width: 100%; max-width: 760px; margin: 0 auto; }
+.dxc-form { padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); background: var(--bg-2); }
+.dxc-form .dxc-inner { display: flex; gap: 8px; }
+.dxc-form input { flex: 1; min-width: 0; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 16px; font-family: inherit; outline: 0; }
+.dxc-form input:focus { border-color: var(--primary); }
+.dxc-form button { width: 48px; border: 0; border-radius: 14px; color: #fff; cursor: pointer; background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
+.dxc-form button:disabled { opacity: 0.45; }
 @media (prefers-reduced-motion: reduce) {
-  .dxs-glow, .dxp-rim, .dxs-hint, .dxp, .dxp-scrim, .dxp-item, .dx-page-in, .dh2-path, .dh2-group, .dxa-orb, .dxa-msg, .dxa-think i, .dxh-card, .dxh-scrim { animation: none !important; }
+  .dxs-glow, .dxp-rim, .dxs-hint, .dxp, .dxp-scrim, .dxp-item, .dx-page-in, .dh2-path, .dh2-group, .dxa-orb, .dxa-msg, .dxa-think i, .dxc { animation: none !important; }
   .dxs-glow, .dxp-rim { opacity: 0.6; }
 }
 

@@ -1,0 +1,47 @@
+/* Profile card: a "reader pass" with a slow iridescent rim and soft ripples */
+.pc { --pc-a: #7c5cff; --pc-b: #3ec6e0; --pc-c: #ffb454; position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; padding: 22px 18px 20px; border-radius: 28px; text-align: center; color: var(--text); background: linear-gradient(165deg, color-mix(in srgb, var(--pc-a) 11%, var(--surface)), var(--surface) 60%); box-shadow: var(--shadow); }
+.pc-rim { position: absolute; inset: 0; z-index: -1; border-radius: inherit; padding: 1.5px; background: linear-gradient(120deg, var(--pc-a), var(--pc-b), var(--pc-c), var(--pc-a)) 0 0 / 300% 100%; -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); opacity: 0.7; animation: pcRim 14s linear infinite; }
+.pc-ripples { position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit; pointer-events: none; }
+.pc-ripples i { position: absolute; left: 50%; top: 86px; width: 150px; height: 150px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--pc-a) 26%, transparent); translate: -50% -50%; animation: pcRipple 7s ease-out infinite; }
+.pc-ripples i:nth-child(2) { animation-delay: -2.3s; } .pc-ripples i:nth-child(3) { animation-delay: -4.6s; }
+.pc-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 99px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--pc-a); background: color-mix(in srgb, var(--pc-a) 12%, transparent); }
+.pc-avatar { position: relative; width: 104px; height: 104px; margin: 4px 0 2px; flex: 0 0 auto; }
+.pc-photo { position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 50%; overflow: hidden; cursor: pointer; background: var(--surface-2); box-shadow: 0 0 0 4px var(--surface), 0 0 0 6px color-mix(in srgb, var(--pc-a) 55%, transparent), 0 16px 30px -12px color-mix(in srgb, var(--pc-a) 60%, transparent); }
+.pc-photo .avatar-img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
+.pc-photo .avatar-preset-fill { display: grid; place-items: center; width: 100%; height: 100%; }
+.pc-photo .avatar-preset-fill svg { width: 46px; height: 46px; }
+.pc-cam { position: absolute; right: -2px; bottom: 2px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 3px solid var(--surface); border-radius: 50%; color: #fff; cursor: pointer; background: linear-gradient(135deg, var(--pc-a), var(--pc-b)); }
+.pc-name { width: min(100%, 260px); padding: 4px 8px; border: 0; border-bottom: 1.5px solid transparent; background: transparent; color: var(--text); text-align: center; font-family: "Fraunces", serif; font-size: 25px; font-weight: 600; outline: 0; transition: border-color 0.2s; }
+.pc-name:hover { border-bottom-color: var(--border); }
+.pc-name:focus { border-bottom-color: var(--pc-a); }
+.pc-change { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 16px; border: 1px solid var(--border); border-radius: 99px; color: var(--text); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; background: var(--surface); transition: border-color 0.2s, background 0.2s; }
+.pc-change:hover { border-color: var(--pc-a); }
+.pc-change svg:last-child { transition: transform 0.3s; }
+.pc-change[aria-expanded="true"] svg:last-child { transform: rotate(180deg); }
+.pc-tray { display: grid; grid-template-columns: repeat(3, 56px); justify-content: center; gap: 12px; padding: 14px; border-radius: 22px; background: color-mix(in srgb, var(--pc-a) 8%, var(--surface-2)); transform-origin: 50% 0; }
+.pc-swatch { display: grid; place-items: center; width: 56px; height: 56px; padding: 0; border: 3px solid transparent; border-radius: 50%; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s; }
+.pc-swatch.on { border-color: var(--text); box-shadow: 0 0 0 3px var(--surface); }
+.pc-remove { grid-column: 1 / -1; min-height: 40px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+@keyframes pcRim { to { background-position: 300% 0; } }
+@keyframes pcRipple { 0% { transform: scale(0.7); opacity: 0.9; } 100% { transform: scale(2.6); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .pc-rim, .pc-ripples i { animation: none; } .pc-ripples { display: none; } }
+
+/* Photo cropper */
+.pcrop-wrap { position: fixed; inset: 0; z-index: 3200; display: grid; place-items: center; padding: 16px; }
+.pcrop-scrim { position: absolute; inset: 0; border: 0; background: rgba(6, 9, 20, 0.62); backdrop-filter: blur(5px); }
+.pcrop { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(100%, 340px); max-height: 100%; overflow-y: auto; padding: 20px 16px 16px; border-radius: 24px; border: 1px solid var(--border); color: var(--text); background: var(--surface); box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.6); }
+.pcrop h3 { margin: 0; font-size: 18px; }
+.pcrop p { margin: 0; color: var(--muted); font-size: 13px; }
+.pcrop-err { color: #d9890b !important; padding: 16px 0; }
+.pcrop-stage { position: relative; overflow: hidden; border-radius: 14px; background: #0b1020; touch-action: none; cursor: grab; max-width: 100%; }
+.pcrop-stage:active { cursor: grabbing; }
+.pcrop-stage img { position: absolute; left: 50%; top: 50%; max-width: none; margin: 0; translate: -50% -50%; user-select: none; -webkit-user-drag: none; pointer-events: none; }
+.pcrop-mask { position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 999px rgba(6, 9, 20, 0.62), inset 0 0 0 2px rgba(255, 255, 255, 0.85); pointer-events: none; }
+.pcrop-zoom { display: flex; align-items: center; gap: 8px; width: 100%; }
+.pcrop-zoom input { flex: 1; min-width: 0; accent-color: var(--primary); }
+.pcrop-zoom button { display: grid; place-items: center; width: 40px; height: 40px; flex: 0 0 auto; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; }
+.pcrop-actions { display: flex; gap: 10px; width: 100%; }
+.pcrop-actions button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 46px; border-radius: 14px; font: inherit; font-weight: 700; cursor: pointer; }
+.pcrop-actions .ghost { border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.pcrop-actions .go { border: 0; color: #fff; background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
+.pcrop-actions .go:disabled { opacity: 0.5; }

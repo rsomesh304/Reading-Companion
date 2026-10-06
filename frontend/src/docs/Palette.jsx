@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowRight, CornerDownLeft, Clock3, Search, Settings2, Sparkles, X, Zap } from "lucide-react";
+import { ArrowRight, CornerDownLeft, Clock3, Search, SearchX, Settings2, Sparkles, X, Zap } from "lucide-react";
 import { useBackLayer } from "../backStack.js";
 import { PAGES, searchDocs } from "./content.js";
 import { useViewport } from "./viewport.js";
-import { HELPER_SUGGESTIONS } from "./helper.js";
-import { SCOPES, highlightRanges } from "./search.js";
+import { SCOPES, highlightRanges, scopeSuggestions } from "./search.js";
 import { pageIcon } from "./icons.js";
-import HelperThread from "./HelperThread.jsx";
 
 const QUICK = [
   { label: "Site is down?", id: "ops-runbook", ask: "The site is down. What should I check first?" },
@@ -49,33 +47,33 @@ function envMatches(query) {
   return names.slice(0, 3);
 }
 
-export default function Palette({ theme, helper, recents, pageId, initialMode = "search", origin, onOpen, onClose }) {
+export default function Palette({ theme, recents, origin, onOpen, onAsk, onClose }) {
   const [query, setQuery] = useState("");
-  const [mode, setMode] = useState(initialMode);
   const [scope, setScope] = useState("all");
   const [active, setActive] = useState(0);
   const [typing, setTyping] = useState(false);
-  const [manual, setManual] = useState(initialMode === "ask");
   const inputRef = useRef(null);
   const listRef = useRef(null);
   const vp = useViewport();
   useBackLayer(true, onClose);
-  useEffect(() => { inputRef.current?.focus(); }, [mode]);
+  useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => { if (!typing) return undefined; const t = setTimeout(() => setTyping(false), 700); return () => clearTimeout(t); }, [typing, query]);
 
   const q = query.trim();
-  const results = useMemo(() => (q && mode === "search" ? searchDocs(q, { scope }) : []), [q, scope, mode]);
-  const envs = useMemo(() => (mode === "search" ? envMatches(q) : []), [q, mode]);
+  const results = useMemo(() => (q ? searchDocs(q, { scope }) : []), [q, scope]);
+  const envs = useMemo(() => envMatches(q), [q]);
   const pageById = (id) => PAGES.find((p) => p.id === id);
 
-  const send = (text) => { setMode("ask"); setManual(true); setActive(0); setQuery(""); helper.ask(text, pageId); };
+  const send = (text) => onAsk(text);
+  const scopeLabel = SCOPES.find((s) => s.id === scope)?.label || "All";
+  const scopeMatch = SCOPES.find((s) => s.id === scope)?.match;
 
   const items = (() => {
     const list = [];
-    if (mode === "ask") return list;
     if (!q) {
-      recents.map(pageById).filter(Boolean).slice(0, 4).forEach((p) => list.push({ section: "Recently viewed", icon: pageIcon(p), title: p.title, crumbs: ["Docs", p.group], run: () => onOpen(p.id) }));
-      QUICK.forEach((a) => list.push({ section: "Suggested", icon: Zap, title: a.label, crumbs: ["Quick action"], run: () => onOpen(a.id), alt: () => send(a.ask) }));
+      recents.map(pageById).filter((p) => p && (!scopeMatch || scopeMatch(p))).slice(0, 4).forEach((p) => list.push({ section: "Recently viewed", icon: pageIcon(p), title: p.title, crumbs: ["Docs", p.group], run: () => onOpen(p.id) }));
+      if (scope === "all") QUICK.filter((a) => pageById(a.id)).forEach((a) => list.push({ section: "Suggested", icon: Zap, title: a.label, crumbs: ["Quick action"], run: () => onOpen(a.id), alt: () => send(a.ask) }));
+      else scopeSuggestions(PAGES, scope).forEach(({ page, heading }) => list.push({ section: `Suggested in ${scopeLabel}`, icon: pageIcon(page), title: heading || page.title, crumbs: heading ? ["Docs", page.title] : ["Docs", page.group], run: () => onOpen(page.id, heading) }));
       return list;
     }
     if (QUESTION.test(q) && q.split(/\s+/).length >= 3) list.push({ section: "Ask", icon: Sparkles, title: `Ask the Docs Helper`, crumbs: [q], ai: true, run: () => send(q) });
@@ -89,48 +87,40 @@ export default function Palette({ theme, helper, recents, pageId, initialMode = 
 
   const onKey = (e) => {
     if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
-    if (mode === "ask") { if (e.key === "Enter" && q && !helper.busy) { e.preventDefault(); send(q); } return; }
     if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.min(items.length - 1, a + 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
     else if (e.key === "Enter") { e.preventDefault(); items[active]?.run(); }
   };
 
-  const setModeManual = (m) => { setManual(true); setActive(0); setMode(m); };
   const onChange = (e) => {
     const v = e.target.value;
     setQuery(v);
     setTyping(true);
     setActive(0);
-    if (mode === "search" && !manual && QUESTION.test(v.trim()) && v.trim().split(/\s+/).length >= 4) setMode("ask");
   };
 
   let lastSection = "";
   const node = (
     <div className={`dxp-wrap dx-theme-${theme}`} data-dx-theme={theme} style={{ top: vp.top, height: vp.h, "--ox": `${origin?.x ?? 0}px`, "--oy": `${(origin?.y ?? 0) - vp.top}px` }} role="dialog" aria-modal="true" aria-label="Search the docs">
       <button type="button" className="dxp-scrim" aria-label="Close search" onClick={onClose} />
-      <div className={`dxp${typing ? " typing" : ""}${mode === "ask" ? " ask" : ""}`}>
+      <div className={`dxp${typing ? " typing" : ""}`}>
         <span className="dxp-rim" aria-hidden="true" />
         <div className="dxp-in">
           <div className="dxp-head">
-            {mode === "ask" ? <Sparkles size={18} className="dxp-ic" /> : <Search size={18} className="dxp-ic" />}
-            <input ref={inputRef} value={query} onChange={onChange} onKeyDown={onKey} enterKeyHint={mode === "ask" ? "send" : "search"} autoComplete="off" autoCorrect="off" spellCheck="false"
-              placeholder={mode === "ask" ? "Ask anything about the app or its setup" : "Search the docs or ask a question"} aria-label="Search the docs" />
+            <Search size={18} className="dxp-ic" />
+            <input ref={inputRef} value={query} onChange={onChange} onKeyDown={onKey} enterKeyHint="search" autoComplete="off" autoCorrect="off" spellCheck="false"
+              placeholder="Search the docs" aria-label="Search the docs" />
             <button type="button" className="dxp-close" onClick={onClose} aria-label="Close"><X size={16} /></button>
           </div>
-          <div className="dxp-modes" role="tablist" aria-label="Mode">
-            <button type="button" role="tab" aria-selected={mode === "search"} className={mode === "search" ? "on" : ""} onClick={() => setModeManual("search")}><Search size={13} /> Search</button>
-            <button type="button" role="tab" aria-selected={mode === "ask"} className={mode === "ask" ? "on" : ""} onClick={() => setModeManual("ask")}><Sparkles size={13} /> Ask AI</button>
-            {mode === "ask" && helper.messages.length > 0 && <button type="button" className="dxp-clear" onClick={helper.reset}>Clear</button>}
-          </div>
-          {mode === "search" && (
-            <div className="dxp-scopes" role="group" aria-label="Filter by section">
-              {SCOPES.map((s) => <button type="button" key={s.id} className={scope === s.id ? "on" : ""} onClick={() => { setScope(s.id); setActive(0); }}>{s.label}</button>)}
-            </div>
-          )}
-          <div className="dxp-body" ref={listRef}>
-            {mode === "ask" ? (
-              <HelperThread helper={helper} suggestions={HELPER_SUGGESTIONS} onAsk={send} onOpen={onOpen} />
-            ) : (
+          <div className="dxp-scopes" role="group" aria-label="Filter by section">
+            {SCOPES.map((s) => (
+              <button type="button" key={s.id} className={scope === s.id ? "on" : ""} aria-pressed={scope === s.id}
+                onClick={() => { setScope(scope === s.id ? "all" : s.id); setActive(0); }}>
+                {s.label}{scope === s.id && s.id !== "all" && <X size={12} aria-label="Clear filter" />}
+              </button>
+            ))}
+          </div>          <div className="dxp-body" ref={listRef}>
+            {(
               <>
                 {items.map((it, i) => {
                   const head = it.section !== lastSection ? it.section : null;
@@ -154,13 +144,18 @@ export default function Palette({ theme, helper, recents, pageId, initialMode = 
                     </div>
                   );
                 })}
-                {q && !items.length && <p className="dxp-none">No matches.</p>}
+                {!items.length && (
+                  <div className="dxp-none">
+                    <SearchX size={22} />
+                    <b>{q ? `No matches in ${scopeLabel}` : `Nothing to suggest in ${scopeLabel} yet`}</b>
+                    {scope !== "all" && <button type="button" onClick={() => setScope("all")}>Clear filter</button>}
+                  </div>
+                )}
               </>
             )}
           </div>
           <div className="dxp-foot">
-            {mode === "ask" ? <span>Answers come only from these docs.</span> : <span><kbd>↑</kbd><kbd>↓</kbd> move <kbd>↵</kbd> open <kbd>esc</kbd> close</span>}
-            {mode === "ask" && <button type="button" className="dxp-send" disabled={!q || helper.busy} onClick={() => send(q)}>Send</button>}
+            <span><kbd>↑</kbd><kbd>↓</kbd> move <kbd>↵</kbd> open <kbd>esc</kbd> close</span>
           </div>
         </div>
       </div>
