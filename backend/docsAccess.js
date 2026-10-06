@@ -25,6 +25,28 @@ export async function verifyDocsOwner({ authorization, env = process.env, fetchI
   }
   const userId = typeof user?.id === "string" ? user.id : "";
   if (!userId) return { allowed: false, reason: "signed_out" };
-  if (!owners.size) return { allowed: false, reason: "not_configured", userId };
-  return owners.has(userId.toLowerCase()) ? { allowed: true, userId } : { allowed: false, reason: "not_owner", userId };
+  if (owners.has(userId.toLowerCase())) return { allowed: true, userId };
+
+  // Access can also be granted by adding a row to the docs_access table (no redeploy needed).
+  let listed = false;
+  try {
+    const lookup = await fetchImpl(`${supabaseUrl}/rest/v1/docs_access?user_id=eq.${encodeURIComponent(userId)}&select=user_id&limit=1`, {
+      headers: { Authorization: `Bearer ${apiKey}`, apikey: apiKey },
+    });
+    if (lookup.ok) listed = (await lookup.json()).length > 0;
+  } catch { /* table unavailable: fall back to the env list only */ }
+  if (listed) return { allowed: true, userId };
+  return { allowed: false, reason: owners.size ? "not_owner" : "not_configured", userId };
+}
+
+export async function loadDocsBundle({ env = process.env, fetchImpl = fetch } = {}) {
+  const supabaseUrl = (env.SUPABASE_URL || "").replace(/\/+$/, "");
+  const apiKey = env.SUPABASE_SERVICE_ROLE_KEY || "";
+  if (!supabaseUrl || !apiKey) return null;
+  const response = await fetchImpl(`${supabaseUrl}/rest/v1/docs_content?key=eq.main&select=body,updated_at&limit=1`, {
+    headers: { Authorization: `Bearer ${apiKey}`, apikey: apiKey },
+  });
+  if (!response.ok) return null;
+  const [row] = await response.json();
+  return row ? { ...row.body, publishedAt: row.updated_at } : null;
 }

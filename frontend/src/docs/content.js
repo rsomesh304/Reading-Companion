@@ -3,7 +3,13 @@ import { buildSearch } from "./search.js";
 
 export { PAGES };
 export const GROUPS = ["Start here", "Product tour", "Architecture", "Run it", "Reference"];
-export const CONFIRMS = PAGES.flatMap((page) =>
+
+export const getConfirms = () => PAGES.flatMap((page) =>
   page.blocks.filter((b) => b.type === "callout" && b.kind === "confirm").map((b) => ({ page: page.id, title: page.title, text: b.text }))
 );
-export const searchDocs = buildSearch(PAGES, FLOWS);
+
+let cached = { size: -1, search: null };
+export function searchDocs(query) {
+  if (cached.size !== PAGES.length) cached = { size: PAGES.length, search: buildSearch(PAGES, FLOWS) };
+  return cached.search(query);
+}

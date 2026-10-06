@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { getAiProviderOrder, readTextCompletion, requestTextCompletion, streamTextCompletion } from "./aiTextProviders.js";
 import { normalizeGemEchoCatalog, validateGemEchoCandidates, validateGemEchoPairs } from "./gemEchoes.js";
 import { classifyGeminiFailure, KeyPool } from "./geminiKeyPool.js";
-import { verifyDocsOwner } from "./docsAccess.js";
+import { verifyDocsOwner, loadDocsBundle } from "./docsAccess.js";
 import { buildPushPayload, createPushService, normalizeReminderMinute, normalizeSubscription } from "./pushNotifications.js";
 import { buildReportEmailHtml, buildReportEmailSubject } from "./reportEmailTemplate.js";
 import { cleanRewrite, stepsPreserved } from "./reportRewrite.js";
@@ -1076,6 +1076,20 @@ app.get("/api/docs/access", async (req, res) => {
   }
   const result = await verifyDocsOwner({ authorization: req.get("authorization") || "" });
   return res.json(result);
+});
+
+// Serves the private docs bundle (stored in Supabase, never in the repo) to authorised users only.
+app.get("/api/docs/content", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const result = await verifyDocsOwner({ authorization: req.get("authorization") || "" });
+  if (!result.allowed) return res.status(403).json({ error: "forbidden", reason: result.reason });
+  try {
+    const bundle = await loadDocsBundle();
+    if (!bundle) return res.status(404).json({ error: "not_published" });
+    return res.json(bundle);
+  } catch {
+    return res.status(502).json({ error: "unavailable" });
+  }
 });
 
 // ---------------------------------------------------------------

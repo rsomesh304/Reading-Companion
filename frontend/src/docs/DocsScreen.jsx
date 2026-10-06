@@ -3,7 +3,8 @@ import { ArrowLeft, BookMarked, ChevronLeft, ChevronRight, Copy, EyeOff, List, S
 import { checkDocsAccess } from "../docsAccess.js";
 import { useBackLayer } from "../backStack.js";
 import { setDocsUnlocked } from "../docsUnlock.js";
-import { PAGES, GROUPS, CONFIRMS, searchDocs } from "./content.js";
+import { PAGES, GROUPS, getConfirms, searchDocs } from "./content.js";
+import { loadDocsContent } from "./registry.js";
 import { Block } from "./blocks.jsx";
 import DocsHome from "./DocsHome.jsx";
 import "./docs.css";
@@ -79,11 +80,11 @@ function Gate({ state, retry, onBack }) {
   );
 }
 
-function EmptyDocs({ onBack }) {
+function EmptyDocs({ onBack, missing }) {
   return (
     <div className="dx-root">
       <header className="dx-bar"><button type="button" className="dx-icon" onClick={onBack} aria-label="Back"><ArrowLeft size={18} /></button><strong>Docs</strong></header>
-      <div className="dx-gate"><BookMarked size={28} aria-hidden="true" /><p>The docs content is not included in this build. It is kept private and only available on the machine that has it.</p></div>
+      <div className="dx-gate"><BookMarked size={28} aria-hidden="true" /><p>{missing ? "The docs have not been published yet. Run the publish script from the project folder." : "The docs content could not be loaded. Check your connection and reopen Docs."}</p></div>
     </div>
   );
 }
@@ -144,7 +145,7 @@ function Stamp() {
 function ConfirmList({ onPick }) {
   return (
     <ul className="dx-confirm-list">
-      {CONFIRMS.map((c, i) => (
+      {getConfirms().map((c, i) => (
         <li key={i}><button type="button" onClick={() => onPick(c.page)}><b>{c.title}</b><span>{c.text}</span></button></li>
       ))}
     </ul>
@@ -279,9 +280,22 @@ function DocsApp({ nav }) {
   );
 }
 
+function useDocsContent(enabled) {
+  const [state, setState] = useState(PAGES.length ? "ready" : "loading");
+  useEffect(() => {
+    if (!enabled || state === "ready") return undefined;
+    let live = true;
+    loadDocsContent().then((r) => { if (live) setState(r.status); });
+    return () => { live = false; };
+  }, [enabled, state]);
+  return state;
+}
+
 export default function DocsScreen({ nav }) {
   const [gate, retry] = useOwnerGate();
-  if (gate.status === "ok" && !PAGES.length) return <EmptyDocs onBack={nav.goBack} />;
+  const content = useDocsContent(gate.status === "ok");
   if (gate.status !== "ok") return <Gate state={gate} retry={retry} onBack={nav.goBack} />;
+  if (content === "loading") return <Gate state={{ status: "checking" }} retry={retry} onBack={nav.goBack} />;
+  if (content !== "ready") return <EmptyDocs onBack={nav.goBack} missing={content === "missing"} />;
   return <DocsApp nav={nav} />;
 }
