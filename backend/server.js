@@ -5,9 +5,13 @@ import express from "express";
 import { timingSafeEqual } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fetchAuthorBio, fetchBookDetails, findBooks, fetchTocByIsbn, parseVisionChapters, validateImages, TOC_VISION_PROMPT } from "./bookLookup.js";
 import { getAiProviderOrder, readTextCompletion, requestTextCompletion, streamTextCompletion } from "./aiTextProviders.js";
 import { normalizeGemEchoCatalog, validateGemEchoCandidates, validateGemEchoPairs } from "./gemEchoes.js";
 import { classifyGeminiFailure, KeyPool } from "./geminiKeyPool.js";
+import { verifyDocsOwner, loadDocsBundle } from "./docsAccess.js";
+import { registerDocsNarration } from "./docsNarration.js";
+import { buildChunks, retrieve, buildMessages, pickCited } from "./docsHelper.js";
 import { buildPushPayload, createPushService, normalizeReminderMinute, normalizeSubscription } from "./pushNotifications.js";
 import { buildReportEmailHtml, buildReportEmailSubject } from "./reportEmailTemplate.js";
 import { cleanRewrite, stepsPreserved } from "./reportRewrite.js";
@@ -27,6 +31,7 @@ app.set("trust proxy", 1);
 app.use(cors());
 app.use("/api/bug-reports/screenshots", express.json({ limit: "7mb" }));
 app.use("/api/bug-reports", express.json({ limit: "7mb" }));
+app.use("/api/book-lookup/toc-scan", express.json({ limit: "10mb" }));
 app.use(express.json());
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
@@ -41,6 +46,9 @@ const REPORT_TYPES = new Set(["bug", "issue", "feature", "enhance"]);
 const AI_REQUEST_LIMITS = {
   report: { perIpHour: 5, serviceDaily: 40 },
   help: { perIpHour: 20, serviceDaily: 180 },
+  docsNarration: { perIpHour: 80, serviceDaily: 600 },
+  tocScan: { perIpHour: 40, serviceDaily: 400 },
+  bookSearch: { perIpHour: 90, serviceDaily: 4000 },
 };
 const aiIpWindows = new Map();
 const aiDailyCounts = new Map();
@@ -101,6 +109,15 @@ function allowAiRequestForResponse(req, res, feature) {
   }
   activeAiRequests += 1;
   return true;
+}
+
+// A failed scan is not the user's fault, so it must not use up their hourly allowance.
+function refundAiRequest(feature, ip) {
+  const window = aiIpWindows.get(`${feature}:${ip}`);
+  if (window && window.count > 0) window.count -= 1;
+  const dailyKey = `${new Date().toISOString().slice(0, 10)}:${feature}`;
+  const daily = aiDailyCounts.get(dailyKey);
+  if (daily > 0) aiDailyCounts.set(dailyKey, daily - 1);
 }
 
 function finishAiRequest() {
@@ -1057,6 +1074,88 @@ app.get("/api/keys/status", (req, res) => {
   return res.json({ keys: geminiKeyPool.status() });
 });
 
+// Owner-only gate for the in-app docs (DOCS_OWNER_USER_IDS lists the allowed Supabase user ids).
+const docsAccessWindows = new Map();
+app.get("/api/docs/access", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const now = Date.now();
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const window = docsAccessWindows.get(ip);
+  if (window && now - window.startedAt < 60 * 60 * 1000) {
+    if (window.count >= 60) return res.status(429).json({ allowed: false, reason: "rate_limited" });
+    window.count += 1;
+  } else {
+    docsAccessWindows.set(ip, { startedAt: now, count: 1 });
+  }
+  if (docsAccessWindows.size > 2000) {
+    for (const [key, entry] of docsAccessWindows) if (now - entry.startedAt >= 60 * 60 * 1000) docsAccessWindows.delete(key);
+  }
+  const result = await verifyDocsOwner({ authorization: req.get("authorization") || "" });
+  return res.json(result);
+});
+
+// Serves the private docs bundle (stored in Supabase, never in the repo) to authorised users only.
+app.get("/api/docs/content", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const result = await verifyDocsOwner({ authorization: req.get("authorization") || "" });
+  if (!result.allowed) return res.status(403).json({ error: "forbidden", reason: result.reason });
+  try {
+    const bundle = await loadDocsBundle();
+    if (!bundle) return res.status(404).json({ error: "not_published" });
+    return res.json(bundle);
+  } catch {
+    return res.status(502).json({ error: "unavailable" });
+  }
+});
+
+registerDocsNarration(app, {
+  verifyDocsOwner,
+  allowAiRequestForResponse,
+  refundAiRequest,
+  finishAiRequest,
+  generateGeminiContent,
+  redactSecrets,
+});
+
+// Docs Helper: answers from the private docs bundle with Groq. Owner-only, rate limited per user.
+let docsChunksCache = { at: 0, chunks: [] };
+const docsAskWindows = new Map();
+app.post("/api/docs/ask", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const access = await verifyDocsOwner({ authorization: req.get("authorization") || "" });
+  if (!access.allowed) return res.status(403).json({ error: "forbidden" });
+  const now = Date.now();
+  const entry = docsAskWindows.get(access.userId);
+  if (entry && now - entry.startedAt < 10 * 60 * 1000) {
+    if (entry.count >= 20) return res.status(429).json({ error: "rate_limited" });
+    entry.count += 1;
+  } else {
+    docsAskWindows.set(access.userId, { startedAt: now, count: 1 });
+  }
+  const question = typeof req.body?.question === "string" ? req.body.question.trim() : "";
+  if (question.length < 2 || question.length > 500) return res.status(400).json({ error: "bad_question" });
+  try {
+    if (!docsChunksCache.chunks.length || now - docsChunksCache.at > 5 * 60 * 1000) {
+      const bundle = await loadDocsBundle();
+      docsChunksCache = { at: now, chunks: bundle ? buildChunks(bundle) : [] };
+    }
+    const sources = retrieve(docsChunksCache.chunks, question, { pageId: String(req.body?.pageId || "") });
+    if (!sources.length) {
+      return res.json({ answer: docsChunksCache.chunks.length ? "I could not find that in the docs. Try a different keyword, such as a service name (Vercel, Supabase) or a topic like rollback." : "The docs have not been published yet.", sources: [] });
+    }
+    const { response } = await requestTextCompletion({
+      feature: "docs",
+      providerOrder: process.env.GROQ_API_KEY ? ["groq"] : [],
+      messages: buildMessages({ question, sources, history: req.body?.history }),
+      maxTokens: 450,
+      providerTimeoutMs: 15000,
+    });
+    const answer = await readTextCompletion(response);
+    return res.json({ answer, sources: pickCited(answer, sources) });
+  } catch {
+    return res.status(503).json({ error: "ai_unavailable" });
+  }
+});
 // ---------------------------------------------------------------
 // Push notifications (Web Push / VAPID)
 // ---------------------------------------------------------------
@@ -1547,9 +1646,9 @@ const PORTRAIT_SOURCES = [
 function splitAuthors(s) {
   return String(s || "").split(/\s*(?:,|&|\+|;|\band\b|\bwith\b)\s*/i).map((x) => x.trim()).filter((x) => x.length > 2).slice(0, 4);
 }
-async function portraitForOne(name, book, skip) {
+async function portraitForOne(name, book, skip, { noBrave = false } = {}) {
   const sourcePriority = { "wikipedia-rest": 0, wikipedia: 1, wikidata: 2, "openlibrary-authors": 3, openlibrary: 4, brave: 5 };
-  const sources = [...PORTRAIT_SOURCES].sort((a, b) => sourcePriority[a.name] - sourcePriority[b.name]);
+  const sources = PORTRAIT_SOURCES.filter((s) => !(noBrave && s.name === "brave")).sort((a, b) => sourcePriority[a.name] - sourcePriority[b.name]);
   const exhausted = [];
   const rateLimited = new Set();
   for (const source of sources) {
@@ -1611,6 +1710,116 @@ app.post("/api/author-portrait", async (req, res) => {
     return res.status(busy ? 503 : 404).json({ error: busy ? "sources_busy" : "no_image_found" });
   }
   return res.json({ dataUrl: first.dataUrl, sourceUrl: first.sourceUrl, portraits });
+});
+// ---------------------------------------------------------------
+// Library "Search a book": public catalogue details only (never the book itself).
+// ---------------------------------------------------------------
+const bookLookupIp = (req) => req.ip || req.socket.remoteAddress || "unknown";
+
+app.post("/api/book-lookup/search", async (req, res) => {
+  if (!allowAiRequest("bookSearch", bookLookupIp(req))) return res.status(429).json({ error: "too_many_requests" });
+  const title = typeof req.body?.title === "string" ? req.body.title : "";
+  const result = await findBooks(title, { googleKey: process.env.GOOGLE_BOOKS_API_KEY || "" });
+  return res.json(result);
+});
+
+app.post("/api/book-lookup/details", async (req, res) => {
+  if (!allowAiRequest("bookSearch", bookLookupIp(req))) return res.status(429).json({ error: "too_many_requests" });
+  const candidate = req.body && typeof req.body === "object" ? req.body : {};
+  return res.json(await fetchBookDetails(candidate));
+});
+
+app.post("/api/book-lookup/toc", async (req, res) => {
+  if (!allowAiRequest("bookSearch", bookLookupIp(req))) return res.status(429).json({ error: "too_many_requests" });
+  const isbns = Array.isArray(req.body?.isbns) ? req.body.isbns.filter((v) => typeof v === "string").slice(0, 4) : [];
+  return res.json(await fetchTocByIsbn(isbns));
+});
+
+// Wikipedia/Wikidata and Open Library first. Brave image search only runs when the client asks for it,
+// and the client must show the result to the user for confirmation.
+app.post("/api/book-lookup/author-photo", async (req, res) => {
+  if (!allowAiRequest("bookSearch", bookLookupIp(req))) return res.status(429).json({ error: "too_many_requests" });
+  const name = typeof req.body?.authorName === "string" ? splitAuthors(req.body.authorName)[0] : "";
+  if (!name) return res.status(400).json({ error: "missing_author_name" });
+  const book = typeof req.body?.bookTitle === "string" ? req.body.bookTitle.trim().slice(0, 160) : "";
+  const allowBrave = req.body?.allowBrave === true && Boolean(BRAVE_KEY);
+  const [found, bio] = await Promise.all([portraitForOne(name, book, new Set(), { noBrave: !allowBrave }), req.body?.allowBrave === true ? Promise.resolve("") : fetchAuthorBio(name)]);
+  if (!found?.dataUrl) return res.json({ dataUrl: null, bio, braveAvailable: Boolean(BRAVE_KEY) && !allowBrave });
+  return res.json({ dataUrl: found.dataUrl, bio, source: found.source, needsConfirm: found.source === "brave" });
+});
+
+// Contents-page photos are read in memory by a vision model and never stored.
+// Gemini 2.5 Flash (thinking off, its own quota separate from the live reading model) comes first;
+// OpenRouter is the fallback when Gemini is slow, rate limited or unavailable.
+const TOC_SCAN_MODEL = process.env.TOC_SCAN_MODEL || "gemini-3.5-flash-lite";
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+const OPENROUTER_VISION_MODEL = process.env.OPENROUTER_VISION_MODEL || "google/gemini-2.5-flash";
+const TOC_SCAN_TIMEOUT_MS = 40_000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label}_timeout`)), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function scanTocWithGemini(images) {
+  const parts = [{ text: TOC_VISION_PROMPT }, ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } }))];
+  const response = await withTimeout(generateGeminiContent({
+    model: TOC_SCAN_MODEL,
+    contents: [{ role: "user", parts }],
+    config: { temperature: 0, responseMimeType: "application/json", ...(/2\.5/.test(TOC_SCAN_MODEL) ? { thinkingConfig: { thinkingBudget: 0 } } : {}) },
+  }), TOC_SCAN_TIMEOUT_MS, "gemini");
+  return response.text;
+}
+
+async function scanTocWithOpenRouter(images) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), TOC_SCAN_TIMEOUT_MS);
+  try {
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      signal: ctl.signal,
+      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json", "X-Title": "Reading Companion" },
+      body: JSON.stringify({
+        model: OPENROUTER_VISION_MODEL,
+        temperature: 0,
+        max_tokens: 2500,
+        messages: [{ role: "user", content: [{ type: "text", text: TOC_VISION_PROMPT }, ...images.map((img) => ({ type: "image_url", image_url: { url: `data:${img.mimeType};base64,${img.data}` } }))] }],
+      }),
+    });
+    if (!r.ok) throw new Error(`openrouter_http_${r.status}`);
+    const j = await r.json();
+    return j?.choices?.[0]?.message?.content || "";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+app.post("/api/book-lookup/toc-scan", async (req, res) => {
+  let images = validateImages(req.body?.images);
+  if (!images) return res.status(400).json({ error: "invalid_images" });
+  if (!allowAiRequestForResponse(req, res, "tocScan")) return undefined;
+  try {
+    let text = "";
+    let via = "gemini";
+    try {
+      text = await scanTocWithGemini(images);
+    } catch (error) {
+      console.warn("[TOC SCAN] gemini failed:", redactSecrets(error?.message, 140));
+      if (!OPENROUTER_API_KEY) throw error;
+      via = "openrouter";
+      text = await scanTocWithOpenRouter(images);
+    }
+    console.info(`[TOC SCAN] ${via} ok`);
+    return res.json({ chapters: parseVisionChapters(text) });
+  } catch (error) {
+    console.warn("[TOC SCAN] failed:", redactSecrets(error?.message, 140));
+    refundAiRequest("tocScan", req.ip || req.socket.remoteAddress || "unknown");
+    return res.status(502).json({ error: "scan_unavailable" });
+  } finally {
+    images = null;
+    finishAiRequest();
+  }
 });
 // ---------------------------------------------------------------
 // POST /api/mascot-line

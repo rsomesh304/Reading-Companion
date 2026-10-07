@@ -2,18 +2,13 @@ import { AnimatePresence, motion as Motion, useDragControls } from "framer-motio
 import { BookOpen, Gem, Info, Link2, Maximize2, Minimize2, RefreshCw, Shuffle, X as XIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import { clearGemEchoCache, fetchGemEchoes, gemPairSignature, gemTextHash } from "./gemEchoClient.js";
+import { clearGemEchoCache, fetchGemEchoes, gemTextHash } from "./gemEchoClient.js";
 import { ensureGemInsights, gemInsightHash } from "./gemInsightClient.js";
+import { buildMindMapGraph } from "./MemoryConstellationGraph.js";
 import { useBackLayer } from "./backStack.js";
-import { buildLocalGemEchoes, MAX_ECHOES_PER_GEM } from "./gemSemantics.js";
 import "./MemoryConstellation.css";
 
 const TAU = Math.PI * 2;
-const BOOK_COLORS = [
-  ["#8B5CF6", "#6366F1"], ["#22D3EE", "#0EA5E9"], ["#F59E0B", "#EF4444"],
-  ["#34D399", "#10B981"], ["#F472B6", "#EC4899"], ["#A78BFA", "#7C3AED"],
-];
-const LOOSE = ["#94A3B8", "#64748B"];
 
 // ---------- Mock data ----------
 const MOCK_BOOKS = [
@@ -36,7 +31,6 @@ const MOCK_GEMS = [
 
 // ---------- Helpers ----------
 const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; };
-const hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); };
 const clip = (text, n) => { const s = String(text || "").replace(/\s+/g, " ").trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
 function rr(ctx, x, y, w, h, r) {
   ctx.beginPath(); ctx.moveTo(x + r, y);
@@ -54,83 +48,6 @@ function drawLabel(ctx, text, x, y, fs, weight, color, scale, light) {
 
 // ---------- Semantic echoes (backend-judged idea links between books) ----------
 const pairKey = (a, b) => [String(a), String(b)].sort().join("|");
-// Fixed "orbit" layout: books on a ring, gems orbit their book. No physics, so it is stable.
-function buildGraph(books, gems, verifiedEchoes = []) {
-  const nodes = [], links = [], adj = new Map(), echoes = new Map(), echoReasons = new Map(), echoMeta = new Map();
-  const add = (m, a, b) => { if (!m.has(a)) m.set(a, new Set()); m.get(a).add(b); };
-  const link = (a, b, kind, meta = {}) => {
-    // meta must not override the endpoints; echo metadata carries its own `source` label.
-    const { source: origin, ...rest } = meta;
-    links.push({ ...rest, ...(origin ? { origin } : {}), source: a, target: b, kind });
-    add(adj, a, b); add(adj, b, a);
-    if (kind === "echo") {
-      add(echoes, a, b); add(echoes, b, a);
-      const key = pairKey(a, b);
-      echoMeta.set(key, meta);
-      if (meta.reason) echoReasons.set(key, meta.reason);
-    }
-  };
-  const groups = new Map(books.map((b) => [b.id, []]));
-  const byTitle = new Map(books.map((b) => [String(b.title).toLowerCase(), b.id]));
-  const orphans = [];
-  gems.forEach((g) => {
-    const bid = groups.has(g.bookId) ? g.bookId : byTitle.get(String(g.bookTitle || "").toLowerCase());
-    (bid ? groups.get(bid) : orphans).push(g);
-  });
-
-  const n = books.length;
-  const ring = n <= 1 ? 0 : Math.max(150, 120 / Math.sin(Math.PI / n));
-  books.forEach((b, i) => {
-    const a = n <= 1 ? 0 : (i / n) * TAU - Math.PI / 2;
-    const bx = Math.cos(a) * ring, by = Math.sin(a) * ring;
-    const list = groups.get(b.id).slice().sort((x, y) => (Number(x.chapterNumber) || 0) - (Number(y.chapterNumber) || 0));
-    const m = list.length;
-    const r1 = 52 + Math.min(m, 14) * 1.6, r2 = r1 + 22;
-    const c = BOOK_COLORS[i % BOOK_COLORS.length];
-    nodes.push({ id: `book:${b.id}`, type: "book", label: b.title, data: b, c, x: bx, y: by, fx: bx, fy: by, orbit: [r1, r2], count: m });
-    list.forEach((g, k) => {
-      const ang = (k / Math.max(m, 1)) * TAU + i * 0.9;
-      const r = k % 2 ? r2 : r1;
-      const gx = bx + Math.cos(ang) * r, gy = by + Math.sin(ang) * r;
-      nodes.push({ id: `gem:${g.id}`, type: "gem", label: g.summary || g.quote, data: g, c, bid: b.id, x: gx, y: gy, fx: gx, fy: gy, phase: (hash(String(g.id)) % 628) / 100 });
-      link(`book:${b.id}`, `gem:${g.id}`, "own");
-    });
-  });
-  orphans.forEach((g, k) => {
-    const ang = (k / orphans.length) * TAU, r = ring + 190;
-    const gx = Math.cos(ang) * r, gy = Math.sin(ang) * r;
-    nodes.push({ id: `gem:${g.id}`, type: "gem", label: g.summary || g.quote, data: g, c: LOOSE, bid: null, x: gx, y: gy, fx: gx, fy: gy, phase: (hash(String(g.id)) % 628) / 100 });
-  });
-
-  // Local semantic bridges render immediately; AI verdicts upgrade or reject them later.
-  const gn = nodes.filter((x) => x.type === "gem");
-  const candidates = [];
-  const semanticGems = gn.map((node) => ({ ...node.data, bookId: node.bid || node.data.bookId }));
-  const gemsById = new Map(gems.map((gem) => [String(gem.id), gem]));
-  const decisions = new Map(verifiedEchoes.map((echo) => [pairKey(echo.a, echo.b), echo]));
-  for (const localEcho of buildLocalGemEchoes(semanticGems)) {
-    let decision = decisions.get(pairKey(localEcho.a, localEcho.b));
-    if (decision?.signature !== gemPairSignature(gemsById.get(localEcho.a), gemsById.get(localEcho.b))) decision = null;
-    if (decision && !decision.accepted) continue;
-    candidates.push(decision?.accepted ? decision : localEcho);
-  }
-
-  candidates.sort((a, b) => b.score - a.score);
-  const nodeIds = new Set(gn.map((node) => String(node.data.id)));
-  const seenEcho = new Set();
-  const degree = new Map();
-  for (const candidate of candidates) {
-    const a = `gem:${candidate.a}`, b = `gem:${candidate.b}`;
-    const key = pairKey(a, b);
-    if (a === b || !nodeIds.has(candidate.a) || !nodeIds.has(candidate.b) || seenEcho.has(key)) continue;
-    if ((degree.get(candidate.a) || 0) >= MAX_ECHOES_PER_GEM || (degree.get(candidate.b) || 0) >= MAX_ECHOES_PER_GEM) continue;
-    seenEcho.add(key);
-    degree.set(candidate.a, (degree.get(candidate.a) || 0) + 1);
-    degree.set(candidate.b, (degree.get(candidate.b) || 0) + 1);
-    link(a, b, "echo", { score: candidate.score, sharedThemes: candidate.sharedThemes || [], reason: candidate.reason || "Related ideas across books", source: candidate.source });
-  }
-  return { graph: { nodes, links }, adj, echoes, echoCount: seenEcho.size, echoReasons, echoMeta };
-}
 
 // ---------- Component ----------
 export default function MemoryConstellation({ books = [], gems = [], paused = false, onGemInsight = () => {} }) {
@@ -144,7 +61,7 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
   const hasMissingInsights = gems.some((gem) => gem.insightHash !== gemInsightHash(gem));
   const enrichedGems = useMemo(() => demo ? MOCK_GEMS : gems.map((gem) => insightOverrides[gem.id] ? { ...gem, ...insightOverrides[gem.id] } : gem), [demo, gems, insightOverrides]);
   const { graph, adj, echoes, echoCount, echoReasons, echoMeta } = useMemo(
-    () => buildGraph(demo ? MOCK_BOOKS : books, enrichedGems, verifiedEchoes),
+    () => buildMindMapGraph(demo ? MOCK_BOOKS : books, enrichedGems, verifiedEchoes),
     [books, enrichedGems, demo, verifiedEchoes]
   );
 
@@ -247,6 +164,7 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
 
   const nodeById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph]);
   const bookNodes = useMemo(() => graph.nodes.filter((n) => n.type === "book"), [graph]);
+  const realBookCount = useMemo(() => bookNodes.filter((node) => !node.synthetic).length, [bookNodes]);
   const gemNodes = useMemo(() => graph.nodes.filter((n) => n.type === "gem"), [graph]);
   const selected = selectedId ? nodeById.get(selectedId) : null;
   const connected = useMemo(() => (selectedId ? new Set([selectedId, ...(adj.get(selectedId) || [])]) : null), [selectedId, adj]);
@@ -487,7 +405,7 @@ export default function MemoryConstellation({ books = [], gems = [], paused = fa
         <div className="cc-head-row">
           <div className="cc-head-text">
             <h1>{demo ? "Ideas that travel across books" : "Cognitive Constellation"}</h1>
-            <p>{demo ? "Same meaning, different words — connected across books." : `${bookNodes.length} books · ${gemNodes.length} gems · ${echoCount} echoes`}{insightBusy || connectionsBusy || hasMissingInsights && !demo ? " · Finding connections…" : ""}{demo ? " · demo" : ""}</p>
+            <p>{demo ? "Same meaning, different words — connected across books." : `${realBookCount} books · ${gemNodes.length} gems · ${echoCount} echoes`}{insightBusy || connectionsBusy || hasMissingInsights && !demo ? " · Finding connections…" : ""}{demo ? " · demo" : ""}</p>
           </div>
           {!demo && <button className="cc-info-btn" onClick={rebuildConnections} aria-label="Rebuild connections" title="Rebuild connections"><RefreshCw size={15} /></button>}
           <button className={`cc-info-btn ${infoOpen ? "on" : ""}`} onClick={() => (infoOpen ? closeInfo() : setInfoOpen(true))} aria-label="What is this?">

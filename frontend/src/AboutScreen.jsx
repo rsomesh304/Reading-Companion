@@ -1,17 +1,13 @@
 import { motion as Motion } from "framer-motion";
 import { BookOpen, Check, ChevronLeft, Copy, Gem, Languages, Mail, ShieldCheck, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import "./AboutScreen.css";
 import DeveloperCard from "./DeveloperCard.jsx";
+import { createTapCounter, setDocsUnlocked } from "./docsUnlock.js";
+import { CONTACT } from "./developerContact.js";
 import { notify } from "./notify.js";
+import { useHaptic } from "./useHaptic.js";
 import { APP_VERSION } from "./version.js";
-
-// Contact targets are only used when a button is tapped and are never rendered.
-const CONTACT = {
-  linkedin: "https://www.linkedin.com/in/soumyaranjan-rout-b16145185/",
-  github: "https://github.com/soumyaranjan-1083",
-  email: "soumyaranjan.rout1083@gmail.com",
-};
 
 const WHY = [
   "Reading in English can feel like walking with a stone in your shoe. One hard word, and you leave the book to open a dictionary. The flow breaks, and often the book stays closed.",
@@ -82,6 +78,20 @@ function Section({ eyebrow, title, children }) {
 
 export function AboutScreen({ nav }) {
   const [copied, setCopied] = useState(false);
+  const [pulse, setPulse] = useState(0);
+  const counter = useRef(createTapCounter()).current;
+  const { triggerLightTap, triggerSuccess } = useHaptic();
+
+  function onVersionTap() {
+    const { count, unlocked } = counter.tap();
+    setPulse((n) => n + 1);
+    if (unlocked) {
+      setDocsUnlocked(true);
+      triggerSuccess();
+    } else if (count >= 3) {
+      triggerLightTap();
+    }
+  }
 
   async function onCopy() {
     await copyEmail();
@@ -104,7 +114,7 @@ export function AboutScreen({ nav }) {
         </Motion.div>
         <h2>Reading Companion</h2>
         <p>A friend who reads with you.</p>
-        <div className="ab2-pills"><span>Version {APP_VERSION}</span><span>Made with care in India</span></div>
+        <div className="ab2-pills"><span className="ab2-version" data-pulse={pulse % 2} onClick={onVersionTap}>Version {APP_VERSION}</span><span>Made with care in India</span></div>
       </div>
 
       <Section eyebrow="Why it exists" title="One hard word shouldn't close the book">

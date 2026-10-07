@@ -35,3 +35,9 @@
 .ab2-foot { position: relative; z-index: 1; padding: 26px 20px 8px; text-align: center; font-size: 12px; color: var(--muted); }
 @keyframes ab2Spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .ab2-orbit { animation: none; } }
+
+.ab2-version { cursor: default; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; transition: transform .16s ease, box-shadow .16s ease; }
+.ab2-version:active { transform: scale(.96); }
+.ab2-version[data-pulse="1"] { animation: ab2-vpulse .28s ease-out; }
+@keyframes ab2-vpulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
+@media (prefers-reduced-motion: reduce) { .ab2-version[data-pulse] { animation: none; } }

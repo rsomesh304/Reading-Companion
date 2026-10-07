@@ -1,11 +1,28 @@
 {
   "releases": [
     {
+      "version": "2.2.0",
+      "catalog": true,
+      "date": "2026-10-06",
+      "title": "Lantern",
+      "items": [
+        { "type": "feature", "text": "Help & Support is now far more accurate. It knows every screen and button in the app, and it can tell you which update introduced a feature" },
+        { "type": "fix", "text": "Animations inside the Help chat now show fully and neatly on small phones, in light and dark themes" },
+        { "type": "improve", "text": "Search a book finds the right book more reliably, including books whose original title is in another language, and never mixes up covers or authors" },
+        { "type": "feature", "text": "Search a book lets you choose between editions, with cover, publisher, year, language and whether chapters are available" },
+        { "type": "improve", "text": "Search a book shows clearer progress steps in the right order, with a new searching animation" },
+        { "type": "fix", "text": "Mind Map gems now always stay linked to their own book" },
+        { "type": "improve", "text": "A refreshed Profile card with a calmer look, photo cropping, and an avatar picker that opens when you tap it" }
+      ]
+    },
+    {
       "version": "2.1.0",
       "pulse": true,
-      "date": "2026-10-11",
+      "date": "2026-10-06",
       "title": "Smarter reminders, clearer progress",
       "items": [
+        { "type": "fix", "text": "Corrected the release date shown for this version in Release History" },
+        { "type": "improve", "text": "Small behind-the-scenes reliability and polish improvements" },
         { "type": "improve", "text": "Help & Support actions (New chat, Chat history, App tour) now live as neat icon buttons in the header, so nothing covers the chat" },
         { "type": "fix", "text": "Help chat now explains release labels (Major update, UI enhancement, A new chapter, Signature update) and every Your Reports stage correctly, with matching animations" },
         { "type": "fix", "text": "Hinglish questions in Help chat get Hinglish answers" },

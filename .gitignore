@@ -14,3 +14,6 @@ coverage/
 LOCAL_DEPLOYMENT_GUIDE.md
 DEPLOYMENT_README.md
 email-previews/
+
+# Private in-app docs content (kept out of the public repo)
+frontend/src/docs/private/

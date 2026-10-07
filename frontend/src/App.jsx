@@ -80,7 +80,7 @@ import {
     WifiOff,
     X as XIcon
 } from "lucide-react";
-import { Component, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Component, Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAccount } from "./AccountContext.js";
 import AccountGate from "./AccountGate.jsx";
@@ -94,6 +94,7 @@ import { AudioPlayback } from "./audioPlayback.js";
 import BookTile from "./BookTile.jsx";
 import { CameraCapture } from "./cameraCapture.js";
 import { EmptyGemsArt, EmptyLibraryArt } from "./components/EmptyStateArt.jsx";
+import BookSearchFlow from "./components/BookSearchFlow.jsx";
 import MascotCharacter from "./components/MascotCharacter.jsx";
 import { describeLiveStatus, friendlyErrorMessage } from "./friendlyErrors.js";
 import { GeminiLiveClient } from "./geminiLiveClient.js";
@@ -141,10 +142,16 @@ import {
 } from "./persona.js";
 import { Profile } from "./profile.js";
 import "./ProfileUI.css";
+import "./ProfileCard.css";
+import AvatarCropper from "./AvatarCropper";
+import ProfileFloaters from "./ProfileFloaters";
 import { findApproxSpokenVariant } from "./pronunciationObservation.js";
 import ServiceNotice from "./ServiceNotice.jsx";
 import { getRecap, saveTurn } from "./sessionMemory.js";
 import { AboutScreen, AccountScreen, ReportScreen, SettingsScreen } from "./SettingsScreens.jsx";
+import { useDocsUnlocked } from "./docsUnlock.js";
+import DocsAccessCard from "./DocsAccessCard.jsx";
+const DocsScreen = lazy(() => import("./docs/DocsScreen.jsx"));
 import { prepareSnapshot } from "./snapshotCapture.js";
 import { resolveStorySource } from "./story/resolveStorySource.js";
 import StoryTheatre from "./story/StoryTheatre.jsx";
@@ -409,29 +416,6 @@ function shrinkDataUrl(dataUrl, max = 320) {
     img.src = dataUrl;
   });
 }
-function resizeImageToDataUrl(file, maxSize = 240) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = reject;
-      img.onload = () => {
-        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", 0.85));
-      };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 // ==================== ERROR BOUNDARY ====================
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null }; }
@@ -561,6 +545,42 @@ function AppCore() {
     navigateTo("session", { activeBookId: book.id });
   }
 
+  function findExistingBook(title) {
+    const wanted = title.trim().toLowerCase();
+    return library.listBooks().find((b) => b.title.trim().toLowerCase() === wanted) || null;
+  }
+  async function createBookFromSearch({ title, authorName, coverUrl, isbn, portrait, bio, chapters }) {
+    const book = library.getOrCreateBook(title);
+    const authors = String(authorName || "").split(/\s*(?:,|&| and )\s*/i).filter(Boolean);
+    const small = portrait ? await shrinkDataUrl(portrait) : "";
+    library.updateBookMeta(book.id, {
+      isbn: isbn || "",
+      authorName: authorName || "",
+      authorBio: bio || "",
+      coverUrl: coverUrl || "",
+      ...(small ? { authorPortrait: small, authorPortraits: [{ name: authors[0] || authorName, dataUrl: small, sourceUrl: null }] } : {}),
+    });
+    library.setChapterOutline(book.id, chapters.map((c) => ({ chapterNumber: c.number, title: c.title, startPage: c.startPage })));
+    setNewBookModalOpen(false);
+    notify(`"${title}" added with ${chapters.length} chapters.`, "success");
+    if (screen !== "library") navigateTo("library");
+    if (!small && authors.length) {
+      try {
+        const res = await fetch(apiUrl("/api/author-portrait"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ authorName, bookTitle: title }),
+        });
+        const data = await res.json();
+        if (res.ok && (data?.portraits || []).some((p) => p.dataUrl)) {
+          const list = await Promise.all(data.portraits.map(async (p) => ({ name: p.name, dataUrl: p.dataUrl ? await shrinkDataUrl(p.dataUrl) : null })));
+          library.updateBookMeta(book.id, { authorPortrait: list.find((p) => p.dataUrl)?.dataUrl || "", authorPortraits: list });
+        }
+      } catch {
+        // portrait stays optional; the author can add one from the Library
+      }
+    }
+  }
   function goBack() {
     popRoute();
   }
@@ -582,6 +602,7 @@ function AppCore() {
     goAccount: () => navigateTo("account"),
     goSettings: () => navigateTo("settings"),
     goAbout: () => navigateTo("about"),
+    goDocs: () => navigateTo("docs"),
     goReport: () => navigateTo("report"),
     goHelp: () => navigateTo("help"),
     openNewBook,
@@ -614,11 +635,12 @@ function AppCore() {
             {screen === "account" && <AccountScreen nav={nav} />}
                         {screen === "settings" && <SettingsScreen nav={nav} stores={{ profile: profileStore, library, memory: memoryStore, gems: gemsStore }} />}
             {screen === "about" && <AboutScreen nav={nav} />}
+            {screen === "docs" && <Suspense fallback={<div role="status" style={{ flex: 1, display: "grid", placeItems: "center", color: "var(--muted)" }}>Opening docs…</div>}><DocsScreen nav={nav} /></Suspense>}
             {screen === "report" && <ReportScreen nav={nav} stores={{ profile: profileStore }} />}
             {screen === "help" && <HelpGuideScreen nav={nav} userName={profileStore.data.name === "Reader" ? "there" : profileStore.data.name} />}
           </div>
           {screen === "dashboard" && <PushPrompt library={library} />}
-          {screen !== "help" && <BottomNav active={["account", "settings", "about", "report"].includes(screen) ? "profile" : screen} onNavigate={(id) => navigateTo(id)} badges={badges} />}
+          {screen !== "help" && screen !== "docs" && <BottomNav active={["account", "settings", "about", "report"].includes(screen) ? "profile" : screen} onNavigate={(id) => navigateTo(id)} badges={badges} />}
         </div>
       )}
 
@@ -628,10 +650,10 @@ function AppCore() {
           chapterNumber={recapModal.chapterNumber}
           onStart={startSessionFromRecap}
           onStory={() => openStoryFromRecap(recapModal.bookId)}
-          onClose={nav.goBack}
+          onClose={() => setRecapModal(null)}
         />
       )}
-      {newBookModalOpen && <NewBookModal onCreate={createBookAndOpenSession} onClose={nav.goBack} />}
+      {newBookModalOpen && <NewBookModal onCreate={createBookAndOpenSession} onCreateFromSearch={createBookFromSearch} findExisting={findExistingBook} onClose={() => setNewBookModalOpen(false)} />}
       <UpdateManager
         paused={screen === "session" || showOnboarding}
         onUpdateState={setUpdateState}
@@ -858,31 +880,60 @@ function BottomNav({ active, onNavigate, badges = {} }) {
 
 // ==================== NEW BOOK MODAL ====================
 
-function NewBookModal({ onCreate, onClose }) {
+function NewBookModal({ onCreate, onCreateFromSearch, findExisting, onClose }) {
+  const [view, setView] = useState("choose");
   const [title, setTitle] = useState("");
   const mascot = useMascotPreference();
 
+  function toManual(prefill, reason) {
+    if (prefill) setTitle(prefill);
+    if (reason === "notfound") notify("That book wasn't found in the public catalogue. You can add it manually.", "info", 5200);
+    setView("manual");
+  }
+
   return (
     <Motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={INTERACTION_SPRING} onClick={onClose}>
-      <Motion.div className="modal-card elevated" initial={{ opacity: 0, y: 18, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={INTERACTION_SPRING} onClick={(e) => e.stopPropagation()}>
-        <div className="new-book-hero">
-          <MascotCharacter characterId={mascot} size={120} animated context="reader is about to start a new book" bubblePosition="above"/>
-        </div>
-        <h2>Start a new book</h2>
-        <input
-          autoFocus className="title-input" placeholder="Book title..."
-          value={title} onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && title.trim() && onCreate(title)}
-        />
-        <div className="modal-actions">
-          <button className="icon-button ghost" onClick={onClose}>Cancel</button>
-          <button className="primary-button" disabled={!title.trim()} onClick={() => onCreate(title)}>Start</button>
-        </div>
+      <Motion.div className={`modal-card elevated${view === "search" ? " bsf-card" : ""}`} initial={{ opacity: 0, y: 18, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={INTERACTION_SPRING} onClick={(e) => e.stopPropagation()}>
+        {view === "choose" && (
+          <>
+            <h2>Add a book</h2>
+            <div className="nb-choose">
+              <button type="button" className="nb-choice" onClick={() => setView("search")}>
+                <span className="nb-choice-ico"><Search size={20} /></span>
+                <span><b>Search a book</b><small>Find it by title. Author and chapters are filled in for you.</small></span>
+              </button>
+              <button type="button" className="nb-choice plain" onClick={() => setView("manual")}>
+                <span className="nb-choice-ico"><Pencil size={20} /></span>
+                <span><b>Add manually</b><small>Type the title and add details as you read.</small></span>
+              </button>
+            </div>
+            <div className="modal-actions"><button className="icon-button ghost" onClick={onClose}>Cancel</button></div>
+          </>
+        )}
+        {view === "search" && (
+          <BookSearchFlow initialTitle={title} findExisting={findExisting} onSave={onCreateFromSearch} onManual={toManual} onClose={onClose} />
+        )}
+        {view === "manual" && (
+          <>
+            <div className="new-book-hero">
+              <MascotCharacter characterId={mascot} size={120} animated context="reader is about to start a new book" bubblePosition="above"/>
+            </div>
+            <h2>Start a new book</h2>
+            <input
+              autoFocus className="title-input" placeholder="Book title..."
+              value={title} onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && title.trim() && onCreate(title)}
+            />
+            <div className="modal-actions">
+              <button className="icon-button ghost" onClick={() => setView("choose")}>Back</button>
+              <button className="primary-button" disabled={!title.trim()} onClick={() => onCreate(title)}>Start</button>
+            </div>
+          </>
+        )}
       </Motion.div>
     </Motion.div>
   );
 }
-
 // ==================== PRE-SESSION RECAP MODAL ====================
 
 function PreSessionRecapModal({ book, chapterNumber, onStart, onStory, onClose }) {
@@ -1505,6 +1556,11 @@ function LibraryScreen({ nav }) {
   const [portraitError, setPortraitError] = useState(false);
 
   function refresh() { setBooks(library.listBooks()); }
+  useEffect(() => {
+    const sync = () => setBooks(library.listBooks());
+    window.addEventListener("rc:local-data-changed", sync);
+    return () => window.removeEventListener("rc:local-data-changed", sync);
+  }, []);
   function handleDeleteConfirmed() {
     if (confirmDelete) { library.deleteBook(confirmDelete.id); setConfirmDelete(null); refresh(); }
   }
@@ -2447,99 +2503,104 @@ function MemoryScreen() {
 }
 // ==================== PROFILE — with photo upload + default presets ====================
 
-// Fixed values keep the ambient snow identical across renders.
-const PROFILE_FLAKES = Array.from({ length: 22 }, (_, i) => {
-  const rain = i % 5 === 4;
-  const x = (i * 37 + 11) % 100;
-  const size = rain ? 1.5 : 3 + ((i * 7) % 5);
-  const dur = rain ? 2.6 + (i % 3) * 0.5 : 9 + ((i * 5) % 8);
-  const delay = -((i * 1.7) % dur);
-  return { rain, style: { "--x": `${x}%`, "--s": `${size}px`, "--dur": `${dur}s`, "--delay": `${delay}s`, "--sway": `${(i % 2 ? 1 : -1) * (8 + (i % 4) * 4)}px` } };
-});
-
 function ProfileScreen({ nav }) {
+  const docsUnlocked = useDocsUnlocked();
   const [name, setName] = useState(profileStore.data.name);
   const mascot = useMascotPreference();
   const [, forceUpdate] = useState(0);
   const fileInputRef = useRef(null);
+  const [cropFile, setCropFile] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  async function handleAvatarPick(e) {
+  function handleAvatarPick(e) {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const dataUrl = await resizeImageToDataUrl(file);
-    profileStore.setAvatar(dataUrl);
-    forceUpdate((n) => n + 1);
+    e.target.value = "";
+    if (file) setCropFile(file);
   }
   function handleAvatarRemove() {
     profileStore.clearAvatar();
+    setPickerOpen(false);
     forceUpdate((n) => n + 1);
   }
   function handlePresetPick(idx) {
     profileStore.clearAvatar();
     profileStore.setAvatarPreset(idx);
+    setPickerOpen(false);
     forceUpdate((n) => n + 1);
   }
 
   const hasPhoto = !!profileStore.data.avatar;
-  const stats = library.getStats();
-  const streak = profileStore.getStreak();
-  const gemCount = gemsStore.list().length;
   const rise = (i) => ({ initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.45, delay: 0.06 * i, ease: "easeOut" } });
 
   return (
     <div className="screen pf-screen">
       <div className="aurora-bg" />
 
-      <Motion.section className="pf-hero" {...rise(0)}>
-        <span className="pf-mesh" aria-hidden="true" />
-        <span className="pf-blob a" aria-hidden="true" />
-        <span className="pf-blob b" aria-hidden="true" />
-        <span className="pf-fx" aria-hidden="true">
-          {PROFILE_FLAKES.map((flake, idx) => <i key={idx} className={flake.rain ? "rain" : "flake"} style={flake.style} />)}
-          <b className="pf-star" />
-        </span>
-        <div className="pf-kicker">Your profile</div>
+      <Motion.section className="pc" {...rise(0)}>
+        <span className="pc-rim" aria-hidden="true" />
+        <div className="pc-badge">Reader profile</div>
 
-        <div className="pf-avatar">
-          <span className="pf-ring" aria-hidden="true" />
-          <button type="button" className="pf-avatar-btn" onClick={() => fileInputRef.current?.click()} aria-label="Change photo">
+        <div className="pc-stage">
+        <ProfileFloaters />
+        <div className="pc-avatar">
+          <span className="pc-ripples" aria-hidden="true"><i /><i /><i /></span>
+          <button type="button" className="pc-photo" onClick={() => fileInputRef.current?.click()} aria-label="Change photo">
             {renderAvatar(34)}
           </button>
-          <button type="button" className="pf-cam" onClick={() => fileInputRef.current?.click()} aria-label="Upload photo">
+          <button type="button" className="pc-cam" onClick={() => fileInputRef.current?.click()} aria-label="Upload photo">
             <CameraIcon size={13} />
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarPick} />
         </div>
-
-        <input className="pf-name" value={name} maxLength={30} onChange={(e) => setName(e.target.value)} onBlur={() => profileStore.setName(name)} aria-label="Your name" />
-        <div className="pf-chips">
-          <span className="pf-chip hot"><Flame size={13} /> {streak}-day streak</span>
-          {hasPhoto && <button type="button" className="pf-chip ghost" onClick={handleAvatarRemove}>Remove photo</button>}
         </div>
 
-        <div className="pf-swatches" role="group" aria-label="Default avatars">
-          {AVATAR_PRESETS.map(({ Icon, gradient }, idx) => (
-            <Motion.button
-              key={idx}
-              type="button"
-              whileTap={{ scale: 0.88 }}
-              className={`pf-swatch ${!hasPhoto && profileStore.data.avatarPreset === idx ? "on" : ""}`}
-              style={{ background: gradient }}
-              onClick={() => handlePresetPick(idx)}
-              aria-label={`Choose default icon ${idx + 1}`}
+        <input className="pc-name" value={name} maxLength={30} onChange={(e) => setName(e.target.value)} onBlur={() => profileStore.setName(name)} aria-label="Your name" />
+
+        <button type="button" className="pc-change" aria-expanded={pickerOpen} onClick={() => setPickerOpen((v) => !v)}>
+          {pickerOpen ? "Close" : "Change avatar"}
+        </button>
+
+        <AnimatePresence initial={false}>
+          {pickerOpen && (
+            <Motion.div
+              key="tray"
+              className="pc-tray-wrap"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.28, ease: "easeOut" }}
             >
-              <Icon size={16} color="#fff" />
-            </Motion.button>
-          ))}
-        </div>
-
-        <div className="pf-stats">
-          {[["Streak", streak], ["Books", stats.totalBooks], ["Words", stats.totalWords], ["Gems", gemCount]].map(([label, value]) => (
-            <div key={label}><b>{value}</b><span>{label}</span></div>
-          ))}
-        </div>
+              <div className="pc-tray" role="group" aria-label="Default avatars">
+                {AVATAR_PRESETS.map(({ Icon, gradient }, idx) => (
+                  <Motion.button
+                    key={idx}
+                    type="button"
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: "spring", stiffness: 420, damping: 22, delay: 0.04 * idx }}
+                    whileTap={{ scale: 0.9 }}
+                    className={`pc-swatch ${!hasPhoto && profileStore.data.avatarPreset === idx ? "on" : ""}`}
+                    style={{ background: gradient }}
+                    onClick={() => handlePresetPick(idx)}
+                    aria-label={`Choose default icon ${idx + 1}`}
+                  >
+                    <Icon size={22} color="#fff" />
+                  </Motion.button>
+                ))}
+              </div>
+              {hasPhoto && <button type="button" className="pc-remove" onClick={handleAvatarRemove}>Remove photo</button>}
+            </Motion.div>
+          )}
+        </AnimatePresence>
       </Motion.section>
 
+      {cropFile && (
+        <AvatarCropper
+          file={cropFile}
+          onCancel={() => setCropFile(null)}
+          onSave={(dataUrl) => { profileStore.setAvatar(dataUrl); setCropFile(null); forceUpdate((n) => n + 1); }}
+        />
+      )}
       <Motion.section className="pf-block" {...rise(2)}>
         <div className="pf-block-head"><h2>Your companion</h2><span>Pick who reads with you</span></div>
         <div className="pf-companions">
@@ -2587,6 +2648,8 @@ function ProfileScreen({ nav }) {
           <span className="pf-tile-ic"><Info size={20} /></span>
           <span className="pf-tile-text"><b>About</b><small>Why this exists & Who has built this</small></span>
         </button>
+        {docsUnlocked && <DocsAccessCard onOpen={nav.goDocs} />}
+
       </Motion.section>
 
       <p className="pf-foot">Reading Companion · v{APP_VERSION}</p>
