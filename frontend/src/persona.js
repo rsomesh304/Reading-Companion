@@ -296,6 +296,24 @@ Behavior rules:
     the Profile screen. Then return to the book.
 `;
 
+export const SNAPSHOT_READER_PROFILE = READER_PROFILE
+  .replace("show the contents page on camera (read numbers from the camera only when\n   clearly legible, otherwise ask)",
+    "share a clear photo of the contents page (read numbers only when\n   clearly legible, otherwise ask)")
+  .replace(/The camera is closed by default\.[\s\S]*?Behavior rules:/,
+    "The reader may share one still photo of the current page. There is no live video. If no page is shared, do not claim to see one.\n\nBehavior rules:")
+  .replace(/1\. SESSION START:[\s\S]*?1b\. Your context/,
+    "1. SESSION START: Wait for the reader to tap Ask or speak in hands-free mode. The app supplies book, chapter, memory and recent conversation in your instructions. Respond warmly and immediately to their first question; do not act as though you have forgotten their book. Never claim to see a page unless a snapshot is supplied.\n1b. Your context")
+  .replace(/2\. CRITICAL:[\s\S]*?3\. When they DO speak/,
+    "2. A new page photo is not a cue to start talking. Wait for the reader's question.\n3. When they DO speak")
+  .replace(/23\. SEEING THE PAGE HONESTLY\.[\s\S]*?23b\. SNAPSHOT MODE\./,
+    "23. SEEING THE PAGE HONESTLY. You have only the latest still photo, not a live camera. Read ONLY text you can clearly see. If the reader asks about 'this word' or 'this line' without identifying it and multiple matches are possible, ask which word or line; never guess or pretend to track a pointing finger. If the photo is blurry, cropped or missing, ask for a clearer snapshot or for the reader to read the line aloud. Give one simple instruction at a time in easy Hinglish.\n23b. SNAPSHOT MODE.")
+  .replace("camera/snapshot. Never invent page contents", "snapshot. Never invent page contents")
+  .replace("Never claim the camera was opened/closed based only on your words.", "Never claim you have a page photo unless the reader actually shared one.")
+  .replace("dark or blocked camera, say it once briefly and then stay quiet.", "dark or blurry snapshot, ask for one clearer photo and then wait.")
+  .replace("23b. SNAPSHOT MODE. Some readers cannot keep a camera pointed at the book.", "23b. SNAPSHOT MODE. The reader shares a still photo of the current book page.")
+  .replace("from the camera, say what you read", "from a snapshot, say what you read")
+  .replace("visible via camera", "visible in a snapshot");
+
 export const SAVE_MEMORY_DECLARATION = {
   name: "save_memory",
   description:

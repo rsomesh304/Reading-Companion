@@ -135,15 +135,15 @@ const BASE_HELP_GUIDE = [
     keywords: ["reading screen", "session screen", "voice screen", "orb", "reading layout", "session overview", "dock overview"],
     screen: "library",
     demo: "dock",
-    content: "The reading screen is a live voice session with your companion. At the top is the chapter progress card with the book title, chapter path, timer and connection status. The centre orb reacts while someone is talking. Session chips show saved words, saved gems, current page snapshot number and whether the mic is muted. At the bottom are the reading controls, and your mascot button opens **Done in this session**.",
+    content: "The reading screen keeps your book, chapter, recent conversation and saved preferences in context. **Snap page** shares one still photo; then **Tap to ask**, or turn on optional **Hands-free** to ask aloud. Between questions your mic stays local. At the top is the chapter progress card with the timer; the centre orb responds while you ask or the companion speaks. Your mascot button opens **Done in this session**.",
   },
   {
     id: "session-buttons",
     title: "Reading screen buttons",
-    keywords: ["reading buttons", "dock buttons", "session buttons", "mic button", "camera button", "snapshot button", "transcript button", "ghost button", "end session"],
+    keywords: ["reading buttons", "dock buttons", "session buttons", "mic button", "camera button", "snapshot button", "transcript button", "ghost button", "end session", "tap to ask", "hands-free", "ask by typing"],
     screen: "library",
     demo: "dock",
-    content: "The bottom dock buttons are **Mic**, **Camera**, **Page snapshot**, **Transcript**, **Ghost**, and **End session**. **Mic** mutes or unmutes you. **Camera** opens or closes the live camera. **Page snapshot** sends one still page image. **Transcript** opens the conversation drawer. **Ghost** toggles Author’s Ghost Mode. The red phone ends the session.",
+    content: "The bottom dock has **Mic**, **Page snapshot**, **Transcript**, **Ghost**, and **End session**. Above it, **Snap page** replaces the current photo, **Tap to ask** begins a question and **Done speaking** ends it; **Hands-free** is optional. **Ask by typing** gives text answers if voice is unavailable (saving items still needs voice). **Transcript** shows the conversation and **Re-sync**. **Ghost** toggles Author’s Ghost Mode.",
   },
   {
     id: "session-mic",
@@ -151,15 +151,15 @@ const BASE_HELP_GUIDE = [
     keywords: ["mic", "microphone", "mute", "unmute", "muted", "voice permission", "hear me"],
     screen: "library",
     demo: "dock",
-    content: "You can talk naturally during a reading session. Tap **Mic** to mute or unmute yourself. When muted, the screen shows a **Muted** chip and the companion stops listening. If the browser or phone blocks the mic, allow microphone permission in your device or browser settings and reopen the session.",
+    content: "Your mic stays on your phone between questions. Tap **Tap to ask**, speak, then tap **Done speaking**; a short pre-roll protects the first words. Optional **Hands-free** detects speech locally, but reading aloud can trigger it, so switch it off if you are reading to yourself. **Mic** mutes or unmutes your phone's microphone. If permission is blocked, use **Ask by typing** or enable the mic in device settings.",
   },
   {
     id: "camera-options",
-    title: "Live camera vs page snapshot",
+    title: "Snap a page",
     keywords: ["camera", "live camera", "page snapshot", "snapshot", "adjust camera", "restore compact", "next page", "dark photo", "blurry photo"],
     screen: "library",
     demo: "camera",
-    content: "Use **Camera** for a live rear-camera view of the page. The compact preview can switch between **Adjust camera** and **Restore compact**. Use **Page snapshot** for one still image, then tap **Next page** when you move on. A snapshot closes the live camera, and reopening the live camera clears the snapshot. Dark photos are rejected and blurry photos trigger warnings.",
+    content: "Optionally enter the printed page number, then use **Snap page** or the **Page snapshot** button to photograph the current page. Only the latest photo is kept locally on this phone; **Next page** replaces it. When you ask a question, the photo is shared once with the companion. There is no live camera video. If you mention an ambiguous word, say the word or read the line aloud. Dark photos are rejected and blurry photos trigger warnings.",
   },
   {
     id: "session-transcript",
@@ -205,7 +205,7 @@ const BASE_HELP_GUIDE = [
     title: "What the companion can do",
     keywords: ["voice commands", "what can i say", "companion commands", "save this line", "remember this", "rename chapter", "set author", "delete by voice"],
     screen: "library",
-    content: "During reading, you can ask the companion to explain words or lines, save a word, **save this line**, remember a preference, move chapters, rename a chapter, set chapter pages or outlines, mark a chapter complete, set the book’s author, list saved items, or delete a gem, memory, word or chapter with confirmation. You can also ask it to open or close the camera.",
+    content: "During voice reading, you can ask the companion to explain words or lines, save a word, **save this line**, remember a preference, move chapters, rename a chapter, set chapter pages or outlines, mark a chapter complete, set the book’s author, list saved items, or delete a gem, memory, word or chapter with confirmation. Share a new snapshot if you turn the page.",
   },
   {
     id: "vocabulary",
@@ -345,7 +345,7 @@ const BASE_HELP_GUIDE = [
     title: "Troubleshooting reading, mic, camera and connection problems",
     keywords: ["offline", "reconnecting", "getting ready", "mic not working", "camera not working", "permission", "service notice", "retry connection"],
     screen: "report",
-    content: "Reading sessions need internet and working mic permissions. If the status stays on **Offline** or **Reconnecting**, end the session and reopen it. For microphone or camera trouble, allow permission in your device or browser settings. If a response went off-topic, use **Re-sync** in **Transcript**. If the problem keeps happening, send a report from **Profile** → **Report an issue**.",
+    content: "Voice reading needs internet and mic permission. If the connection fails, use **Ask by typing**; text replies cannot save or edit items. For mic or snapshot trouble, allow permission in device settings and try a new page photo. If a response went off-topic, use **Re-sync** in **Transcript**. If the problem keeps happening, report it from **Profile** → **Report an issue**.",
   },
   {
     id: "about",
@@ -457,8 +457,8 @@ export function getRelevantHelp(query) {
 const HELP_GUIDE_TAGLINE = "If you want, you can always ask **Help & guide** about the next step too.";
 
 const SHORT_ANSWERS = {
-  "camera-options": "1. **Camera** keeps a live rear-camera view of the page, and **Adjust camera** / **Restore compact** change the preview size.\n2. **Page snapshot** sends one still photo and gives you **Next page** when you move on.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
-  "session-buttons": "1. The reading dock has **Mic**, **Camera**, **Page snapshot**, **Transcript**, **Ghost**, and the red **End session** button.\n2. **Transcript** also gives you **Re-sync** if the reply went off-topic.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
+  "camera-options": "1. **Snap page** or **Page snapshot** takes one still photo; **Next page** replaces it. There is no live camera video.\n2. Say the word or read the line aloud if the photo contains several possible matches.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
+  "session-buttons": "1. Use **Snap page**, **Tap to ask** / **Done speaking**, optional **Hands-free**, or **Ask by typing** above the reading dock.\n2. The dock has **Mic**, **Page snapshot**, **Transcript**, **Ghost** and **End session**; Transcript includes **Re-sync**.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
   "ghost-mode": "1. Turn on **Ghost** in the reading dock to hear ideas through the author’s themes and perspective.\n2. It works best after you have set the author for that book in **Library**.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
   "story-recap": "1. Tap the **Play** icon on a **Library** book tile to open the recap card, then use **Hear the story** beside **Start Reading**.\n2. Story theatre gives you **Pause**, **Captions**, **Mute**, **Replay**, and a final **Padhna shuru karo** button.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
 };

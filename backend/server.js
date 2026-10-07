@@ -32,6 +32,7 @@ app.use(cors());
 app.use("/api/bug-reports/screenshots", express.json({ limit: "7mb" }));
 app.use("/api/bug-reports", express.json({ limit: "7mb" }));
 app.use("/api/book-lookup/toc-scan", express.json({ limit: "10mb" }));
+app.use("/api/reading/ask-text", express.json({ limit: "6mb" }));
 app.use(express.json());
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
@@ -49,6 +50,7 @@ const AI_REQUEST_LIMITS = {
   docsNarration: { perIpHour: 80, serviceDaily: 600 },
   tocScan: { perIpHour: 40, serviceDaily: 400 },
   bookSearch: { perIpHour: 90, serviceDaily: 4000 },
+  readingText: { perIpHour: 40, serviceDaily: 400 },
 };
 const aiIpWindows = new Map();
 const aiDailyCounts = new Map();
@@ -703,6 +705,34 @@ async function withGeminiFailover(operation, label = "Gemini request") {
 async function generateGeminiContent({ model, contents, config }) {
   return withGeminiFailover(async (geminiClient) => geminiClient.models.generateContent({ model, contents, config }));
 }
+
+app.post("/api/reading/ask-text", async (req, res) => {
+  const question = typeof req.body?.question === "string" ? req.body.question.trim().slice(0, 800) : "";
+  const context = typeof req.body?.context === "string" ? req.body.context.slice(0, 14000) : "";
+  const image = typeof req.body?.image === "string" ? req.body.image : "";
+  if (!question || !context || (image && !/^[A-Za-z0-9+/=]+$/.test(image))) {
+    return res.status(400).json({ error: "invalid_reading_question" });
+  }
+  if (!allowAiRequestForResponse(req, res, "readingText")) return;
+  try {
+    const parts = [{ text: "Answer this reader's question based on their book context and the supplied page. Do not invent text that you cannot see. If the page is missing or unclear, ask for a clearer snapshot or the exact line. Reply concisely in the reader's language. This is a text fallback: do not claim to save or change app data." }];
+    if (image) parts.push({ inlineData: { mimeType: "image/jpeg", data: image } });
+    parts.push({ text: `Book and reader context:\n${context}\n\nQuestion:\n${question}` });
+    const result = await generateGeminiContent({
+      model: process.env.READING_TEXT_MODEL || "gemini-3.5-flash-lite",
+      contents: [{ role: "user", parts }],
+      config: { maxOutputTokens: 450 },
+    });
+    const answer = result.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
+    if (!answer) throw new Error("reading_text_empty_response");
+    return res.json({ answer });
+  } catch (error) {
+    console.warn("[READING_TEXT] unavailable:", redactSecrets(error?.message || error, 180));
+    return res.status(503).json({ error: "reading_text_unavailable" });
+  } finally {
+    finishAiRequest();
+  }
+});
 
 async function mintGeminiToken({ leaseId: requestedLeaseId } = {}) {
   if (!GEMINI_API_KEYS.length) throw new Error("gemini_api_key_missing");

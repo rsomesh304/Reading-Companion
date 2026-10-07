@@ -48,6 +48,10 @@ Before promoting `dev` to `main`:
 5. Deploy the matching backend and frontend. The backend Help route imports the guide from the frontend source, so retain that source in the backend deployment checkout.
 6. Keep the in-memory Gemini key/lease pool on one backend instance unless shared state is introduced. Optional pool limits and the protected diagnostic endpoint are described in [the backend environment template](backend/.env.example).
 
+### Unreleased: snapshot-first reading
+
+Snapshot-first reading is the default: one locally saved page photo, a local mic gate with 700 ms of pre-roll, explicit turn boundaries (a pause does not end Tap to ask), and an optional on-device hands-free detector. Follow-ups reuse the Live connection for 90 seconds; later questions reconnect and resend the page image. To roll back to continuous camera/audio streaming, set the public build flag `VITE_SESSION_STREAMING_LEGACY=true` and rebuild the frontend. The rate-limited typed reading fallback uses server-side Gemini with the optional `READING_TEXT_MODEL` override (default `gemini-3.5-flash-lite`); no extra API key is required. Hands-free VAD assets are self-hosted and loaded only if enabled by the reader.
+
 Never commit local environment files or credentials.
 
 ## Historical local-only deployment guide
