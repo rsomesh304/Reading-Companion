@@ -168,12 +168,13 @@ const MODEL_NAME = "gemini-3.1-flash-live-preview";
 const FALLBACK_MODEL_NAME = "gemini-2.5-flash-native-audio-preview-12-2025";
 const LEGACY_STREAMING = import.meta.env.VITE_SESSION_STREAMING_LEGACY === "true";
 const WARM_WINDOW_MS = 90_000;
+const FOLLOWUP_MIC_MS = 45_000;
 const RESUME_WINDOW_MS = 2 * 60 * 60_000;
 const SILENCE_CHECK_MS = 4 * 60 * 1000;
 const SILENCE_SHUTDOWN_MS = 45 * 1000;
-const VOCAB_CONFIRM_TRIGGER = /\b(?:yes|yeah|yep|yup|haan|han|ha|bilkul|sure|okay|ok|kar do|kar dijiye|save it|add it|go ahead)\b/i;
-const VOCAB_DECLINE_TRIGGER = /\b(?:no|nope|nah|nahi|nahin|mat|cancel|not now|don't|do not)\b|rehne do|mat save/i;
-const EXPLICIT_VOCAB_SAVE_TRIGGER = /\b(?:save|add|log|include|put)\b.{0,50}\b(?:word|vocab(?:ulary)?|it|this)\b|\b(?:word|vocab(?:ulary)?)\b.{0,40}\b(?:save|add|log|include)\b|(?:ye|is)\s+word\s+(?:save|add|log|daal|jod)/i;
+const VOCAB_CONFIRM_TRIGGER = /\b(?:yes|yeah|yep|yup|haan|han|ha|haa|haanji|bilkul|sure|okay|ok|kar do|kardo|kar dijiye|kijiye|save it|save kar|add it|go ahead)\b|हाँ|हां|हा(?![\u0900-\u097F])|बिलकुल|बिल्कुल|ठीक है|कर दो|करदो|कीजिए|सेव कर|एड कर/i;
+const VOCAB_DECLINE_TRIGGER = /\b(?:no|nope|nah|nahi|nahin|nai|mat|cancel|not now|don't|do not)\b|rehne do|rehne de|mat save|नहीं|नही|मत(?![\u0900-\u097F])|रहने दो|रहने दें/i;
+const EXPLICIT_VOCAB_SAVE_TRIGGER = /\b(?:save|add|log|include|put)\b.{0,50}\b(?:word|vocab(?:ulary)?|it|this)\b|\b(?:word|vocab(?:ulary)?)\b.{0,40}\b(?:save|add|log|include)\b|(?:ye|yeh|is|isko|ise)\s+(?:word\s+)?(?:ko\s+)?(?:save|add|log|daal|jod)|\b(?:save|add)\s+(?:kar|karo|kr)\b|(?:सेव|जोड़|एड|ऐड).{0,20}(?:कर|करो)|(?:वर्ड|शब्द|वोकैब).{0,30}(?:सेव|जोड़|एड|ऐड)/i;
 const NON_MEMORY_CONTENT_TRIGGER = /\b(?:gem|quote|quotation|book line|passage|vocab(?:ulary)?|word|chapter note)\b/i;
 const GHOST_DUST = Array.from({ length: 18 }, (_, index) => ({
   id: index,
@@ -192,6 +193,21 @@ const SILENT = new Map();
 function silentChunk(len) {
   if (!SILENT.has(len)) SILENT.set(len, btoa("\0".repeat(((len * 3) >> 2) & ~1)));
   return SILENT.get(len);
+}
+function readLastPage(bookId) {
+  try {
+    const n = Number(localStorage.getItem(`rc_last_page_${bookId}`));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch { return null; }
+}
+function writeLastPage(bookId, page) {
+  try { if (page) localStorage.setItem(`rc_last_page_${bookId}`, String(page)); } catch { /* storage unavailable */ }
+}
+function isShortYes(text) {
+  const t = String(text || "").trim();
+  if (!t || t.split(/\s+/).length > 8) return false;
+  if (/meaning|matlab|मतलब|अर्थ|kya hai|kya hota/i.test(t)) return false;
+  return VOCAB_CONFIRM_TRIGGER.test(t);
 }
 
 function describeNow() {
@@ -475,6 +491,7 @@ function AppCore() {
     const query = params.toString();
     window.history.replaceState({ screen: "dashboard" }, "", window.location.pathname + (query ? `?${query}` : "") + window.location.hash);
     navigateTo("report");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -2698,10 +2715,11 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
   const [textBusy, setTextBusy] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [restorePrompt, setRestorePrompt] = useState(false);
+  const [pendingShot, setPendingShot] = useState(null);
   const snapFileRef = useRef(null);
   useBackLayer(transcriptOpen, () => setTranscriptOpen(false));
   useBackLayer(feedOpen, () => setFeedOpen(false));
-  useBackLayer(snapExpanded, () => setSnapExpanded(false));
+  useBackLayer(Boolean(pendingShot), () => setPendingShot(null));
   const snapBase64Ref = useRef(null);
   const pageRef = useRef(null);
   const pageProviderRef = useRef(createPageContextProvider());
@@ -2709,6 +2727,9 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
   const micGateRef = useRef(null);
   const vadRef = useRef(null);
   const warmTimerRef = useRef(null);
+  const askingRef = useRef(false);
+  const followTimerRef = useRef(null);
+  useEffect(() => { askingRef.current = asking; }, [asking]);
   const ghostModeRef = useRef(false);
   const usageRef = useRef([]);
   const questionEndAtRef = useRef(0);
@@ -2820,6 +2841,10 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     const sleepInterval = setInterval(() => {
       if (endingRef.current) return;
       const idleMs = Date.now() - lastActivityRef.current;
+      if (!LEGACY_STREAMING) {
+        if (idleMs > 30 * 60 * 1000) quietShutdown();
+        return;
+      }
       if (sleepStateRef.current === "active" && idleMs > SILENCE_CHECK_MS) {
         sleepStateRef.current = "checking";
         setSleepState("checking");
@@ -2833,6 +2858,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
 
     return () => {
       clearInterval(sleepInterval);
+      clearTimeout(followTimerRef.current);
       clearTimeout(activityTimerRef.current);
       clearInterval(snapTimerRef.current);
       clearTimeout(warmTimerRef.current);
@@ -2885,20 +2911,40 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     return connectionPromiseRef.current;
   }
 
+  function armFollowUp() {
+    clearTimeout(followTimerRef.current);
+    followTimerRef.current = setTimeout(() => {
+      if (!askingRef.current) return;
+      if (audioPlaybackRef.current?.isActuallyPlaying?.() || clientRef.current?.pendingTool) { armFollowUp(); return; }
+      endAskNow();
+    }, FOLLOWUP_MIC_MS);
+  }
+
+  function endAskNow() {
+    askingRef.current = false;
+    clearTimeout(followTimerRef.current);
+    if (micGateRef.current?.active) micGateRef.current.end();
+    setAsking(false);
+    scheduleWarmClose();
+  }
+
   function startAsk() {
     if (LEGACY_STREAMING || asking || muted || restorePrompt || snapBusy) return;
     if (!audioCaptureRef.current?.stream) {
-      notify("Mic ready nahi hai. Permission allow karke dobara try kijiye, ya type karke poochiye.", "error");
+      notify("Mic ready nahi hai. Permission allow karke dobara try kijiye.", "error");
       return;
     }
     clearTimeout(warmTimerRef.current);
+    askingRef.current = true;
     setAsking(true);
     questionInFlightRef.current = true;
     markActive();
     audioPlaybackRef.current?.clear();
-    clientRef.current?.startAudio();
     micGateRef.current?.start();
+    armFollowUp();
     void ensureConnected().catch(() => {
+      askingRef.current = false;
+      clearTimeout(followTimerRef.current);
       micGateRef.current?.reset();
       questionInFlightRef.current = false;
       setAsking(false);
@@ -2906,13 +2952,20 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
   }
 
   function stopAsk() {
-    if (LEGACY_STREAMING || !asking) return;
-    micGateRef.current?.end();
-    setAsking(false);
-    setStatus("Thinking...");
-    scheduleWarmClose();
+    if (LEGACY_STREAMING) return;
+    endAskNow();
+    setStatus("Ready for the next question");
   }
 
+  function toggleAsk() {
+    triggerLightTap();
+    if (muted) {
+      notify("Voice abhi unavailable hai. Upar ke notice se Retry connection dabaiye.", "info");
+      return;
+    }
+    if (asking) stopAsk(); else startAsk();
+  }
+ // eslint-disable-next-line no-unused-vars
   async function toggleHandsFree() {
     if (handsFree) {
       try { await vadRef.current?.destroy(); } catch (error) { console.warn("[VAD] cleanup failed", error); }
@@ -2960,7 +3013,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
       notify(`Hands-free unavailable: ${error.message}`, "error");
     }
   }
-
+// eslint-disable-next-line no-unused-vars
   async function askByTyping(event) {
     event.preventDefault();
     const question = typedQuestion.trim();
@@ -3038,10 +3091,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
   function openSnapshotPicker() {
     triggerLightTap();
     if (snapBusy) return;
-    if (!LEGACY_STREAMING && (micGateRef.current?.active || handsFree)) {
-      notify("Finish your question and turn off hands-free before snapping a new page.", "info");
-      return;
-    }
+    if (!LEGACY_STREAMING && askingRef.current) endAskNow();
     if (LEGACY_STREAMING && !clientRef.current?.ready) {
       notify("Companion abhi connect ho raha hai. Ek pal ruk kar snapshot lijiye.", "info");
       return;
@@ -3049,9 +3099,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     snapFileRef.current?.click();
   }
   async function handleSnapshotFile(file) {
-    if (!file || snapBusy) return;
-    snapBusyRef.current = true;
-    setSnapBusy(true);
+    if (!file || snapBusyRef.current) return;
     try {
       const shot = await prepareSnapshot(file);
       if (shot.quality === "dark") {
@@ -3059,6 +3107,17 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
         return;
       }
       if (shot.quality === "blurry") notify("Photo thodi dhundhli lag rahi hai. Zaroorat ho toh dobara le lijiye.", "info", 5200);
+      setPendingShot(shot);
+    } catch (e) {
+      notify(friendlyErrorMessage(e, "Photo padh nahi paya. Dobara snapshot lijiye."), "error");
+    }
+  }
+
+  async function commitSnapshot(shot) {
+    if (!shot || snapBusy) return;
+    snapBusyRef.current = true;
+    setSnapBusy(true);
+    try {
       if (cameraRef.current) stopCameraNow();
       const isNext = Boolean(snapBase64Ref.current);
       const page = {
@@ -3076,7 +3135,9 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
       snapBase64Ref.current = shot.base64;
       snapCountRef.current = page.page;
       setSnapshot(page);
+      if (page.pageNumber) writeLastPage(bookId, page.pageNumber);
       setPageNumberInput("");
+      setPendingShot(null);
       const client = clientRef.current;
       if (LEGACY_STREAMING) {
         clearInterval(snapTimerRef.current);
@@ -3386,6 +3447,10 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     let practicePrompt = null;
     for (const fc of toolCall.functionCalls || []) {
       let result = { status: "ignored" };
+      if (fc.name === "log_vocabulary" || fc.name === "save_memory") {
+        // The reader's words are transcribed a moment after the tool call arrives, so wait briefly for them.
+        for (let i = 0; i < 8 && !userTurnBufRef.current.trim(); i += 1) await new Promise((resolve) => setTimeout(resolve, 150));
+      }
       try {
       if (["request_delete", "delete_chapter", "delete_gem", "delete_vocabulary", "delete_memory"].includes(fc.name)) {
         const kind = fc.name === "request_delete" ? fc.args?.kind
@@ -3440,6 +3505,9 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
         } else if (directlyRequested && !VOCAB_DECLINE_TRIGGER.test(currentUserText)) {
           pendingVocabularyRef.current = null;
           result = addVocabularyEntry(entry) ? { status: "saved" } : { status: "skipped" };
+          } else if (isShortYes(currentUserText) && !VOCAB_DECLINE_TRIGGER.test(currentUserText)) {
+          pendingVocabularyRef.current = null;
+          result = addVocabularyEntry(entry) ? { status: "saved" } : { status: "skipped" };
         } else if (confirmedPendingWord && VOCAB_DECLINE_TRIGGER.test(currentUserText)) {
           pendingVocabularyRef.current = null;
           result = { status: "declined" };
@@ -3447,7 +3515,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
           pendingVocabularyRef.current = { entry, chapter: chapterNumberRef.current, requestTurn: currentTurn };
           result = {
             status: "needs_confirmation",
-            message: "This word has NOT been saved. Explain it first, then ask whether the reader wants it added to this book chapter's vocabulary. Wait for a clear yes; if they say no or change topic, discard it.",
+                        message: "Not saved yet. Quietly ask the reader ONE short, natural question whether to save this word. Never mention a system, an app check or a confirmation. If they say yes in any language, call log_vocabulary again immediately.",
           };
         }
       } else if (fc.name === "update_chapter_summary") {
@@ -3686,8 +3754,10 @@ const contLine = cont
   : "\n\nSESSION CONTINUITY: this is the reader's very first session on this book.";
 const recap = getRecap(bookId);
 const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, for continuity only; do not repeat it, just carry on naturally):\n${recap}` : "";
-    return (LEGACY_STREAMING ? READER_PROFILE : SNAPSHOT_READER_PROFILE) + "\n\n" + buildTimeLine() + profileLine + bookContext + progressLine + contLine + recapLine + (memoryContext ? `\n\n${memoryContext}` : "");
-  }
+    const trackedPage = pageRef.current?.pageNumber || readLastPage(bookId);
+    const pageTrackLine = trackedPage ? `\n\nPAGE TRACKING: the reader is currently on printed page ${trackedPage} of this book. Pages before it are already read; pages after it are not read yet. If they say "this page" they mean page ${trackedPage}.` : "";
+    return (LEGACY_STREAMING ? READER_PROFILE : SNAPSHOT_READER_PROFILE) + "\n\n" + buildTimeLine() + profileLine + bookContext + progressLine + pageTrackLine + contLine + recapLine + (memoryContext ? `\n\n${memoryContext}` : "");
+    }
 
   async function connectSession() {
     const systemInstructionText = buildLiveContext();
@@ -3708,12 +3778,12 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
         outputAudioTranscription: {},
         inputAudioTranscription: {},
         realtimeInputConfig: {
-          automaticActivityDetection: LEGACY_STREAMING ? {
+          automaticActivityDetection: {
             startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
             endOfSpeechSensitivity: "END_SENSITIVITY_HIGH",
             prefixPaddingMs: 300,
             silenceDurationMs: 900,
-          } : { disabled: true },
+                    },
         },
         tools: [{ functionDeclarations: [SAVE_MEMORY_DECLARATION, LOG_VOCABULARY_DECLARATION, UPDATE_CHAPTER_SUMMARY_DECLARATION, SET_CURRENT_CHAPTER_DECLARATION, RENAME_CHAPTER_DECLARATION, SET_BOOK_AUTHOR_DECLARATION, SET_CHAPTER_PAGES_DECLARATION, SAVE_GEM_DECLARATION, REQUEST_DELETE_DECLARATION, DELETE_CHAPTER_DECLARATION, DELETE_GEM_DECLARATION, DELETE_VOCABULARY_DECLARATION, DELETE_MEMORY_DECLARATION, UPDATE_MEMORY_DECLARATION, LIST_SAVED_ITEMS_DECLARATION, GET_READING_STATUS_DECLARATION, GET_SESSION_ACTIVITY_DECLARATION, COMPLETE_CHAPTER_DECLARATION,SET_CHAPTER_OUTLINE_DECLARATION,] }],
       },
@@ -3787,6 +3857,7 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
         onText: (text) => { companionTurnBufRef.current += text; },
         onUserText: (text) => {
           userTurnBufRef.current += text;
+          if (askingRef.current) armFollowUp();
           markActive();
           if (!turnActedRef.current) {
             if (END_SESSION_TRIGGER.test(userTurnBufRef.current)) { turnActedRef.current = true; beginGracefulEnd(); }
@@ -3805,7 +3876,9 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
         }
         if (userTurnBufRef.current.trim()) { handleUserTurnText(userTurnBufRef.current.trim()); userTurnBufRef.current = ""; }
         turnActedRef.current = false;
-        if (!LEGACY_STREAMING) scheduleWarmClose();
+                if (!LEGACY_STREAMING) {
+          if (askingRef.current) armFollowUp(); else scheduleWarmClose();
+        }
       },
         onInterrupted: () => audioPlaybackRef.current?.clear(),
         onToolCall: (tc) => handleToolCall(tc),
@@ -3827,7 +3900,9 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
           const quiet = playingNow && micLevelRef.current < 0.2;
           clientRef.current?.sendAudio(quiet ? silentChunk(base64Pcm.length) : base64Pcm);
         } else {
-          micGateRef.current?.accept(base64Pcm);
+                    const playingNow = audioPlaybackRef.current?.isActuallyPlaying?.() ?? speakingNowRef.current;
+          const quiet = playingNow && micLevelRef.current < 0.2;
+          micGateRef.current?.accept(quiet ? silentChunk(base64Pcm.length) : base64Pcm);
         }
       },
       (level) => {
@@ -3893,7 +3968,8 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
     const start = Math.max(0, Math.min(at - 3, real.length - 7));
     return { nodes: real.slice(start, start + 7), before: start > 0, after: start + 7 < real.length };
   })();
-  const statusKey = !LEGACY_STREAMING && /ready to ask|ready for the next question/i.test(status) ? "idle"
+    const statusKey = !LEGACY_STREAMING && asking && !/reconnect|resum|closed|lost|error|failed|busy|unavailable|offline/i.test(status) ? "listening"
+    : !LEGACY_STREAMING && /ready to ask|ready for the next question/i.test(status) ? "idle"
     : !LEGACY_STREAMING && /thinking/i.test(status) ? "thinking"
     : /reconnect|resum/i.test(status) ? "reconnecting"
     : /connecting|starting/i.test(status) ? "connecting"
@@ -3901,6 +3977,7 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
   const statusMeta = {
     connected: { label: LEGACY_STREAMING ? "Live" : "Voice ready", dotClass: "status-dot connected" },
     idle: { label: "Mic on device", dotClass: "status-dot idle" },
+    listening: { label: "Listening", dotClass: "status-dot connected" },
     thinking: { label: "Thinking", dotClass: "status-dot reconnecting" },
     connecting: { label: "Getting ready", dotClass: "status-dot reconnecting" },
     reconnecting: { label: "Reconnecting", dotClass: "status-dot reconnecting" },
@@ -3915,7 +3992,7 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
   };
 
   return (
-    <div className={`ghost-hud ${LEGACY_STREAMING ? "" : "snapshot-session"}`} style={{ "--book-aura-color": auraColor, "--keyboard-inset": `${keyboardInset}px` }}>
+    <div className="ghost-hud" style={{ "--book-aura-color": auraColor, "--keyboard-inset": `${keyboardInset}px` }}>
       <Motion.div className="book-aura" animate={{ opacity: [0.2, 0.42, 0.2], scale: [1, 1.12, 1] }} transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }} />
       <div className={`hud-aura ${mode}`} />
 
@@ -4004,45 +4081,26 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
           </div>
         </div>
       )}
-      {!LEGACY_STREAMING && (
+      {!LEGACY_STREAMING && restorePrompt && (
         <div className="session-ask">
-          {restorePrompt && (
-            <div className="session-restore">
-              <span>Continue {snapshot?.pageNumber ? `page ${snapshot.pageNumber}` : "the saved page"}? This photo is from an earlier reading session.</span>
-              <button type="button" onClick={() => { setRestorePrompt(false); notify("Page ready. Ask about it, or snap a new page.", "info"); }}>Continue</button>
-              <button type="button" onClick={() => { setRestorePrompt(false); openSnapshotPicker(); }}>Snap new page</button>
-            </div>
-          )}
-          {!snapshot && <p className="session-page-hint">Snap the current page so your companion can answer questions about its exact words.</p>}
-          <label className="session-page-number">Printed page # (optional)
-            <input inputMode="numeric" pattern="[0-9]*" maxLength={5} value={pageNumberInput} onChange={(event) => setPageNumberInput(event.target.value.replace(/\D/g, ""))} placeholder="e.g. 48" />
-          </label>
-          <div className="session-ask-actions">
-            <button type="button" onClick={openSnapshotPicker} disabled={snapBusy}><ScanText size={18} /> Snap {snapshot ? "new" : ""} page</button>
-            <button type="button" className={asking ? "asking" : ""} onClick={asking ? stopAsk : startAsk} disabled={muted || handsFree || restorePrompt || snapBusy}>
-              {asking ? <><MicOff size={18} /> Done speaking</> : <><Mic size={18} /> Tap to ask</>}
-            </button>
-            <button type="button" onClick={() => void toggleHandsFree()} aria-pressed={handsFree} disabled={restorePrompt}>
-              {handsFree ? "Hands-free on" : "Hands-free off"}
-            </button>
+          <div className="session-restore">
+            <span>Continue {snapshot?.pageNumber ? `page ${snapshot.pageNumber}` : "the saved page"}? Ye photo pichhle reading session ki hai.</span>
+            <button type="button" onClick={() => setRestorePrompt(false)}>Continue</button>
+            <button type="button" onClick={() => { setRestorePrompt(false); openSnapshotPicker(); }}>New page</button>
           </div>
-          <form className="session-text-fallback" onSubmit={askByTyping}>
-            <input aria-label="Ask by typing" value={typedQuestion} onChange={(event) => setTypedQuestion(event.target.value)} placeholder="Ask by typing if voice is unavailable" maxLength={800} />
-            <button type="submit" disabled={!typedQuestion.trim() || textBusy || restorePrompt}>{textBusy ? "Asking…" : "Ask"}</button>
-          </form>
         </div>
       )}
       <input ref={snapFileRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { handleSnapshotFile(e.target.files?.[0]); e.target.value = ""; }} />
 
       <div className="glass-dock">
-        <Motion.button className={`hud-btn ${muted ? "active" : ""}`} whileTap={{ scale: 0.94 }} transition={INTERACTION_SPRING} onClick={toggleMute} aria-label={muted ? "Unmute microphone" : "Mute microphone"}>
-          {muted ? <MicOff size={22} /> : <Mic size={22} />}
+      <Motion.button className={`hud-btn ${LEGACY_STREAMING ? (muted ? "active" : "") : (asking ? "active" : "")}`} whileTap={{ scale: 0.94 }} transition={INTERACTION_SPRING} onClick={LEGACY_STREAMING ? toggleMute : toggleAsk} aria-label={LEGACY_STREAMING ? (muted ? "Unmute microphone" : "Mute microphone") : (asking ? "Stop asking" : "Ask a question")}>
+          {LEGACY_STREAMING && muted ? <MicOff size={22} /> : <Mic size={22} />}
         </Motion.button>
         {LEGACY_STREAMING && <Motion.button className={`hud-btn ${cameraOn ? "active" : ""}`} whileTap={{ scale: 0.94 }} transition={INTERACTION_SPRING} onClick={toggleCamera} aria-label={cameraOn ? "Close camera" : "Open camera"}>
           {cameraOn ? <CameraIcon size={22} /> : <CameraOff size={22} />}
         </Motion.button>}
         <Motion.button className={`hud-btn ${snapshot ? "active" : ""}`} whileTap={{ scale: 0.94 }} transition={INTERACTION_SPRING} onClick={openSnapshotPicker} disabled={snapBusy} aria-label={snapshot ? "Share snapshot of the next page" : "Share a snapshot of the page"}>
-          <ScanText size={22} />
+          <CameraIcon size={22} />
         </Motion.button>
         <Motion.button className={`hud-btn ${transcriptOpen ? "active" : ""}`} whileTap={{ scale: 0.94 }} transition={INTERACTION_SPRING} onClick={toggleTranscript} aria-label="Toggle transcript">
           <MessageSquareText size={22} />
@@ -4122,7 +4180,29 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
           ))}
         </div>
       )}
-
+            {pendingShot && createPortal(
+        <Motion.div className="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={INTERACTION_SPRING}>
+          <Motion.div className="modal-card elevated" initial={{ opacity: 0, y: 18, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={INTERACTION_SPRING}>
+            <h2>Use this page?</h2>
+            <img src={pendingShot.dataUrl} alt="Page preview" style={{ width: "100%", maxHeight: 240, objectFit: "contain", borderRadius: 12, marginBottom: 12 }} />
+            <input
+              className="title-input"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={5}
+              value={pageNumberInput}
+              onChange={(event) => setPageNumberInput(event.target.value.replace(/\D/g, ""))}
+              placeholder={readLastPage(bookId) ? `Page number (e.g. ${readLastPage(bookId) + 1})` : "Page number (optional)"}
+            />
+            <p className="field-hint">Page number bataoge to companion ko yaad rahega ki aap kahan tak padh chuke ho.</p>
+            <div className="modal-actions">
+              <button className="icon-button ghost" onClick={() => { setPendingShot(null); snapFileRef.current?.click(); }}>Retake</button>
+              <button className="primary-button" disabled={snapBusy} onClick={() => commitSnapshot(pendingShot)}>{snapBusy ? "Saving…" : "Use this photo"}</button>
+            </div>
+          </Motion.div>
+        </Motion.div>,
+        document.body
+      )}
       {pendingDeletion && (
         <ConfirmModal
           title={`Delete ${pendingDeletion.kind}?`}
