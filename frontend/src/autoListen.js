@@ -39,14 +39,25 @@ export function pcmToWavBase64(samples, sampleRate = 16000) {
   return bytesToBase64(new Uint8Array(view.buffer));
 }
 
-// Asks the backend whether this clip is the reader talking to the companion (true) or reading aloud (false).
+// Asks the backend whether this clip is a companion request, an explicit quiet command, or reading aloud.
 export async function classifyUtterance(samples, { companionName = "", book = "" } = {}) {
-  const response = await fetch(apiUrl("/api/reading/classify-utterance"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ audio: pcmToWavBase64(samples), companionName, book }),
-  });
-  if (!response.ok) throw new Error(`classify_${response.status}`);
-  const data = await response.json();
-  return data.ask === true;
+  const body = JSON.stringify({ audio: pcmToWavBase64(samples), companionName, book });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(apiUrl("/api/reading/classify-utterance"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      signal: AbortSignal.timeout(12000),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return { ask: data.ask === true, reading: data.reading === true };
+    }
+    if (attempt === 0 && [502, 503, 504].includes(response.status)) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      continue;
+    }
+    throw new Error(`classify_${response.status}`);
+  }
+  throw new Error("classify_unavailable");
 }

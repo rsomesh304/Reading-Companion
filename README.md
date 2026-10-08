@@ -1,6 +1,44 @@
 # Reading Companion
 
-A personal reading companion app built with React + Vite on the frontend and a small Node/Express backend for AI session orchestration. Version 2.1.0 builds on **A New Chapter** (2.0.0), which keeps a browser-local reading cache and adds Google sign-in with private per-account cloud backup.
+A personal reading companion app built with React + Vite on the frontend and a small Node/Express backend for AI session orchestration. Version 2.3.0 builds on **The Storykeeper’s Lantern**, keeping reader data local-first with optional private per-account cloud snapshots.
+
+## Version 2.3.0: The Storykeeper’s Lantern
+
+- An account-scoped daily reading allowance (30 minutes by default), tracked in Supabase across devices, with a clear limit notice and a developer email link.
+- A recoverable Deleted books bin. Restore a book with its chapters, linked gems and conversation recap, or permanently erase the archived data.
+- Unique, cover-art-free book tiles use the title entered by the reader and open across the whole tile while preserving separate Author, Play and Delete actions.
+- The reading-session microphone stream remains open after the welcome; the companion is instructed to stay quiet during reading and respond to direct questions, greetings or its name.
+- Help & Guide explains the snapshot-only workflow, continuous listening, account reading allowance and book recovery, with matching animations.
+- Updated engineering documentation and the session/data flow diagram below.
+
+### Reading session and data architecture
+
+```mermaid
+flowchart LR
+  Reader --> PWA[React / Vite PWA]
+  PWA --> UI[Session UI and page context]
+  UI -->|continuous PCM while session is active| Live[Gemini Live voice session]
+  Live -->|input transcription| Intent[Quiet-reading intent state]
+  Intent -->|read-aloud / quiet command| Standby[Stay silent and keep listening]
+  Intent -->|direct request / wake phrase| Reply[Respond and keep follow-up open]
+  Reply --> Live
+  Live --> Playback[Scheduled PCM playback]
+  Playback --> Reader
+  UI --> Local[(Browser localStorage)]
+  Local -->|optional account snapshot| Account[(Supabase reader snapshot)]
+  Library[Book library] -->|soft-delete record + linked gems / recap| Local
+  UI -->|authenticated limit and usage requests| API[Express quota endpoints]
+  API -->|service-role RPC| Quota[(Supabase per-user daily limit)]
+  Quota -->|gates entry and records active seconds| UI
+```
+
+The microphone remains captured locally and PCM audio is sent to the Live session while the reader is actively in the foreground session. Live input transcription updates a quiet-reading state for explicit phrases such as “I’m going to read”; the model is instructed not to answer read-aloud text and to resume on direct requests, greetings or the companion name. The session still depends on the browser, network and Gemini service, and continuous streaming can use more battery than tap-to-ask. Audio playback schedules PCM chunks against the Web Audio clock to preserve chunk ordering.
+
+Book deletion is a soft delete: the book record stores its archived related gems and conversation recap, while active Library and Mind Map views stop exposing them. Restore rehydrates those records; permanent deletion removes the archived book record and its embedded relationships. Reading limits and active usage are stored per Supabase user in `reading_companion_session_limits`; server-side RPCs reset usage on the UTC date boundary and atomically cap recorded seconds. The frontend batches short usage increments and keeps unsubmitted seconds scoped to the signed-in account for recovery after a reload.
+
+Apply [the account reading-limit migration](supabase/migrations/20261014120000_add_account_reading_limits.sql) before deploying this version. Configure the backend-only `SESSION_LIMIT_ADMIN_USER_IDS` as a comma-separated list of Supabase auth user UUIDs allowed to change another reader’s daily minutes from Settings. Never expose the Supabase service-role key to the frontend. Readers may view their limit, but only allowlisted administrators can change it.
+
+The app can request a screen wake lock only while the reading screen is visible and the browser supports it. Browsers may suspend microphone access and timers in the background or when the phone is locked; local audio processing, continuous streaming and a lit screen can still warm a phone. Neither uninterrupted lock-screen listening nor zero device heat can be guaranteed by a web app.
 
 ## Version 2.1.0
 
@@ -50,7 +88,7 @@ Before promoting `dev` to `main`:
 
 ### Unreleased: snapshot-first reading
 
-Snapshot-first reading is the default: one locally saved page photo, a local mic gate with 700 ms of pre-roll, explicit turn boundaries (a pause does not end Tap to ask), and an optional on-device hands-free detector. Follow-ups reuse the Live connection for 90 seconds; later questions reconnect and resend the page image. To roll back to continuous camera/audio streaming, set the public build flag `VITE_SESSION_STREAMING_LEGACY=true` and rebuild the frontend. The rate-limited typed reading fallback uses server-side Gemini with the optional `READING_TEXT_MODEL` override (default `gemini-3.5-flash-lite`); no extra API key is required. Hands-free VAD assets are self-hosted and loaded only if enabled by the reader.
+Snapshot-first reading is the default: one locally saved page photo, a local mic gate with 700 ms of pre-roll, and explicit turn boundaries (a pause does not end Tap to ask). The voice session gives a short spoken introduction once its initial context is ready, warms its Live connection at startup, and keeps it available for up to 10 minutes between questions; later questions reconnect and resend the page context. On browsers that support forced on-device speech recognition, the saved companion name or a greeting wakes the assistant locally. A spoken "I'm reading" / "don't interrupt" command returns it to quiet standby, and natural follow-ups remain open for 8 seconds. Browsers without local recognition use local VAD to detect speech and the server-side audio classifier to decide whether to respond. The browser requests a screen wake lock during an active, visible reading session where supported; voice is not guaranteed to continue when the phone is locked or the browser is backgrounded. The wake lock keeps the display on and can increase battery use. Local microphone capture/VAD and a lit screen can still warm a phone, so zero heat cannot be guaranteed. To roll back to continuous camera/audio streaming, set the public build flag `VITE_SESSION_STREAMING_LEGACY=true` and rebuild the frontend. The rate-limited typed reading fallback uses server-side Gemini with the optional `READING_TEXT_MODEL` override (default `gemini-3.5-flash-lite`); no extra API key is required. Hands-free VAD assets are self-hosted and loaded only by the automatic-classification fallback.
 
 Never commit local environment files or credentials.
 

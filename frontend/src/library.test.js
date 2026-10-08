@@ -46,3 +46,55 @@ test("chapter deletion protects the last chapter and re-points the current chapt
   assert.equal(library.getBook(book.id).currentChapterNumber, 1);
   assert.deepEqual(library.deleteChapter(book.id, 1), { ok: false, reason: "last_chapter" });
 });
+
+test("books receive distinct stable tile colors, including legacy entries", () => {
+  localStorage.setItem("reading_companion_library", JSON.stringify({
+    books: {
+      first: { id: "first", title: "First", tileColorIndex: 4 },
+      duplicate: { id: "duplicate", title: "Duplicate", tileColorIndex: 4 },
+      legacy: { id: "legacy", title: "Legacy" },
+    },
+  }));
+  const library = new Library();
+  const indexes = library.listBooks().map((book) => book.tileColorIndex);
+  assert.equal(new Set(indexes).size, indexes.length);
+  const added = library.getOrCreateBook("New manual book");
+  assert.ok(!indexes.includes(added.tileColorIndex));
+  assert.equal(library.getBook("first").tileColorIndex, 4);
+});
+
+test("deleted books leave the active library and restore with related data intact", () => {
+  const library = new Library();
+  const book = library.getOrCreateBook("Story to recover");
+  library.setChapterOutline(book.id, [{ chapterNumber: 1, title: "Opening" }, { chapterNumber: 2, title: "Ending" }]);
+  const related = { gems: [{ id: "gem-1", bookId: book.id }], conversation: "[{}]" };
+
+  assert.equal(library.deleteBook(book.id, related), true);
+  assert.equal(library.listBooks().some((entry) => entry.id === book.id), false);
+  assert.equal(library.listDeletedBooks()[0].chapters[2].title, "Ending");
+  assert.deepEqual(library.restoreBook(book.id), related);
+  assert.equal(library.listBooks().some((entry) => entry.id === book.id), true);
+  assert.equal(library.permanentlyDeleteBook(book.id), false);
+
+  assert.equal(library.deleteBook(book.id, related), true);
+  assert.equal(library.permanentlyDeleteBook(book.id), true);
+  assert.equal(library.getBook(book.id), null);
+});
+
+test("chapter end pages are inferred from the next known chapter start only", () => {
+  const library = new Library();
+  const book = library.getOrCreateBook("Page ranges");
+  library.setChapterOutline(book.id, [
+    { chapterNumber: 1, title: "First", startPage: 11 },
+    { chapterNumber: 2, title: "Second", startPage: 27 },
+    { chapterNumber: 3, title: "Last", startPage: 45 },
+  ]);
+  assert.equal(library.getChapter(book.id, 1).endPage, 26);
+  assert.equal(library.getChapter(book.id, 2).endPage, 44);
+  assert.equal(library.getChapter(book.id, 3).endPage, null);
+
+  library.setChapterPages(book.id, 2, 30);
+  assert.equal(library.getChapter(book.id, 1).endPage, 29);
+  assert.equal(library.getChapter(book.id, 2).endPage, 44);
+  assert.equal(library.getChapter(book.id, 3).endPage, null);
+});

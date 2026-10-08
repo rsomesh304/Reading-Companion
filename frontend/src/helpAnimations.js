@@ -44,6 +44,9 @@ export const HELP_ANIMATIONS = [
   { id: "lib-play", group: "Library", title: "Play icon & options", kind: "card", accent: "#ff8fab",
     keywords: ["play icon", "play button", "start reading", "recap", "play on book", "options when play"],
     items: [item("Play", "Tap Play", "The Play icon on a book tile opens the recap."), item("ScanText", "Recap", "Refresh your memory of where you left off."), item("BookOpen", "Start Reading", "Begin the live session with your companion.")] },
+  { id: "lib-trash", group: "Library", title: "Delete and restore books", kind: "flow", accent: "#b48cff",
+    keywords: ["deleted books", "trash", "bin", "restore book", "permanently delete", "delete book"],
+    items: [item("Trash2", "Move to Deleted books", "A confirmed delete takes the book out of the active library."), item("BookOpen", "Keep its story", "Chapters, linked gems and conversation recap stay archived together."), item("Check", "Restore", "Bring the book and its related reading data back."), item("Trash2", "Delete forever", "Permanently remove the archived book after confirmation.")] },
 
   // Gems
   { id: "gem-card", group: "Gems", title: "Gems card", kind: "grid", accent: "#ff8fab",
@@ -95,6 +98,9 @@ export const HELP_ANIMATIONS = [
   { id: "set-backup", group: "Settings", title: "Settings: Backup", kind: "flow", accent: "#6aa9ff",
     keywords: ["backup", "export backup", "restore", "restore backup", "json file"],
     items: [item("Download", "Export backup", "Downloads everything as one JSON file."), item("Save", "Keep it safe", "Store the file anywhere."), item("RefreshCw", "Restore", "Load it later to bring your data back.")] },
+  { id: "set-reading-limit", group: "Settings", title: "Daily reading limit", kind: "flow", accent: "#ffb454",
+    keywords: ["30 minutes", "daily reading limit", "session cap", "reading allowance", "prototype limit"],
+    items: [item("Clock", "A daily allowance", "Up to 30 minutes of active reading sessions are available each local day."), item("Library", "Across your books", "Time is counted across reading sessions, not reset for each book."), item("Send", "Need more time?", "Contact the developer from the limit notice or Settings.")] },
   { id: "set-app", group: "Settings", title: "Settings: App", kind: "rows", accent: "#ff8fab",
     keywords: ["check for updates", "app section", "version", "update now", "release notes", "what's new", "new version"],
     items: [item("RefreshCw", "Check for updates", "Looks for a new version."), item("Sparkles", "What's new", "See what changed, then Update now."), item("ScanText", "Release notes", "The full history of versions.")] },
@@ -104,6 +110,12 @@ export const HELP_ANIMATIONS = [
   { id: "set-danger", group: "Settings", title: "Settings: Danger zone", kind: "rows", accent: "#f26a6a",
     keywords: ["danger zone", "delete all my data", "delete everything", "erase data", "delete account data", "reset app"],
     items: [item("AlertTriangle", "Careful", "These actions cannot be undone."), item("Trash2", "Delete all my data", "Erases books, gems, memory and profile."), item("Check", "Confirmation", "You are always asked to confirm first.")] },
+  { id: "session-wake", group: "Reading session", title: "Always-on listening", kind: "flow", accent: "#42d897",
+    keywords: ["wake word", "wake up", "auto listening", "auto-listening", "companion name", "quiet reading", "voice not responding", "microphone always on"],
+    items: [item("Mic", "Keep listening", "The microphone stream stays open for the active reading session."), item("Moon", "Quiet reading", "Say that you are reading; the companion stays quiet but continues listening."), item("User", "Ask when ready", "Say the companion's name, hello, or a direct question to wake it."), item("Clock", "Follow-up", "It stays ready for follow-up questions after answering.")] },
+  { id: "session-snapshot-flow", group: "Reading session", title: "Snapshot reading", kind: "flow", accent: "#6aa9ff",
+    keywords: ["snapshot", "page snapshot", "next page", "page turn", "replace snapshot", "previous page context", "book snapshot"],
+    items: [item("Camera", "Send a snapshot", "Share one still photo of the page you are reading."), item("BookOpen", "Ask about it", "The companion answers using the latest page photo."), item("ChevronRight", "Turn the page", "Send another snapshot when you move to a new page."), item("Brain", "Keep the story", "Saved summaries and story context carry across page photos.")] },
 
   // Support and info
   { id: "support-report", group: "Support", title: "Report an Issue", kind: "flow", accent: "#f2a65a",

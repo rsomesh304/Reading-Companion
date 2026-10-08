@@ -140,6 +140,21 @@ export class Gems {
     this._save();
     return true;
   }
+  removeForBook(bookId) {
+    const removed = this.gems.filter((gem) => gem.bookId === bookId);
+    if (!removed.length) return [];
+    this.gems = this.gems.filter((gem) => gem.bookId !== bookId);
+    this._save();
+    return removed.map(normalizeGem);
+  }
+  restoreMany(items) {
+    if (!Array.isArray(items) || !items.length) return 0;
+    const existing = new Set(this.gems.map((gem) => String(gem.id)));
+    const restored = items.map(normalizeGem).filter((gem) => !existing.has(String(gem.id)));
+    this.gems.unshift(...restored);
+    if (restored.length) this._save();
+    return restored.length;
+  }
   setSketchStyle(id, style) {
     const gem = this.getById(id);
     if (!gem) return false;

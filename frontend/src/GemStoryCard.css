@@ -124,6 +124,7 @@
   color: rgba(255,255,255,.6);
 }
 .gsc-by span + span::before { content: "·"; margin-right: 22px; color: var(--acc); }
+.gsc-date { margin-top: 18px; font: 500 22px 'Inter', sans-serif; letter-spacing: .04em; color: rgba(255,255,255,.64); }
 /* ============ style dropdown ============ */
 .gsc-menu-wrap { position: relative; }
 .gsc-menu {

@@ -27,6 +27,7 @@ import { ReportDetail, ReportList } from "./ReportsView.jsx";
 import "./SettingsScreens.css";
 import { useHaptic } from "./useHaptic.js";
 import { APP_VERSION } from "./version.js";
+import { CONTACT } from "./developerContact.js";
 
 export { APP_VERSION };
 const VOICES = ["Leda", "Aoede", "Kore", "Despina", "Erinome", "Sulafat", "Achernar", "Charon", "Orus"];
@@ -263,12 +264,40 @@ export function SettingsScreen({ nav, stores }) {
   const [pushPrefs, setPushPrefs] = useState(loadPushPrefs);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState("");
+  const [deletedBooks, setDeletedBooks] = useState(() => library.listDeletedBooks());
+  const [deletedBooksOpen, setDeletedBooksOpen] = useState(false);
+  const [quotaUserId, setQuotaUserId] = useState("");
+  const [quotaMinutes, setQuotaMinutes] = useState("30");
+  const [quotaSaving, setQuotaSaving] = useState(false);
   const [studyPattern] = useState(() => computeStudyPattern(collectSessionStarts(library)));
   const { triggerLightTap } = useHaptic();
   const drv = useGeminiVoiceDriver({ voiceName: voice });
   const fileRef = useRef(null);
 
   const flash = (t) => { setMsg(t); setTimeout(() => setMsg(""), 2800); };
+  function refreshDeletedBooks() {
+    setDeletedBooks(library.listDeletedBooks());
+    bump((n) => n + 1);
+  }
+  useEffect(() => {
+    const refresh = () => setDeletedBooks(library.listDeletedBooks());
+    window.addEventListener("rc:local-data-changed", refresh);
+    return () => window.removeEventListener("rc:local-data-changed", refresh);
+  }, [library]);
+  function restoreBook(book) {
+    const related = library.restoreBook(book.id);
+    if (!related) return;
+    gems.restoreMany(related.gems);
+    if (typeof related.conversation === "string") localStorage.setItem(`rc_convo_${book.id}`, related.conversation);
+    refreshDeletedBooks();
+    flash(`"${book.displayTitle || book.title}" restored with its reading data.`);
+  }
+  function permanentlyDeleteBook(book) {
+    if (!window.confirm(`Permanently delete "${book.displayTitle || book.title}" and its archived gems and conversation history? This cannot be undone.`)) return;
+    if (!library.permanentlyDeleteBook(book.id)) return;
+    refreshDeletedBooks();
+    flash("Book and its archived data permanently deleted.");
+  }
   const save = (k, v) => { profile.data[k] = v; profile._save(); bump((n) => n + 1); };
   const kb = Math.round(Object.keys(localStorage).reduce((s, k) => s + k.length + (localStorage.getItem(k) || "").length, 0) * 2 / 1024);
 
@@ -382,6 +411,7 @@ export function SettingsScreen({ nav, stores }) {
   }, []);
   useBackLayer(updateDetailsOpen, () => setUpdateDetailsOpen(false));
   useBackLayer(releaseNotesOpen, () => setReleaseNotesOpen(false));
+  useBackLayer(deletedBooksOpen, () => setDeletedBooksOpen(false));
 
   if (updateDetailsOpen) {
     return (
@@ -400,6 +430,36 @@ export function SettingsScreen({ nav, stores }) {
 
   if (releaseNotesOpen) {
     return <ReleaseNotesScreen releases={releaseHistory} onBack={() => setReleaseNotesOpen(false)} />;
+  }
+
+  if (deletedBooksOpen) {
+    return (
+      <div className="screen set-screen">
+        <div className="aurora-bg" />
+        <PfHead title="Deleted books" sub={`${deletedBooks.length} ${deletedBooks.length === 1 ? "book" : "books"} in your bin`} onBack={() => setDeletedBooksOpen(false)} />
+        <div className="set-body">
+          <SetSec>
+            <div className="set-card">
+              {deletedBooks.length ? (
+                <div className="set-rows">
+                  {deletedBooks.map((book) => (
+                    <div className="st-item" key={book.id}>
+                      <div className="st-tx">
+                        <b>{book.displayTitle || book.title}</b>
+                        <small>Deleted {new Date(book.deletedAt).toLocaleDateString()}</small>
+                      </div>
+                      <button type="button" className="st-btn" onClick={() => restoreBook(book)}>Restore</button>
+                      <button type="button" className="st-btn st-trash-permanent" onClick={() => permanentlyDeleteBook(book)} aria-label={`Permanently delete ${book.displayTitle || book.title}`}><Trash2 size={16} /></button>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="st-note">Your deleted-books bin is empty.</p>}
+            </div>
+          </SetSec>
+        </div>
+        {msg && <div className="set-toast">{msg}</div>}
+      </div>
+    );
   }
 
   const usedPct = Math.min(100, Math.round((kb / 5120) * 100));
@@ -489,6 +549,54 @@ export function SettingsScreen({ nav, stores }) {
               <SetRow icon={<Trash2 size={16} />} label="Clear saved preferences" onClick={clearMemory} />
               <SetRow icon={<Trash2 size={16} />} label="Delete all gems" onClick={clearGems} />
             </div>
+          </div>
+        </SetSec>
+
+        <SetSec title="Deleted books">
+          <div className="set-card">
+            <div className="set-note"><Trash2 size={16} />
+              <span>Deleted books and their reading data are kept in a separate bin until you restore or permanently remove them.</span>
+            </div>
+            <SetRow icon={<Trash2 size={16} />} label="Open deleted-books bin" hint={`${deletedBooks.length} ${deletedBooks.length === 1 ? "book" : "books"}`} onClick={() => setDeletedBooksOpen(true)} chevron />
+          </div>
+        </SetSec>
+
+        <SetSec title="Reading limit">
+          <div className="set-card">
+            <div className="set-note"><Clock3 size={16} />
+              <span>{nav.readingQuota
+                ? `Your account allows ${nav.readingQuota.dailyLimitMinutes} minutes per UTC calendar day. ${Math.floor(nav.readingQuota.remainingSeconds / 60)} minutes remain today. Usage is tracked to your signed-in account.`
+                : nav.quotaError || "Loading your account reading limit…"}
+              </span>
+            </div>
+            {nav.quotaError && <button type="button" className="st-btn" onClick={() => void nav.refreshReadingQuota?.().catch((error) => flash(error.message))}>Retry limit check</button>}
+            <a className="st-btn" href={`mailto:${CONTACT.email}?subject=${encodeURIComponent("Reading Companion daily session limit")}`}>
+              <Send size={15} /> Contact developer
+            </a>
+            {nav.readingQuota?.canManage && (
+              <div className="set-form st-quota-admin">
+                <b>Developer limit controls</b>
+                <label className="st-lbl">Reader account UUID
+                  <input className="st-input full" value={quotaUserId} onChange={(event) => setQuotaUserId(event.target.value)} placeholder="Supabase user ID" />
+                </label>
+                <label className="st-lbl">Daily minutes
+                  <input className="st-input" type="number" min="1" max="1440" step="1" value={quotaMinutes} onChange={(event) => setQuotaMinutes(event.target.value)} />
+                </label>
+                <button type="button" className="st-btn" disabled={quotaSaving || !quotaUserId.trim()} onClick={async () => {
+                  setQuotaSaving(true);
+                  try {
+                    await nav.setReadingLimit(quotaUserId.trim(), Number(quotaMinutes));
+                    flash("Account reading limit updated.");
+                    setQuotaUserId("");
+                  } catch (error) {
+                    flash(error.message || "The account limit could not be updated.");
+                  } finally {
+                    setQuotaSaving(false);
+                  }
+                }}>{quotaSaving ? "Saving…" : "Update account limit"}</button>
+                <small>Only account IDs on the server’s SESSION_LIMIT_ADMIN_USER_IDS allowlist can use this action.</small>
+              </div>
+            )}
           </div>
         </SetSec>
 

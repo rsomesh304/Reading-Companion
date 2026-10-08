@@ -22,8 +22,8 @@ const TOUR_COPY = {
 
 const MASCOT_LINES = ["Main chup zaroor rehta hoon... par tumhari har kitab pe meri nazar hai!", "Kitab kholo aur shuru ho jao... main yahin hoon tumhare saath."];
 const FEATURE_LINES = [
-  "Sabse pehle... Live Reading. Aap chahein toh kitab ka panna camera ko dikhaiye aur mujhse baat kijiye, bilkul ek dost ki tarah.",
-  "Aur agar har waqt camera pakadna mushkil ho, toh koi baat nahi. Page ka ek snapshot bhej dijiye, phone paas rakh lijiye, aur jahan atko, bas mujhse poochhiye. Page khatam ho, toh agla snapshot.",
+  "Sabse pehle... Reading Session. Panne ka ek snapshot bhejiye, phone paas rakhiye, aur mujhse bilkul ek dost ki tarah baat kijiye.",
+  "Panna palatne par bas ek naya snapshot bhejiye. Purani photo replace ho jaati hai, lekin kahani ka context aur saved summaries mere paas rehte hain.",
   "Doosra... agar koi mushkil word atak jaaye, toh dictionary mat kholiye. Mujhse poochhiye, main aapko aapki bhasha mein samjha doonga.",
   "Teesra hai Gems... koi line dil ko chhoo jaaye, toh use save kijiye. Main uska ek khoobsurat, premium visual card bana doonga jise aap yaad rakh sakein.",
   "Aur aakhir mein, Memory... kitab khatam hone ke baad main poori kahani aur concepts ka ek chamakta hua Mind Map bana doonga, taaki aap kuchh na bhoolein.",

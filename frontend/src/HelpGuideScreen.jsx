@@ -39,7 +39,7 @@ const QUESTIONS = [
   { label: "Save a word or quote", id: "save-items", Icon: Bookmark, tone: "blue" },
   { label: "What do the reading buttons do?", id: "session-buttons", Icon: ScanText, tone: "gold" },
   { label: "How does Ghost mode work?", id: "ghost-mode", Icon: Ghost, tone: "violet" },
-  { label: "Live camera or snapshot?", id: "camera-options", Icon: Quote, tone: "pink" },
+  { label: "Snapshot reading?", id: "camera-options", Icon: Quote, tone: "pink" },
   { label: "Report a problem", id: "report-issue", Icon: Bug, tone: "coral" },
 ];
 const PLACEHOLDERS = [

@@ -517,6 +517,11 @@ export class GeminiLiveClient {
     try { await this.session.sendRealtimeInput({ text }); } catch { /* reconnect gap */ }
   }
 
+  async sendUserText(text) {
+    if (this.stopped || !this.ready || !this.session) throw new Error("voice_session_not_ready");
+    await this.session.sendRealtimeInput({ text });
+  }
+
   async sendSilentContext(text) {
     if (!this.session || !this.ready) throw new Error("voice_session_not_ready");
     await this.session.sendClientContent({

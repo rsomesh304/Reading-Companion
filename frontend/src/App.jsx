@@ -14,7 +14,7 @@ function saveOpener(text) {
   try { localStorage.setItem(OPENER_KEY, JSON.stringify([...getRecentOpeners(), text.slice(0, 160)].slice(-8))); } catch { /* ignore */ }
 }
 const SNAPSHOT_FIRST_NOTE = "[SYSTEM NOTE] SNAPSHOT MODE. The reader just shared a still photo of the book page they are on; the image you now see is that fixed photo, NOT a live camera, so it will not move. Treat it as the current page (rule 23b). Say ONE very short Hinglish line (under 8 words) confirming you can see the page, or say plainly that it is unclear and ask for a clearer photo. Then stay quiet until the reader asks about a word, phrase or sentence.";
-const SNAPSHOT_NEXT_NOTE = "[SYSTEM NOTE] NEW SNAPSHOT. The reader finished the previous page and shared the NEXT page. Forget the earlier page photo; the image you see now is the current page. Say ONE very short Hinglish line (under 8 words) confirming the new page is visible, or say it is unclear and ask for a clearer photo. Then stay quiet until asked.";
+const SNAPSHOT_NEXT_NOTE = "[SYSTEM NOTE] NEW SNAPSHOT. The reader shared a newer page photo. Forget only the previous image and use this latest photo for what is visible now; retain established story facts, saved summaries and earlier page references. Do not assume the reader finished the previous page. Say ONE very short Hinglish line (under 8 words) confirming the new photo is visible, or say it is unclear and ask for a clearer photo. Then stay quiet until asked.";
 const SNAPSHOT_REMINDER_NOTE = "[SYSTEM NOTE] Reminder: SNAPSHOT MODE is still on. The image you see is the reader's current page photo, not a live camera. Do not say anything about this note.";
 const SNAPSHOT_OFF_NOTE = "[SYSTEM NOTE] The reader switched to the LIVE camera. Ignore the earlier page snapshot and use only the live camera pictures from now on. Do not say anything about this note.";
 function buildOpeningNote(cont) {
@@ -54,6 +54,7 @@ import {
     Info,
     Library as LibraryIcon,
     Lock,
+    Mail,
     MessageCircleMore,
     MessageSquareText,
     Mic,
@@ -101,6 +102,7 @@ import { GeminiLiveClient } from "./geminiLiveClient.js";
 import { SessionMicGate } from "./sessionMicGate.js";
 import { createPageContextProvider, loadPage, savePage } from "./sessionPage.js";
 import { classifyUtterance, float32ToPcmChunks } from "./autoListen.js";
+import { classifyVoiceIntent } from "./voiceIntent.js";
 import { ensureGemInsights } from "./gemInsightClient.js";
 import { Gems } from "./gems.js";
 import GemStoryCard from "./GemStoryCard.jsx";
@@ -145,6 +147,8 @@ import {
     UPDATE_MEMORY_DECLARATION,
 } from "./persona.js";
 import { Profile } from "./profile.js";
+import { fetchReadingQuota, recordReadingUsage, setReadingLimit } from "./readingQuota.js";
+import { CONTACT } from "./developerContact.js";
 import "./ProfileUI.css";
 import "./ProfileCard.css";
 import AvatarCropper from "./AvatarCropper";
@@ -168,8 +172,7 @@ import { APP_VERSION } from "./version.js";
 const MODEL_NAME = "gemini-3.1-flash-live-preview";
 const FALLBACK_MODEL_NAME = "gemini-2.5-flash-native-audio-preview-12-2025";
 const LEGACY_STREAMING = import.meta.env.VITE_SESSION_STREAMING_LEGACY === "true";
-const WARM_WINDOW_MS = 90_000;
-const FOLLOWUP_MIC_MS = 15_000;
+const FOLLOWUP_MIC_MS = 8_000;
 const RESUME_WINDOW_MS = 2 * 60 * 60_000;
 const SILENCE_CHECK_MS = 4 * 60 * 1000;
 const SILENCE_SHUTDOWN_MS = 45 * 1000;
@@ -470,6 +473,14 @@ function AppCore() {
   const [recapModal, setRecapModal] = useState(null);
   const [newBookModalOpen, setNewBookModalOpen] = useState(false);
   const [storyRequest, setStoryRequest] = useState(null);
+  const [dailyLimitOpen, setDailyLimitOpen] = useState(false);
+  const [readingQuota, setReadingQuota] = useState(null);
+  const [quotaError, setQuotaError] = useState("");
+  const quotaRef = useRef(null);
+  const pendingQuotaSecondsRef = useRef(0);
+  const quotaFlushRef = useRef(false);
+  const quotaFlushPromiseRef = useRef(null);
+  const quotaPendingKeyRef = useRef("");
   const [resetKey, setResetKey] = useState(0);
   const [showOnboarding, setShowOnboarding] = useState(() => !profileStore.hasCompletedOnboarding());
   const [updateState, setUpdateState] = useState({ available: false, releases: [] });
@@ -482,6 +493,102 @@ function AppCore() {
   useEffect(() => {
     refreshPushSubscription(library);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    quotaPendingKeyRef.current = `rc_pending_reading_seconds_${account.user.id}`;
+    try {
+      pendingQuotaSecondsRef.current = Math.max(0, Math.floor(Number(localStorage.getItem(quotaPendingKeyRef.current)) || 0));
+    } catch (error) {
+      console.warn("[READING_LIMIT] Could not restore pending usage", error);
+      pendingQuotaSecondsRef.current = 0;
+    }
+    fetchReadingQuota().then((quota) => {
+      if (cancelled) return;
+      if (pendingQuotaSecondsRef.current) {
+        const pending = Math.min(pendingQuotaSecondsRef.current, quota.remainingSeconds);
+        quota.usedSeconds += pending;
+        quota.remainingSeconds -= pending;
+      }
+      quotaRef.current = quota;
+      setReadingQuota(quota);
+      setQuotaError("");
+      if (pendingQuotaSecondsRef.current) void flushReadingUsage();
+    }).catch((error) => {
+      if (cancelled) return;
+      console.error("[READING_LIMIT] Could not load account limit", error);
+      setQuotaError(error.message || "Your account reading limit is unavailable.");
+    });
+    return () => { cancelled = true; };
+  }, [account.user.id]);
+
+  async function refreshReadingQuota() {
+    const quota = await fetchReadingQuota();
+    quotaRef.current = quota;
+    setReadingQuota(quota);
+    setQuotaError("");
+    return quota;
+  }
+
+  async function flushReadingUsage() {
+    if (quotaFlushRef.current) {
+      await quotaFlushPromiseRef.current;
+      if (pendingQuotaSecondsRef.current >= 10) return flushReadingUsage();
+      return;
+    }
+    if (pendingQuotaSecondsRef.current <= 0) return;
+    const seconds = Math.min(60, pendingQuotaSecondsRef.current);
+    pendingQuotaSecondsRef.current -= seconds;
+    persistPendingQuotaSeconds();
+    quotaFlushRef.current = true;
+    quotaFlushPromiseRef.current = recordReadingUsage(seconds);
+    try {
+      const quota = await quotaFlushPromiseRef.current;
+      const pending = Math.min(pendingQuotaSecondsRef.current, quota.remainingSeconds);
+      quota.usedSeconds += pending;
+      quota.remainingSeconds -= pending;
+      quotaRef.current = quota;
+      setReadingQuota(quota);
+      setQuotaError("");
+    } catch (error) {
+      pendingQuotaSecondsRef.current += seconds;
+      persistPendingQuotaSeconds();
+      console.error("[READING_LIMIT] Could not record active session time", error);
+      setQuotaError(error.message || "Reading time could not be saved to your account.");
+    } finally {
+      quotaFlushRef.current = false;
+      quotaFlushPromiseRef.current = null;
+    }
+    if (pendingQuotaSecondsRef.current >= 10) return flushReadingUsage();
+  }
+
+  function recordActiveReadingSeconds(seconds) {
+    const current = quotaRef.current;
+    if (!current) return 0;
+    const increment = Math.max(0, Math.floor(Number(seconds) || 0));
+    const limitSeconds = current.dailyLimitMinutes * 60;
+    const next = {
+      ...current,
+      usedSeconds: Math.min(limitSeconds, current.usedSeconds + increment),
+      remainingSeconds: Math.max(0, current.remainingSeconds - increment),
+    };
+    quotaRef.current = next;
+    setReadingQuota(next);
+    pendingQuotaSecondsRef.current += increment;
+    persistPendingQuotaSeconds();
+    if (pendingQuotaSecondsRef.current >= 10 || next.remainingSeconds <= 0) void flushReadingUsage();
+    return next.remainingSeconds;
+  }
+
+  function persistPendingQuotaSeconds() {
+    if (!quotaPendingKeyRef.current) return;
+    try {
+      if (pendingQuotaSecondsRef.current > 0) localStorage.setItem(quotaPendingKeyRef.current, String(pendingQuotaSecondsRef.current));
+      else localStorage.removeItem(quotaPendingKeyRef.current);
+    } catch (error) {
+      console.warn("[READING_LIMIT] Could not persist pending usage", error);
+    }
+  }
 
   // Tapping a report-status notification opens the app on Your Reports.
   useEffect(() => {
@@ -501,6 +608,14 @@ function AppCore() {
     const onPopState = (e) => {
       if (handleBackStackPop()) return;
       const state = e.state || { screen: "dashboard" };
+      if (state.screen === "session" && (quotaRef.current?.remainingSeconds ?? 0) <= 0) {
+        setScreen("dashboard");
+        setActiveBookId(null);
+        setActiveChapterNumber(null);
+        routeRef.current = { screen: "dashboard", activeBookId: null, activeChapterNumber: null };
+        setDailyLimitOpen(true);
+        return;
+      }
       routeRef.current = state;
       setScreen(state.screen);
       setActiveBookId(state.activeBookId ?? null);
@@ -516,6 +631,16 @@ function AppCore() {
 
   function navigateTo(nextScreen, extra = {}) {
     clearLayers();
+    if (nextScreen === "session") {
+      if (!quotaRef.current) {
+        notify(quotaError || "Checking your account reading limit. Please try again shortly.", "error");
+        return;
+      }
+      if (quotaRef.current.remainingSeconds <= 0) {
+        setDailyLimitOpen(true);
+        return;
+      }
+    }
     const nextBookId = "activeBookId" in extra ? extra.activeBookId : activeBookId;
     const nextChapterNumber = "activeChapterNumber" in extra ? extra.activeChapterNumber : activeChapterNumber;
     setScreen(nextScreen);
@@ -528,6 +653,11 @@ function AppCore() {
 
   function openNewBook() {
     setNewBookModalOpen(true);
+  }
+  async function handleDailyLimit() {
+    await flushReadingUsage();
+    setDailyLimitOpen(true);
+    navigateTo("dashboard");
   }
 
   function openRecap(bookId) {
@@ -573,11 +703,12 @@ function AppCore() {
     const wanted = title.trim().toLowerCase();
     return library.listBooks().find((b) => b.title.trim().toLowerCase() === wanted) || null;
   }
-  async function createBookFromSearch({ title, authorName, coverUrl, isbn, portrait, bio, chapters }) {
+  async function createBookFromSearch({ title, displayTitle, authorName, coverUrl, isbn, portrait, bio, chapters }) {
     const book = library.getOrCreateBook(title);
     const authors = String(authorName || "").split(/\s*(?:,|&| and )\s*/i).filter(Boolean);
     const small = portrait ? await shrinkDataUrl(portrait) : "";
     library.updateBookMeta(book.id, {
+      displayTitle: displayTitle || title,
       isbn: isbn || "",
       authorName: authorName || "",
       authorBio: bio || "",
@@ -632,6 +763,17 @@ function AppCore() {
     openNewBook,
     updateAvailable: updateState.available,
     updateReleases: updateState.releases,
+    readingQuota,
+    quotaError,
+    refreshReadingQuota,
+    setReadingLimit: async (userId, dailyLimitMinutes) => {
+      const updated = await setReadingLimit(userId, dailyLimitMinutes);
+      if (userId === account.user.id) {
+        quotaRef.current = updated;
+        setReadingQuota(updated);
+      }
+      return updated;
+    },
     checkForUpdates: () => updateActionsRef.current?.checkForUpdates?.() || false,
     applyUpdate: () => updateActionsRef.current?.applyUpdate?.(),
     openChapterGrid: (bookId) => navigateTo("chapterGrid", { activeBookId: bookId }),
@@ -644,7 +786,13 @@ function AppCore() {
   return (
     <ErrorBoundary key={resetKey} onReset={() => { setResetKey((k) => k + 1); navigateTo("dashboard"); }}>
       {screen === "session" ? (
-        <SessionScreen bookId={activeBookId} onEnd={nav.goBack} onRestart={() => restartReadingSession(activeBookId)} />
+        <SessionScreen
+          bookId={activeBookId}
+          onEnd={async () => { await flushReadingUsage(); nav.goBack(); }}
+          onRestart={() => restartReadingSession(activeBookId)}
+          onUsageSecond={recordActiveReadingSeconds}
+          onDailyLimit={handleDailyLimit}
+        />
       ) : (
         <div className="app-shell">
           <div className="app-content">
@@ -690,6 +838,29 @@ function AppCore() {
         onUpdate={nav.applyUpdate}
       />
       <NotificationHost />
+      <AnimatePresence>
+        {dailyLimitOpen && (
+          <Motion.div className="modal-overlay" role="presentation" onClick={() => setDailyLimitOpen(false)}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <Motion.section
+              role="dialog" aria-modal="true" aria-labelledby="daily-limit-title"
+              className="daily-limit-card"
+              onClick={(event) => event.stopPropagation()}
+              initial={{ opacity: 0, y: 18, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            >
+              <div className="daily-limit-icon"><Clock size={24} /></div>
+              <p className="eyebrow">A little more tomorrow</p>
+              <h2 id="daily-limit-title">Your {readingQuota?.dailyLimitMinutes ?? 30}-minute reading time is complete</h2>
+              <p>Reading Companion is a prototype, and this daily limit helps us manage shared AI service capacity fairly. Your books and progress are saved safely.</p>
+              <p className="daily-limit-small">Need a longer session? Get in touch with the developer.</p>
+              <a className="primary-button daily-limit-contact" href={`mailto:${CONTACT.email}?subject=${encodeURIComponent("Reading Companion daily session limit")}`}>
+                <Mail size={17} /> Contact the developer
+              </a>
+              <button type="button" className="daily-limit-close" onClick={() => setDailyLimitOpen(false)}>I’ll come back tomorrow</button>
+            </Motion.section>
+          </Motion.div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {storyRequest && (
           <StoryTheatre
@@ -1586,7 +1757,16 @@ function LibraryScreen({ nav }) {
     return () => window.removeEventListener("rc:local-data-changed", sync);
   }, []);
   function handleDeleteConfirmed() {
-    if (confirmDelete) { library.deleteBook(confirmDelete.id); setConfirmDelete(null); refresh(); }
+    if (!confirmDelete) return;
+    const related = {
+      gems: gemsStore.removeForBook(confirmDelete.id),
+      conversation: localStorage.getItem(`rc_convo_${confirmDelete.id}`),
+    };
+    localStorage.removeItem(`rc_convo_${confirmDelete.id}`);
+    library.deleteBook(confirmDelete.id, related);
+    setConfirmDelete(null);
+    refresh();
+    notify(`"${confirmDelete.displayTitle || confirmDelete.title}" moved to Settings → Deleted books.`, "success");
   }
   function openAuthorModal(book) {
     setPortraitSearching(false); setPortraitError(false);
@@ -1685,7 +1865,7 @@ function LibraryScreen({ nav }) {
       {confirmDelete && (
         <ConfirmModal
           title="Delete this book?"
-          message={`"${confirmDelete.title}" and all its chapters and vocabulary will be permanently deleted. This can't be undone.`}
+          message={`"${confirmDelete.displayTitle || confirmDelete.title}", its chapters, vocabulary and linked gems will move to Settings → Deleted books. You can restore it later.`}
           onConfirm={handleDeleteConfirmed}
           onCancel={() => setConfirmDelete(null)}
         />
@@ -2681,7 +2861,12 @@ function ProfileScreen({ nav }) {
   );
 }
 
-function SessionScreen({ bookId, onEnd, onRestart }) {
+function SessionScreen({ bookId, onEnd, onRestart, onUsageSecond, onDailyLimit }) {
+  const onUsageSecondRef = useRef(onUsageSecond);
+  const onDailyLimitRef = useRef(onDailyLimit);
+  const handleEndRef = useRef(null);
+  onUsageSecondRef.current = onUsageSecond;
+  onDailyLimitRef.current = onDailyLimit;
   const book = library.getBook(bookId);
   const [lookedUpCover, setLookedUpCover] = useState({ bookId: null, dataUrl: "" });
   const auraImageUrl = book?.coverImage || (lookedUpCover.bookId === bookId ? lookedUpCover.dataUrl : "") || book?.coverUrl || book?.authorPortrait || "";
@@ -2713,11 +2898,49 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
   const [handsFree, setHandsFree] = useState(false);
   const [typedQuestion, setTypedQuestion] = useState("");
   const [pageNumberInput, setPageNumberInput] = useState("");
+  const chapterPathRef = useRef(null);
   const [textBusy, setTextBusy] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [restorePrompt, setRestorePrompt] = useState(false);
   const [pendingShot, setPendingShot] = useState(null);
   const snapFileRef = useRef(null);
+  useEffect(() => {
+    if (!("wakeLock" in navigator) || typeof navigator.wakeLock.request !== "function") return undefined;
+    let sentinel = null;
+    let disposed = false;
+    const release = async () => {
+      const current = sentinel;
+      sentinel = null;
+      if (current && !current.released) await current.release().catch((error) => console.warn("[WAKE_LOCK] release failed", error));
+    };
+    const request = async () => {
+      if (disposed || document.visibilityState !== "visible" || sentinel) return;
+      try {
+        const current = await navigator.wakeLock.request("screen");
+        if (disposed || document.visibilityState !== "visible") {
+          await current.release();
+          return;
+        }
+        sentinel = current;
+        current.addEventListener("release", () => {
+          if (sentinel === current) sentinel = null;
+        }, { once: true });
+      } catch (error) {
+        console.info("[WAKE_LOCK] keeping screen awake is unavailable", error?.message || error);
+      }
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void request();
+      else void release();
+    };
+    void request();
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", handleVisibility);
+      void release();
+    };
+  }, []);
   useBackLayer(transcriptOpen, () => setTranscriptOpen(false));
   useBackLayer(feedOpen, () => setFeedOpen(false));
   useBackLayer(Boolean(pendingShot), () => setPendingShot(null));
@@ -2728,11 +2951,14 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
   const micGateRef = useRef(null);
   const vadRef = useRef(null);
   const vadStartingRef = useRef(false);
+  const readingModeRef = useRef(false);
+  const classifyNoticeAtRef = useRef(0);
   const lastSpecAtRef = useRef(0);
   const memorySavedTurnRef = useRef(false);
   const warmTimerRef = useRef(null);
   const askingRef = useRef(false);
   const followTimerRef = useRef(null);
+  const quietModeTimerRef = useRef(null);
   useEffect(() => { askingRef.current = asking; }, [asking]);
   const ghostModeRef = useRef(false);
   const usageRef = useRef([]);
@@ -2787,7 +3013,18 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
   }, [bookId, book?.title, book?.authorName, book?.coverImage]);
   useEffect(() => {
     const t0 = Date.now();
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
+    let countedSeconds = 0;
+    const id = setInterval(() => {
+      const elapsedSeconds = Math.floor((Date.now() - t0) / 1000);
+      setElapsed(elapsedSeconds);
+      const deltaSeconds = elapsedSeconds - countedSeconds;
+      countedSeconds = elapsedSeconds;
+      if (deltaSeconds > 0 && onUsageSecondRef.current?.(deltaSeconds) <= 0) {
+        clearInterval(id);
+        const stopping = handleEndRef.current?.();
+        if (stopping) void stopping.finally(() => onDailyLimitRef.current?.());
+      }
+    }, 1000);
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
@@ -2845,10 +3082,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     const sleepInterval = setInterval(() => {
       if (endingRef.current) return;
       const idleMs = Date.now() - lastActivityRef.current;
-      if (!LEGACY_STREAMING) {
-        if (idleMs > 30 * 60 * 1000) quietShutdown();
-        return;
-      }
+      if (!LEGACY_STREAMING) return;
       if (sleepStateRef.current === "active" && idleMs > SILENCE_CHECK_MS) {
         sleepStateRef.current = "checking";
         setSleepState("checking");
@@ -2863,10 +3097,10 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     return () => {
       clearInterval(sleepInterval);
       clearTimeout(followTimerRef.current);
+      clearTimeout(quietModeTimerRef.current);
       clearTimeout(activityTimerRef.current);
       clearInterval(snapTimerRef.current);
       clearTimeout(warmTimerRef.current);
-      vadRef.current?.destroy();
       micGateRef.current?.reset();
       clientRef.current?.close();
       audioPlaybackRef.current?.close();
@@ -2884,17 +3118,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
 
   function scheduleWarmClose() {
     clearTimeout(warmTimerRef.current);
-    warmTimerRef.current = setTimeout(async () => {
-      const client = clientRef.current;
-      if (!client?.ready) return;
-      if (micGateRef.current?.active || audioPlaybackRef.current?.isActuallyPlaying?.() || client.pendingTool) {
-        scheduleWarmClose();
-        return;
-      }
-      console.info("[READING_WARM] 90-second idle socket check", { connected: client.ready, received: client.stats.recv });
-      await client.park();
-      setStatus("Ready for the next question");
-    }, WARM_WINDOW_MS);
+    setStatus("Listening for your question");
   }
 
   function ensureConnected({ silent = false } = {}) {
@@ -2919,9 +3143,13 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
 
   function armFollowUp() {
     clearTimeout(followTimerRef.current);
+    clearTimeout(quietModeTimerRef.current);
     followTimerRef.current = setTimeout(() => {
       if (!askingRef.current) return;
-      if (audioPlaybackRef.current?.isActuallyPlaying?.() || clientRef.current?.pendingTool) { armFollowUp(); return; }
+      if (questionInFlightRef.current || audioPlaybackRef.current?.isActuallyPlaying?.() || clientRef.current?.pendingTool) {
+        armFollowUp();
+        return;
+      }
       endAskNow();
     }, FOLLOWUP_MIC_MS);
   }
@@ -2929,9 +3157,26 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
   function endAskNow() {
     askingRef.current = false;
     clearTimeout(followTimerRef.current);
-    if (micGateRef.current?.active) micGateRef.current.end();
     setAsking(false);
-    scheduleWarmClose();
+    enterQuietReadingMode();
+  }
+
+  function enterQuietReadingMode() {
+    readingModeRef.current = true;
+    setStatus("Quiet reading · still listening");
+    void clientRef.current?.sendSilentContext("[SYSTEM NOTE] The reader has been quiet for the follow-up window or explicitly asked for quiet. Continue listening without speaking; answer only a new direct request, greeting, or companion-name address.")
+      .catch((error) => console.warn("[VOICE] quiet-mode context update failed", error?.message || error));
+  }
+
+  function armQuietMode() {
+    clearTimeout(quietModeTimerRef.current);
+    quietModeTimerRef.current = setTimeout(() => {
+      if (askingRef.current || audioPlaybackRef.current?.isActuallyPlaying?.() || clientRef.current?.pendingTool) {
+        armQuietMode();
+        return;
+      }
+      enterQuietReadingMode();
+    }, 10_000);
   }
 
   function startAsk() {
@@ -2971,6 +3216,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     }
     if (asking) stopAsk(); else startAsk();
   }
+
     async function startAutoListen() {
     if (LEGACY_STREAMING || vadRef.current || vadStartingRef.current || !audioCaptureRef.current?.stream) return;
     vadStartingRef.current = true;
@@ -3013,19 +3259,31 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
       lastSpecAtRef.current = Date.now();
       void ensureConnected({ silent: true }).catch(() => {});
     }
-    let ask = false;
+    let classification;
     try {
-      ask = await classifyUtterance(samples, { companionName: profileStore.data.companionName || "", book: book?.title || "" });
+      classification = await classifyUtterance(samples, { companionName: profileStore.data.companionName || "", book: book?.title || "" });
     } catch (error) {
       console.warn("[AUTO] classify failed", error?.message || error);
+      if (Date.now() - classifyNoticeAtRef.current > 30_000) {
+        classifyNoticeAtRef.current = Date.now();
+        notify("Voice check is temporarily unavailable. Say the companion's name again or tap the mic.", "info", 5000);
+      }
       return;
     }
-    if (!ask || askingRef.current || endingRef.current) return;
+    if (classification.reading) {
+      readingModeRef.current = true;
+      if (askingRef.current) endAskNow();
+      setStatus("Ready for the next question");
+      return;
+    }
+    if (!classification.ask || askingRef.current || endingRef.current) return;
+    readingModeRef.current = false;
     await openAskFromClip(samples);
   }
 
   async function openAskFromClip(samples) {
     if (askingRef.current) return;
+    readingModeRef.current = false;
     clearTimeout(warmTimerRef.current);
     askingRef.current = true;
     setAsking(true);
@@ -3237,7 +3495,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
       } else if (client?.contextReady) {
         await client.updateContext(async () => {
           await pageProviderRef.current.send(client, page, client.connectionId);
-          await client.sendSilentContext(`[SYSTEM NOTE] ${isNext ? "The reader replaced the old page photo with a new one. Forget the old page." : "The reader shared a page photo."} The printed page number is ${page.pageNumber || "not provided"}. Use only the latest image. Wait for the reader's question and do not reply to this note.`);
+          await client.sendSilentContext(`[SYSTEM NOTE] ${isNext ? "The reader replaced the old photo. Forget only the old image and its visible page text; retain established plot facts, saved chapter summaries, and earlier page references. Do not assume the reader finished the prior page." : "The reader shared a page photo."} The printed page number was ${page.pageNumber || "not entered"}; read the number from the latest photo only if clearly legible, otherwise ask when it matters. Use only the latest image for currently visible text. Wait for the reader's question and do not reply to this note.`);
         });
       }
       markActive();
@@ -3292,9 +3550,8 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     if (!LEGACY_STREAMING && next) {
       micGateRef.current?.end();
       setAsking(false);
-      void vadRef.current?.pause().catch((error) => notify(`Hands-free pause failed: ${error.message}`, "error"));
-    } else if (!LEGACY_STREAMING && vadRef.current) {
-      void vadRef.current.start().catch((error) => notify(`Hands-free restart failed: ${error.message}`, "error"));
+    } else if (!LEGACY_STREAMING) {
+      micGateRef.current?.start();
     }
   }
   function toggleCamera() {
@@ -3804,7 +4061,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     const ctx = library.getModelContext(bookId);
     const currentChapter = latestBook?.chapters?.[ctx?.currentChapterNumber];
     const pageInfo = currentChapter?.startPage
-      ? ` Currently known to start at page ${currentChapter.startPage}${currentChapter.endPage ? `, ended at page ${currentChapter.endPage}` : " (end page still unknown; ask the reader to confirm the final page later)"}.`
+      ? ` Currently known to start at page ${currentChapter.startPage}${currentChapter.endPage ? `, ended at page ${currentChapter.endPage}` : ""}.`
       : "";
     const knownChapters = library.getChapters(bookId).filter((chapter) => !chapter.isPlaceholder).length;
     const authorLine = latestBook?.authorName
@@ -3845,8 +4102,10 @@ const contLine = cont
 const recap = getRecap(bookId);
 const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, for continuity only; do not repeat it, just carry on naturally):\n${recap}` : "";
     const trackedPage = pageRef.current?.pageNumber || readLastPage(bookId);
-    const pageTrackLine = trackedPage ? `\n\nPAGE TRACKING: the reader is currently on printed page ${trackedPage} of this book. Pages before it are already read; pages after it are not read yet. If they say "this page" they mean page ${trackedPage}.` : "";
-    return (LEGACY_STREAMING ? READER_PROFILE : SNAPSHOT_READER_PROFILE) + "\n\n" + buildTimeLine() + profileLine + bookContext + progressLine + pageTrackLine + contLine + recapLine + (memoryContext ? `\n\n${memoryContext}` : "");
+    const pageTrackLine = trackedPage ? `\n\nPAGE HISTORY: the reader last explicitly recorded printed page ${trackedPage}. This is not proof that the current photo is page ${trackedPage}, nor that every earlier page was read or later page unread. Use the latest photo and the reader's current statement as evidence; never infer page contents or reading progress from this number alone.` : "";
+    const snapshotContinuityLine = "\n\nSTORY CONTINUITY: replacing a page photo removes only access to the old image and its visible text. Retain established plot facts, saved chapter summaries, and earlier page references from this context; clearly distinguish remembered summaries from text currently visible in the latest photo.";
+    const voicePolicy = LEGACY_STREAMING ? "" : `\n\nVOICE LISTENING POLICY: The microphone stays open throughout this reading session. The reader may read aloud; that is not a request for a reply. Do not interrupt or respond to book text, pauses, or background speech. Give the brief opening once, then remain silent unless the reader clearly asks you a question/request, greets you, or addresses you by ${profileStore.data.companionName || "your companion name"}. If they say they are going to read, are reading, or ask you not to interrupt, enter quiet reading mode and stay silent while continuing to listen. Leave quiet mode only when they clearly address you or ask a direct question (including Hindi/Hinglish such as 'iska matlab kya hai', 'samjhao', or 'achha ye batao'). After answering, listen for follow-ups; never announce that listening has stopped. Current quiet-reading state: ${readingModeRef.current ? "ON" : "OFF"}.`;
+    return (LEGACY_STREAMING ? READER_PROFILE : SNAPSHOT_READER_PROFILE) + "\n\n" + buildTimeLine() + profileLine + bookContext + progressLine + pageTrackLine + snapshotContinuityLine + contLine + recapLine + (memoryContext ? `\n\n${memoryContext}` : "") + voicePolicy;
     }
 
   async function connectSession() {
@@ -3879,7 +4138,7 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
       },
       handlers: {
         onStatus: (s) => {
-          setStatus(s);
+          setStatus(!LEGACY_STREAMING && s === "connected" && !askingRef.current ? "Listening for your question" : s);
           if (!LEGACY_STREAMING && questionInFlightRef.current && (/^reconnecting/.test(s) || s === "switching to backup model")) {
             questionInFlightRef.current = false;
             micGateRef.current?.reset();
@@ -3896,12 +4155,12 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
             const page = pageRef.current;
             if (page) {
               await pageProviderRef.current.send(clientRef.current, page, connectionId);
-              await clientRef.current.sendSilentContext(`[SYSTEM NOTE] The current page is a fixed photo; its printed page number is ${page.pageNumber || "not provided"}. It is not live video. Read only words visible in the photo; if a word or line cannot be identified, ask for the exact line or a new snapshot. Do not guess. ${ghostModeRef.current ? "Author's Ghost Mode is on: use the author's broad themes without claiming to be the author." : "Author's Ghost Mode is off."} The book, chapter, memories and reading history are in your instructions. Wait for the reader's question.`);
+              await clientRef.current.sendSilentContext(`[SYSTEM NOTE] The current page is a fixed photo; its printed page number was ${page.pageNumber || "not entered"}. It is not live video. If a printed number is clearly legible, use it; otherwise ask the reader for the page number when it matters. Read only words visible in this latest photo; if a word or line cannot be identified, ask for the exact line or a clearer snapshot. Do not guess. Replacing a photo discards only the previous image, not saved chapter summaries or established story context in your instructions. ${ghostModeRef.current ? "Author's Ghost Mode is on: use the author's broad themes without claiming to be the author." : "Author's Ghost Mode is off."} The book, chapter, memories and reading history are in your instructions. Wait for the reader's question.`);
             } else {
-              await clientRef.current.sendSilentContext(`[SYSTEM NOTE] No page photo is available. You know the book, chapter, memories and reading history from your instructions, but do not claim to see the page. Ask for a snapshot if the reader refers to a specific line. ${ghostModeRef.current ? "Author's Ghost Mode is on." : "Author's Ghost Mode is off."} Wait for the reader's question.`);
+              await clientRef.current.sendSilentContext(`[SYSTEM NOTE] No page photo is available. You know the book, chapter, memories and reading history from your instructions, but do not claim to see the page or assume which page the reader has reached. If the reader refers to a specific page or line, ask them to share a photo; read a page number only when clearly legible and otherwise ask. ${ghostModeRef.current ? "Author's Ghost Mode is on." : "Author's Ghost Mode is off."} Wait for the reader's question.`);
             }
             if (pageRef.current?.updatedAt === page?.updatedAt) {
-              if (!micGateRef.current?.active) scheduleWarmClose();
+              if (clientRef.current?.hasOpenedOnce && !micGateRef.current?.active) micGateRef.current?.start();
               return;
             }
           }
@@ -3916,11 +4175,6 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
           audioCaptureRef.current?.setMuted(true);
           micGateRef.current?.reset();
           setAsking(false);
-          if (vadRef.current) {
-            void vadRef.current.destroy().catch((error) => console.warn("[VAD] cleanup failed", error));
-            vadRef.current = null;
-            setHandsFree(false);
-          }
           setMuted(true);
           stopCameraNow();
           audioPlaybackRef.current?.clear();
@@ -3933,7 +4187,6 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
                 setMuted(false);
                 audioCaptureRef.current?.setMuted(false);
                 clientRef.current?.retry();
-                void startAutoListen();
               },
             },
           });
@@ -3948,7 +4201,27 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
         onText: (text) => { companionTurnBufRef.current += text; },
         onUserText: (text) => {
           userTurnBufRef.current += text;
-          if (askingRef.current) armFollowUp();
+          const intent = classifyVoiceIntent(text, profileStore.data.companionName || "");
+          if (intent === "quiet") {
+            readingModeRef.current = true;
+            clearTimeout(quietModeTimerRef.current);
+            audioPlaybackRef.current?.clear();
+            if (askingRef.current) endAskNow();
+            void clientRef.current?.sendSilentContext("[SYSTEM NOTE] The reader explicitly said they are reading or asked for quiet. Stay silent, keep the microphone stream open, and wait for a direct question or companion-name address.")
+              .catch((error) => console.warn("[VOICE] quiet-mode context update failed", error?.message || error));
+            setStatus("Quiet reading · still listening");
+          } else if (intent === "addressed") {
+            readingModeRef.current = false;
+            clearTimeout(quietModeTimerRef.current);
+            askingRef.current = true;
+            setAsking(true);
+            questionInFlightRef.current = true;
+            clearTimeout(warmTimerRef.current);
+            armFollowUp();
+          } else {
+            if (askingRef.current) armFollowUp();
+            else armQuietMode();
+          }
           markActive();
           if (!turnActedRef.current) {
             if (END_SESSION_TRIGGER.test(userTurnBufRef.current)) { turnActedRef.current = true; beginGracefulEnd(); }
@@ -3956,9 +4229,21 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
             else if (LEGACY_STREAMING && OPEN_CAMERA_TRIGGER.test(userTurnBufRef.current)) { turnActedRef.current = true; startCameraThenNotify(); }
           }
         },
-        onFirstReady: () => { if (LEGACY_STREAMING) clientRef.current?.sendText(buildOpeningNote(contRef.current)); },
+        onFirstReady: () => {
+          const opening = buildOpeningNote(contRef.current);
+          if (LEGACY_STREAMING) {
+            clientRef.current?.sendText(opening);
+            return;
+          }
+          const pageAvailable = Boolean(pageRef.current);
+          const instructions = pageAvailable
+            ? "A page photo is available. If its printed number is clearly visible, read it accurately; otherwise ask for the number only if needed. Do not pretend to see anything not in the photo."
+            : "No page photo is available. In your short opening, warmly invite the reader to share a page photo. Do not claim to know what page or passage they are reading.";
+          clientRef.current?.sendText(`${opening} ${instructions} Give this opening now, then listen.`);
+        },
         onTurnComplete: () => {
           questionInFlightRef.current = false;
+        if (!LEGACY_STREAMING && !micGateRef.current?.active) micGateRef.current?.start();
         const companionText = companionTurnBufRef.current.trim();
         if (companionText) {
           appendLine("companion", companionText);
@@ -3968,7 +4253,7 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
         if (userTurnBufRef.current.trim()) { handleUserTurnText(userTurnBufRef.current.trim()); userTurnBufRef.current = ""; }
         turnActedRef.current = false;
                 if (!LEGACY_STREAMING) {
-          if (askingRef.current) armFollowUp(); else scheduleWarmClose();
+          if (askingRef.current) armFollowUp(); else armQuietMode();
         }
       },
         onInterrupted: () => audioPlaybackRef.current?.clear(),
@@ -4015,7 +4300,10 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
       audioCaptureRef.current.start(),
     ]);
     if (mic.status === "rejected") setStatus(`Mic error: ${mic.reason?.message || mic.reason}`);
-    else if (!LEGACY_STREAMING) { setStatus("Ready to ask"); void startAutoListen(); }
+    else if (!LEGACY_STREAMING) {
+      setStatus("Listening for your question");
+      void ensureConnected({ silent: true }).catch(() => {});
+    }
     else if (conn.status === "rejected") {
       console.warn("[LIVE] initial connection failed", String(conn.reason?.message || conn.reason).slice(0, 160));
       if (/all_keys_unavailable/.test(String(conn.reason?.message))) {
@@ -4047,6 +4335,7 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
       void finalizeSessionArtifacts();
     }
   }
+  handleEndRef.current = handleEnd;
 
     const totalChapters = book ? library.getChapters(bookId).length || 1 : 1;
   const doneCount = book ? library.getChapters(bookId).filter((c) => !c.isPlaceholder && isChapterClosed(c)).length : 0;
@@ -4055,19 +4344,20 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
     const real = book ? library.getChapters(bookId).filter((c) => !c.isPlaceholder).map((c) => ({ number: c.number, done: isChapterClosed(c) })) : [];
     if (!real.some((c) => c.number === chapterNumber)) real.push({ number: chapterNumber, done: false });
     real.sort((a, b) => a.number - b.number);
-    const at = real.findIndex((c) => c.number === chapterNumber);
-    const start = Math.max(0, Math.min(at - 3, real.length - 7));
-    return { nodes: real.slice(start, start + 7), before: start > 0, after: start + 7 < real.length };
+    return { nodes: real };
   })();
+  useEffect(() => {
+    chapterPathRef.current?.querySelector(".hud-node.current")?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [chapterNumber]);
     const statusKey = !LEGACY_STREAMING && asking && !/reconnect|resum|closed|lost|error|failed|busy|unavailable|offline/i.test(status) ? "listening"
-    : !LEGACY_STREAMING && /ready to ask|ready for the next question/i.test(status) ? "idle"
+    : !LEGACY_STREAMING && /ready to ask|ready for the next question|listening for your question|quiet reading/i.test(status) ? "idle"
     : !LEGACY_STREAMING && /thinking/i.test(status) ? "thinking"
     : /reconnect|resum/i.test(status) ? "reconnecting"
     : /connecting|starting/i.test(status) ? "connecting"
     : /closed|lost|error|failed|busy|unavailable|offline/i.test(status) ? "lost" : "connected";
   const statusMeta = {
     connected: { label: LEGACY_STREAMING ? "Live" : "Voice ready", dotClass: "status-dot connected" },
-        idle: { label: "Auto-listening", dotClass: "status-dot idle" },
+        idle: { label: profileStore.data.companionName ? `Always listening · say ${profileStore.data.companionName} or ask` : "Always listening · ask anytime", dotClass: "status-dot idle" },
     listening: { label: "Listening", dotClass: "status-dot connected" },
     thinking: { label: "Thinking", dotClass: "status-dot reconnecting" },
     connecting: { label: "Getting ready", dotClass: "status-dot reconnecting" },
@@ -4100,15 +4390,13 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
               <span className="hud-live"><span className={statusMeta.dotClass} />{statusMeta.label}</span>
             </div>
           </div>
-          <div className="hud-path" role="img" aria-label={`Chapter ${chapterNumber} of ${totalChapters}, ${doneCount} done`}>
-            {pathChapters.before && <i className="hud-more">…</i>}
+          <div ref={chapterPathRef} className="hud-path" role="list" aria-label={`Chapter progress: ${chapterNumber} of ${totalChapters}, ${doneCount} done`}>
             {pathChapters.nodes.map((c, index) => (
               <Fragment key={c.number}>
-                {(index > 0 || pathChapters.before) && <span className={`hud-link ${pathChapters.nodes[index - 1]?.done ? "done" : ""}`} />}
-                <span className={`hud-node ${c.done ? "done" : c.number === chapterNumber ? "current" : ""}`}>{c.number}</span>
+                {index > 0 && <span aria-hidden="true" className={`hud-link ${pathChapters.nodes[index - 1]?.done ? "done" : ""}`} />}
+                <span role="listitem" className={`hud-node ${c.done ? "done" : c.number === chapterNumber ? "current" : ""}`}>{c.number}</span>
               </Fragment>
             ))}
-            {pathChapters.after && <><span className="hud-link" /><i className="hud-more">…</i></>}
           </div>
         </div>
       </div>
@@ -4283,9 +4571,9 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
               maxLength={5}
               value={pageNumberInput}
               onChange={(event) => setPageNumberInput(event.target.value.replace(/\D/g, ""))}
-              placeholder={readLastPage(bookId) ? `Page number (e.g. ${readLastPage(bookId) + 1})` : "Page number (optional)"}
+              placeholder={readLastPage(bookId) ? `Page number if not visible (e.g. ${readLastPage(bookId) + 1})` : "Page number if not visible"}
             />
-            <p className="field-hint">Page number bataoge to companion ko yaad rahega ki aap kahan tak padh chuke ho.</p>
+            <p className="field-hint">Agar photo mein page number clearly nahi dikhta, yahan likh dein. Visible number companion khud read karega.</p>
             <div className="modal-actions">
               <button className="icon-button ghost" onClick={() => { setPendingShot(null); snapFileRef.current?.click(); }}>Retake</button>
               <button className="primary-button" disabled={snapBusy} onClick={() => commitSnapshot(pendingShot)}>{snapBusy ? "Saving…" : "Use this photo"}</button>
