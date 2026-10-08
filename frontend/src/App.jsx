@@ -100,6 +100,7 @@ import { describeLiveStatus, friendlyErrorMessage } from "./friendlyErrors.js";
 import { GeminiLiveClient } from "./geminiLiveClient.js";
 import { SessionMicGate } from "./sessionMicGate.js";
 import { createPageContextProvider, loadPage, savePage } from "./sessionPage.js";
+import { classifyUtterance, float32ToPcmChunks } from "./autoListen.js";
 import { ensureGemInsights } from "./gemInsightClient.js";
 import { Gems } from "./gems.js";
 import GemStoryCard from "./GemStoryCard.jsx";
@@ -168,7 +169,7 @@ const MODEL_NAME = "gemini-3.1-flash-live-preview";
 const FALLBACK_MODEL_NAME = "gemini-2.5-flash-native-audio-preview-12-2025";
 const LEGACY_STREAMING = import.meta.env.VITE_SESSION_STREAMING_LEGACY === "true";
 const WARM_WINDOW_MS = 90_000;
-const FOLLOWUP_MIC_MS = 45_000;
+const FOLLOWUP_MIC_MS = 15_000;
 const RESUME_WINDOW_MS = 2 * 60 * 60_000;
 const SILENCE_CHECK_MS = 4 * 60 * 1000;
 const SILENCE_SHUTDOWN_MS = 45 * 1000;
@@ -2726,6 +2727,9 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
   const connectionPromiseRef = useRef(null);
   const micGateRef = useRef(null);
   const vadRef = useRef(null);
+  const vadStartingRef = useRef(false);
+  const lastSpecAtRef = useRef(0);
+  const memorySavedTurnRef = useRef(false);
   const warmTimerRef = useRef(null);
   const askingRef = useRef(false);
   const followTimerRef = useRef(null);
@@ -2893,7 +2897,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     }, WARM_WINDOW_MS);
   }
 
-  function ensureConnected() {
+  function ensureConnected({ silent = false } = {}) {
     const client = clientRef.current;
     if (!client) return Promise.reject(new Error("Voice is still starting. Try again in a moment."));
     if (client.ready || client.session) return Promise.resolve();
@@ -2901,10 +2905,12 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
       if (!LEGACY_STREAMING) {
         client.baseConfig.systemInstruction = { parts: [{ text: buildLiveContext() }] };
       }
-      setStatus("Connecting for your question...");
+      if (!silent) setStatus("Connecting for your question...");
       connectionPromiseRef.current = client.connect(client.resumptionHandle).catch((error) => {
-        setStatus("Voice unavailable — ask by typing");
-        notify(friendlyErrorMessage(error, "Voice connect nahi hua. Neeche type karke pooch sakte hain."), "error");
+        if (!silent) {
+          setStatus("Voice unavailable");
+          notify(friendlyErrorMessage(error, "Voice connect nahi hua. Dobara poochiye."), "error");
+        }
         throw error;
       }).finally(() => { connectionPromiseRef.current = null; });
     }
@@ -2964,6 +2970,87 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
       return;
     }
     if (asking) stopAsk(); else startAsk();
+  }
+    async function startAutoListen() {
+    if (LEGACY_STREAMING || vadRef.current || vadStartingRef.current || !audioCaptureRef.current?.stream) return;
+    vadStartingRef.current = true;
+    try {
+      const { MicVAD } = await import("@ricky0123/vad-web");
+      let startedOverPlayback = false;
+      const vad = await MicVAD.new({
+        model: "v5",
+        baseAssetPath: "/vad/",
+        onnxWASMBasePath: "/vad/",
+        getStream: async () => audioCaptureRef.current.stream,
+        pauseStream: async () => {},
+        resumeStream: async () => audioCaptureRef.current.stream,
+        onSpeechStart: () => { startedOverPlayback = Boolean(audioPlaybackRef.current?.isActuallyPlaying?.()); },
+        onSpeechEnd: (samples) => {
+          const overPlayback = startedOverPlayback;
+          startedOverPlayback = false;
+          void handleAutoSegment(samples, overPlayback);
+        },
+        onVADMisfire: () => { startedOverPlayback = false; },
+      });
+      await vad.start();
+      vadRef.current = vad;
+    } catch (error) {
+      console.warn("[VAD] auto-listen unavailable", error);
+      notify("Auto-listen start nahi hua. Mic icon dabakar sawaal pooch sakte hain.", "info");
+    } finally {
+      vadStartingRef.current = false;
+    }
+  }
+
+  async function handleAutoSegment(samples, duringPlayback) {
+    questionEndAtRef.current = performance.now();
+    if (duringPlayback || askingRef.current || endingRef.current || snapBusyRef.current) return;
+    if (audioCaptureRef.current?.muted || audioPlaybackRef.current?.isActuallyPlaying?.()) return;
+    const seconds = samples.length / 16000;
+    if (seconds < 0.7 || seconds > 15) return;
+    // Start connecting early (at most once every 3 minutes) so a real question does not wait for the socket.
+    if (Date.now() - lastSpecAtRef.current > 3 * 60 * 1000) {
+      lastSpecAtRef.current = Date.now();
+      void ensureConnected({ silent: true }).catch(() => {});
+    }
+    let ask = false;
+    try {
+      ask = await classifyUtterance(samples, { companionName: profileStore.data.companionName || "", book: book?.title || "" });
+    } catch (error) {
+      console.warn("[AUTO] classify failed", error?.message || error);
+      return;
+    }
+    if (!ask || askingRef.current || endingRef.current) return;
+    await openAskFromClip(samples);
+  }
+
+  async function openAskFromClip(samples) {
+    if (askingRef.current) return;
+    clearTimeout(warmTimerRef.current);
+    askingRef.current = true;
+    setAsking(true);
+    questionInFlightRef.current = true;
+    firstAudioLoggedRef.current = false;
+    markActive();
+    audioPlaybackRef.current?.clear();
+    try {
+      await ensureConnected();
+      const client = clientRef.current;
+      for (let i = 0; i < 50 && client && !client.contextReady; i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+      if (!client?.contextReady) throw new Error("voice_not_ready");
+      for (const chunk of float32ToPcmChunks(samples)) client.sendAudio(chunk);
+      client.endAudio();
+      micGateRef.current?.reset();
+      micGateRef.current?.start();
+      armFollowUp();
+    } catch (error) {
+      console.warn("[AUTO] could not open question", error?.message || error);
+      askingRef.current = false;
+      clearTimeout(followTimerRef.current);
+      questionInFlightRef.current = false;
+      setAsking(false);
+      notify("Voice connect nahi hua. Mic icon dabakar dobara poochiye.", "error");
+    }
   }
  // eslint-disable-next-line no-unused-vars
   async function toggleHandsFree() {
@@ -3385,10 +3472,11 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     }
     const explicitPersonalMemory = EXPLICIT_MEMORY_TRIGGER.test(fullText) &&
       !SAVE_GEM_TRIGGER.test(fullText) && !NON_MEMORY_CONTENT_TRIGGER.test(fullText);
-    if (explicitPersonalMemory) {
+        if (explicitPersonalMemory && !memorySavedTurnRef.current) {
       fetch(apiUrl("/api/rephrase-memory"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: fullText }) })
         .then((r) => r.json()).then(({ fact }) => fact && memoryStore.add(fact)).catch(() => {});
     }
+    memorySavedTurnRef.current = false;
     lastUserTurnRef.current = fullText;
     userTurnCountRef.current += 1;
   }
@@ -3474,6 +3562,7 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
         result = explicitPersonalMemory && typeof fact === "string" && memoryStore.add(fact)
           ? { status: "saved" }
           : { status: "not_explicitly_requested", message: "Do not save this. Reader memory is only for personal facts they explicitly asked to remember; quotes, gems, book facts, and vocabulary belong elsewhere." };
+      if (result.status === "saved") memorySavedTurnRef.current = true;
       } else if (fc.name === "log_vocabulary") {
         const { term, meaning, contextMeaning, example, grammar, pronunciation, usageRegister, synonyms, antonyms, hindiMeaning, odiaMeaning, hindiSentence, odiaSentence, sentence } = fc.args || {};
         const currentUserText = userTurnBufRef.current.trim();
@@ -3717,9 +3806,10 @@ function SessionScreen({ bookId, onEnd, onRestart }) {
     const pageInfo = currentChapter?.startPage
       ? ` Currently known to start at page ${currentChapter.startPage}${currentChapter.endPage ? `, ended at page ${currentChapter.endPage}` : " (end page still unknown; ask the reader to confirm the final page later)"}.`
       : "";
-    const authorLine = latestBook?.authorName || latestBook?.authorBio
-      ? ` Reader note: Author ${latestBook.authorName || "is listed"}. ${latestBook.authorBio ? `Brief context: ${latestBook.authorBio}` : ""}`
-      : " Author details for this book are not saved yet - ask the reader early in this session, then call set_book_author with what you learn.";
+    const knownChapters = library.getChapters(bookId).filter((chapter) => !chapter.isPlaceholder).length;
+    const authorLine = latestBook?.authorName
+      ? ` Reader note: Author ${latestBook.authorName}. ${latestBook.authorBio ? `Brief context: ${latestBook.authorBio}` : "The author bio is not saved yet: do NOT ask the reader for it. If you are sure of it from your own knowledge, quietly call set_book_author with the full name and a short bio, otherwise say nothing."} This book was set up by the app, so NEVER ask the reader for the author's details${knownChapters > 1 ? " or for the table of contents (the chapter list is already saved)" : ""}.`
+      : " Author details for this book are not saved yet because the reader added it manually - ask the reader early in this session, then call set_book_author with what you learn.";
     const timeGapText = latestBook && latestBook.sessionCount > 0 ? describeTimeGap(latestBook.lastReadAt) : null;
     const timingLine = timeGapText
       ? ` The reader last opened this book ${timeGapText}.`
@@ -3843,6 +3933,7 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
                 setMuted(false);
                 audioCaptureRef.current?.setMuted(false);
                 clientRef.current?.retry();
+                void startAutoListen();
               },
             },
           });
@@ -3916,7 +4007,7 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
         micGateRef.current?.reset();
         setHandsFree(false);
         setAsking(false);
-        notify("Mic restarted. Hands-free turned off; tap to re-enable it.", "info");
+        void startAutoListen();
       }
     );
     const [conn, mic] = await Promise.allSettled([
@@ -3924,7 +4015,7 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
       audioCaptureRef.current.start(),
     ]);
     if (mic.status === "rejected") setStatus(`Mic error: ${mic.reason?.message || mic.reason}`);
-    else if (!LEGACY_STREAMING) setStatus("Ready to ask");
+    else if (!LEGACY_STREAMING) { setStatus("Ready to ask"); void startAutoListen(); }
     else if (conn.status === "rejected") {
       console.warn("[LIVE] initial connection failed", String(conn.reason?.message || conn.reason).slice(0, 160));
       if (/all_keys_unavailable/.test(String(conn.reason?.message))) {
@@ -3976,7 +4067,7 @@ const recapLine = recap ? `\n\nRECENT CONVERSATION with this reader (earlier, fo
     : /closed|lost|error|failed|busy|unavailable|offline/i.test(status) ? "lost" : "connected";
   const statusMeta = {
     connected: { label: LEGACY_STREAMING ? "Live" : "Voice ready", dotClass: "status-dot connected" },
-    idle: { label: "Mic on device", dotClass: "status-dot idle" },
+        idle: { label: "Auto-listening", dotClass: "status-dot idle" },
     listening: { label: "Listening", dotClass: "status-dot connected" },
     thinking: { label: "Thinking", dotClass: "status-dot reconnecting" },
     connecting: { label: "Getting ready", dotClass: "status-dot reconnecting" },

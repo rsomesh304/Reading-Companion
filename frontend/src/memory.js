@@ -3,6 +3,35 @@ import { DEVANAGARI_PATTERN } from "./persona.js";
 
 const STORAGE_KEY = "reading_companion_memory";
 
+// Words that change between paraphrases of the same fact ("likes" / "prefers" / "wants").
+const FILLER = new Set([
+  "the", "and", "that", "this", "with", "for", "from", "has", "have", "had", "was", "were", "are", "its",
+  "reader", "user", "prefer", "preferred", "like", "want", "love", "enjoy", "need", "would", "should",
+  "please", "remember", "asked", "also", "always", "alway", "very", "really", "much", "more", "when",
+  "while", "about", "into", "them", "they", "their", "his", "her", "him", "she", "you", "your", "our",
+  "will", "can", "not", "wants", "likes",
+]);
+
+function keywords(text) {
+  return new Set(
+    String(text || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/)
+      .map((word) => (word.length > 4 && word.endsWith("s") ? word.slice(0, -1) : word))
+      .filter((word) => word.length > 2 && !FILLER.has(word)),
+  );
+}
+
+// True when two memories say the same thing in different words.
+function isSameMemory(a, b) {
+  const first = keywords(a);
+  const second = keywords(b);
+  if (!first.size || !second.size) return false;
+  let shared = 0;
+  for (const word of first) if (second.has(word)) shared += 1;
+  const smaller = Math.min(first.size, second.size);
+  const union = first.size + second.size - shared;
+  return shared / union >= 0.6 || (smaller >= 2 && shared / smaller >= 0.9);
+}
+
 // Migrates old plain-string entries into { text, timestamp } objects so
 // existing saved memories don't disappear when this structure lands.
 function normalizeEntry(item) {
@@ -32,6 +61,7 @@ export class CompanionMemory {
     }
   }
 
+  // Returns true when the memory is saved OR an equivalent one already exists.
   add(text) {
     const clean = (text || "").replace(/\s+/g, " ").trim();
     if (!clean) return false;
@@ -40,7 +70,15 @@ export class CompanionMemory {
       return false;
     }
     if (!Array.isArray(this.memories)) this.memories = [];
-    if (this.memories.some((m) => m.text === clean)) return false;
+    const sameIndex = this.memories.findIndex((m) => m.text === clean || isSameMemory(m.text, clean));
+    if (sameIndex !== -1) {
+      // Already saved, maybe worded differently: keep the more detailed wording instead of adding a copy.
+      if (clean.length > this.memories[sameIndex].text.length + 8) {
+        this.memories[sameIndex] = { text: clean, timestamp: this.memories[sameIndex].timestamp };
+        this._save();
+      }
+      return true;
+    }
     this.memories.push({ text: clean, timestamp: new Date().toISOString() });
     this.memories = this.memories.slice(-50);
     this._save();

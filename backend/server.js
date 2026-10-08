@@ -33,6 +33,7 @@ app.use("/api/bug-reports/screenshots", express.json({ limit: "7mb" }));
 app.use("/api/bug-reports", express.json({ limit: "7mb" }));
 app.use("/api/book-lookup/toc-scan", express.json({ limit: "10mb" }));
 app.use("/api/reading/ask-text", express.json({ limit: "6mb" }));
+app.use("/api/reading/classify-utterance", express.json({ limit: "2mb" }));
 app.use(express.json());
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
@@ -51,6 +52,7 @@ const AI_REQUEST_LIMITS = {
   tocScan: { perIpHour: 40, serviceDaily: 400 },
   bookSearch: { perIpHour: 90, serviceDaily: 4000 },
   readingText: { perIpHour: 40, serviceDaily: 400 },
+  readingClassify: { perIpHour: 1200, serviceDaily: 10000 },
 };
 const aiIpWindows = new Map();
 const aiDailyCounts = new Map();
@@ -729,6 +731,44 @@ app.post("/api/reading/ask-text", async (req, res) => {
   } catch (error) {
     console.warn("[READING_TEXT] unavailable:", redactSecrets(error?.message || error, 180));
     return res.status(503).json({ error: "reading_text_unavailable" });
+  } finally {
+    finishAiRequest();
+  }
+});
+
+const CLASSIFY_PROMPT = [
+  "You are a gate for a reading-companion voice app. A reader is reading a book, often ALOUD, while the app listens.",
+  "Decide whether this short audio clip is the reader speaking TO the companion.",
+  "Reply ASK if the clip is a question, request, command, correction, yes/no/haan/nahi/ok, thanks, a greeting, or any remark clearly meant for the companion.",
+  "Examples in Hindi, Hinglish, Odia or English: asking a word's meaning, 'iska matlab kya hai', 'ye line samjhao', 'is word ko save kar do', 'yaad rakhna ki ...', 'next chapter shuru karo', 'chapter khatam', 'main page 48 par hoon'.",
+  "Reply READ if the clip is the reader reading book text aloud, pronouncing or repeating words to themselves, murmuring, humming, other people talking, TV, or noise.",
+  "When truly unsure, reply READ.",
+  "Answer with exactly one word: ASK or READ.",
+].join("\n");
+
+app.post("/api/reading/classify-utterance", async (req, res) => {
+  const audio = typeof req.body?.audio === "string" ? req.body.audio : "";
+  if (!audio || audio.length > 1_500_000 || !/^[A-Za-z0-9+/=]+$/.test(audio)) {
+    return res.status(400).json({ error: "invalid_audio" });
+  }
+  const companionName = typeof req.body?.companionName === "string" ? req.body.companionName.trim().slice(0, 40) : "";
+  const book = typeof req.body?.book === "string" ? req.body.book.trim().slice(0, 120) : "";
+  if (!allowAiRequestForResponse(req, res, "readingClassify")) return;
+  try {
+    const hints = [
+      companionName ? `The companion's name is "${companionName}". Hearing that name means ASK.` : "",
+      book ? `The book being read is "${book}".` : "",
+    ].filter(Boolean).join(" ");
+    const result = await generateGeminiContent({
+      model: process.env.READING_CLASSIFY_MODEL || "gemini-3.5-flash-lite",
+      contents: [{ role: "user", parts: [{ text: `${CLASSIFY_PROMPT}\n${hints}` }, { inlineData: { mimeType: "audio/wav", data: audio } }] }],
+      config: { maxOutputTokens: 200, temperature: 0 },
+    });
+    const answer = (result.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "").trim().toUpperCase();
+    return res.json({ ask: /^ASK\b/.test(answer) });
+  } catch (error) {
+    console.warn("[CLASSIFY] unavailable:", redactSecrets(error?.message || error, 160));
+    return res.status(503).json({ error: "classify_unavailable" });
   } finally {
     finishAiRequest();
   }

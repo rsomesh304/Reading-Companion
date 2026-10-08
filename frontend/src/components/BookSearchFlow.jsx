@@ -168,6 +168,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
   const [message, setMessage] = useState("");
   const [fromScan, setFromScan] = useState(false);
   const [workingCover, setWorkingCover] = useState("");
+  const [authorText, setAuthorText] = useState("");
   const alive = useRef(true);
   const lastAction = useRef(null);
   const requestRef = useRef({ id: 0, controller: null });
@@ -201,7 +202,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
     setMessage("");
     setWorkingCover("");
   };
-  const authorName = book?.authors?.[0] || selectedWork?.authors?.[0] || "";
+    const authorName = authorText.trim().split(/\s*(?:,|&| and )\s*/i)[0] || book?.authors?.[0] || selectedWork?.authors?.[0] || "";
 
   async function search(event) {
     event?.preventDefault();
@@ -301,6 +302,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
     setFromScan(false);
     setMessage("");
     setWorkingCover(picked.coverUrl || "");
+    setAuthorText((picked.authors || []).join(", "));
     if (picked.chapters?.length) {
       setChapters(picked.chapters);
       setStage("review");
@@ -368,7 +370,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
   const removeChapter = (index) => setChapters((list) => list.filter((_, n) => n !== index));
   const addChapter = () => setChapters((list) => [...list, { number: list.length + 1, title: "", startPage: null }]);
 
-  async function save() {
+   async function save() {
     const cleanChapters = chapters
       .map((chapter) => ({ ...chapter, title: chapter.title.trim() }))
       .filter((chapter) => chapter.title)
@@ -385,14 +387,27 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
     setStep(3);
     setFailed(null);
     lastAction.current = () => save();
+    const name = authorText.trim();
+    const edited = name !== (book.authors || []).join(", ").trim();
+    let finalBio = edited ? "" : bio;
+    let finalPortrait = edited ? "" : portrait;
+    if (name && (!finalBio || !finalPortrait)) {
+      try {
+        const extra = await post("/api/book-lookup/author-photo", { authorName: name, bookTitle: book.title }, { retries: 1 });
+        if (!finalBio && extra?.bio) finalBio = extra.bio;
+        if (!finalPortrait && extra?.dataUrl) finalPortrait = extra.dataUrl;
+      } catch {
+        // Author extras are optional; the book is still saved.
+      }
+    }
     try {
       await onSave({
         title: book.title.trim(),
-        authorName: (book.authors || []).join(", "),
+        authorName: name,
         coverUrl: book.coverUrl,
         isbn: book.primaryIsbn || "",
-        portrait,
-        bio,
+        portrait: finalPortrait,
+        bio: finalBio,
         chapters: cleanChapters,
       });
     } catch {
@@ -403,7 +418,6 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
       }
     }
   }
-
   function goBack() {
     requestRef.current.controller?.abort();
     if (stage === "results") setStage("query");
@@ -412,7 +426,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
     else setStage("query");
   }
 
-  const author = book?.authors?.[0] || selectedWork?.authors?.[0] || "";
+    const author = authorText.trim() || book?.authors?.[0] || selectedWork?.authors?.[0] || "";
 
   return (
     <div className="bsf">
@@ -541,7 +555,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
             <Cover src={book.coverUrl} />
             <span className="bsf-book-text">
               <input className="bsf-title" value={book.title} onChange={(event) => setBook({ ...book, title: event.target.value })} aria-label="Book title" />
-              <small className="bsf-by"><Avatar name={author} src={portrait || brave.candidate} size={20} />{author || "Author unknown"}</small>
+                            <small className="bsf-by"><Avatar name={author} src={portrait || brave.candidate} size={20} /><input className="bsf-author" value={authorText} onChange={(event) => setAuthorText(event.target.value)} placeholder="Author name" aria-label="Author name" /></small>
               {!!book.primaryIsbn && <small className="bsf-isbn">ISBN {book.primaryIsbn}</small>}
             </span>
           </div>
