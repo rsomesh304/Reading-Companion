@@ -60,6 +60,27 @@ test("manual turns wait for explicit end even when the reader pauses", async () 
   await client.close();
 });
 
+test("recognized wake speech is sent as a user turn and send failures propagate", async () => {
+  const events = [];
+  const client = new GeminiLiveClient({
+    modelName: "test",
+    config: {},
+    handlers: {},
+  });
+  client.ready = true;
+  client.session = {
+    sendRealtimeInput: async (input) => {
+      events.push(input.text);
+      if (input.text === "fail") throw new Error("send failed");
+    },
+    close() {},
+  };
+  await client.sendUserText("Ember, explain this line.");
+  await assert.rejects(client.sendUserText("fail"), /send failed/);
+  assert.deepEqual(events, ["Ember, explain this line.", "fail"]);
+  await client.close();
+});
+
 test("new page context finishes before buffered audio on a warm session", async () => {
   const events = [];
   const client = new GeminiLiveClient({

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   cleanChapterTitle,
   fetchBookDetails,
+  fetchAuthorBio,
   findBooks,
   fetchTocByIsbn,
   normalizeToc,
@@ -107,6 +108,40 @@ test("details keep chapters and metadata on the same edition and surface TOC bad
 test("normalizeToc keeps top level and optional pages", () => {
   const out = normalizeToc([{ level: 0, label: "1", title: "Start", pagenum: "3" }, { level: 1, title: "Sub" }, { level: 0, title: "End" }]);
   assert.deepEqual(out.map((chapter) => [chapter.title, chapter.startPage]), [["Start", 3], ["End", null]]);
+  assert.equal(out[0].endPage, undefined);
+});
+
+test("normalizeToc infers end pages from the next known start and leaves the last open", () => {
+  const out = normalizeToc([
+    { level: 0, title: "First", pagenum: "3" },
+    { level: 0, title: "Second", pagenum: "12" },
+    { level: 0, title: "Last", pagenum: "31" },
+  ]);
+  assert.deepEqual(out.map(({ startPage, endPage }) => [startPage, endPage]), [[3, 11], [12, 30], [31, undefined]]);
+});
+
+test("fetchAuthorBio falls back to an exact Open Library author record", async () => {
+  const fetchImpl = (url) => {
+    if (url.includes("wikipedia.org")) return json({ type: "disambiguation", extract: "" });
+    if (url.includes("/search/authors.json")) {
+      return json({ docs: [{ name: "Ursula K. Le Guin", key: "/authors/OL27349A" }] });
+    }
+    if (url.endsWith("/authors/OL27349A.json")) {
+      return json({ bio: { value: "Ursula K. Le Guin was an American author known for speculative fiction." } });
+    }
+    return json({}, 404);
+  };
+  assert.equal(
+    await fetchAuthorBio("Ursula K. Le Guin", { fetchImpl }),
+    "Ursula K. Le Guin was an American author known for speculative fiction."
+  );
+});
+
+test("fetchAuthorBio does not return a similarly named author's biography", async () => {
+  const fetchImpl = (url) => url.includes("wikipedia.org")
+    ? json({ type: "disambiguation", extract: "" })
+    : json({ docs: [{ name: "Ursula K. Le Guin (editor)", key: "/authors/OL27349A" }] });
+  assert.equal(await fetchAuthorBio("Ursula K. Le Guin", { fetchImpl }), "");
 });
 
 test("a single-entry table of contents is not trusted", async () => {

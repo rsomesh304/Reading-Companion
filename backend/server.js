@@ -10,6 +10,7 @@ import { getAiProviderOrder, readTextCompletion, requestTextCompletion, streamTe
 import { normalizeGemEchoCatalog, validateGemEchoCandidates, validateGemEchoPairs } from "./gemEchoes.js";
 import { classifyGeminiFailure, KeyPool } from "./geminiKeyPool.js";
 import { verifyDocsOwner, loadDocsBundle } from "./docsAccess.js";
+import { isUserId, normalizeDailyLimitMinutes, normalizeUsageSeconds, parseAdminUserIds, quotaResponse } from "./readingQuota.js";
 import { registerDocsNarration } from "./docsNarration.js";
 import { buildChunks, retrieve, buildMessages, pickCited } from "./docsHelper.js";
 import { buildPushPayload, createPushService, normalizeReminderMinute, normalizeSubscription } from "./pushNotifications.js";
@@ -739,11 +740,12 @@ app.post("/api/reading/ask-text", async (req, res) => {
 const CLASSIFY_PROMPT = [
   "You are a gate for a reading-companion voice app. A reader is reading a book, often ALOUD, while the app listens.",
   "Decide whether this short audio clip is the reader speaking TO the companion.",
+  "Reply QUIET if the reader explicitly says they are reading, asks you not to interrupt, or asks for quiet. This overrides a companion-name mention; it is an instruction to wait, not a question to answer.",
   "Reply ASK if the clip is a question, request, command, correction, yes/no/haan/nahi/ok, thanks, a greeting, or any remark clearly meant for the companion.",
   "Examples in Hindi, Hinglish, Odia or English: asking a word's meaning, 'iska matlab kya hai', 'ye line samjhao', 'is word ko save kar do', 'yaad rakhna ki ...', 'next chapter shuru karo', 'chapter khatam', 'main page 48 par hoon'.",
   "Reply READ if the clip is the reader reading book text aloud, pronouncing or repeating words to themselves, murmuring, humming, other people talking, TV, or noise.",
   "When truly unsure, reply READ.",
-  "Answer with exactly one word: ASK or READ.",
+  "Answer with exactly one word: ASK, READ, or QUIET.",
 ].join("\n");
 
 app.post("/api/reading/classify-utterance", async (req, res) => {
@@ -765,7 +767,7 @@ app.post("/api/reading/classify-utterance", async (req, res) => {
       config: { maxOutputTokens: 200, temperature: 0 },
     });
     const answer = (result.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "").trim().toUpperCase();
-    return res.json({ ask: /^ASK\b/.test(answer) });
+    return res.json({ ask: /^ASK\b/.test(answer), reading: /^QUIET\b/.test(answer) });
   } catch (error) {
     console.warn("[CLASSIFY] unavailable:", redactSecrets(error?.message || error, 160));
     return res.status(503).json({ error: "classify_unavailable" });
@@ -1267,6 +1269,78 @@ async function readSupabaseUserId(req) {
     return null;
   }
 }
+
+async function callReadingQuotaRpc(name, payload) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) throw new Error("reading_limit_unavailable");
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(`reading_limit_storage_${response.status}`);
+  const rows = await response.json();
+  if (!Array.isArray(rows) || !rows[0]) throw new Error("reading_limit_storage_empty");
+  return rows[0];
+}
+
+async function getAuthenticatedQuotaUser(req, res) {
+  const userId = await readSupabaseUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "sign_in_required" });
+    return null;
+  }
+  return userId;
+}
+  const readingLimitAdmins = parseAdminUserIds(process.env.SESSION_LIMIT_ADMIN_USER_IDS);
+  app.get("/api/reading/session-limit", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const userId = await getAuthenticatedQuotaUser(req, res);
+    if (!userId) return;
+    try {
+      const row = await callReadingQuotaRpc("get_reading_companion_session_limit", { p_user_id: userId });
+      return res.json(quotaResponse(row, readingLimitAdmins.has(userId.toLowerCase())));
+    } catch (error) {
+      console.error("[READING_LIMIT] fetch failed:", redactSecrets(error?.message || error, 160));
+      return res.status(503).json({ error: "reading_limit_unavailable" });
+    }
+  });
+
+  app.post("/api/reading/session-usage", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const userId = await getAuthenticatedQuotaUser(req, res);
+    if (!userId) return;
+    const seconds = normalizeUsageSeconds(req.body?.seconds);
+    if (!seconds) return res.status(400).json({ error: "invalid_usage_seconds" });
+    try {
+      const row = await callReadingQuotaRpc("record_reading_companion_session_usage", { p_user_id: userId, p_seconds: seconds });
+      const quota = quotaResponse(row, readingLimitAdmins.has(userId.toLowerCase()));
+      return res.json({ ...quota, limitReached: quota.remainingSeconds <= 0 });
+    } catch (error) {
+      console.error("[READING_LIMIT] usage update failed:", redactSecrets(error?.message || error, 160));
+      return res.status(503).json({ error: "reading_limit_unavailable" });
+    }
+  });
+
+  app.put("/api/reading/session-limit", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const adminId = await getAuthenticatedQuotaUser(req, res);
+    if (!adminId) return;
+    if (!readingLimitAdmins.has(adminId.toLowerCase())) return res.sendStatus(403);
+    const userId = req.body?.userId;
+    const dailyLimitMinutes = normalizeDailyLimitMinutes(req.body?.dailyLimitMinutes);
+    if (!isUserId(userId) || !dailyLimitMinutes) return res.status(400).json({ error: "invalid_reading_limit" });
+    try {
+      const row = await callReadingQuotaRpc("set_reading_companion_session_limit", { p_user_id: userId, p_minutes: dailyLimitMinutes });
+      return res.json(quotaResponse(row, true));
+    } catch (error) {
+      console.error("[READING_LIMIT] admin update failed:", redactSecrets(error?.message || error, 160));
+      return res.status(503).json({ error: "reading_limit_unavailable" });
+    }
+  });
 
 app.get("/api/push/config", (req, res) => {
   res.json({ enabled: pushService.configured, publicKey: pushService.configured ? pushService.publicKey : "" });

@@ -9,7 +9,20 @@ function load() {
   } catch {
     // corrupted data - start fresh
   }
+
   return { books: {} };
+}
+
+function inferChapterEndPages(chapters) {
+  const ordered = Object.values(chapters).sort((a, b) => a.number - b.number);
+  if (ordered.length) delete ordered.at(-1).endPage;
+  for (let index = 0; index < ordered.length - 1; index += 1) {
+    const current = ordered[index];
+    const next = ordered[index + 1];
+    if (Number.isFinite(current.startPage) && Number.isFinite(next.startPage) && next.startPage > current.startPage) {
+      current.endPage = next.startPage - 1;
+    }
+  }
 }
 
 function slugify(title) {
@@ -106,6 +119,10 @@ function normalize(book) {
   return {
     id: book.id,
     title: book.title || "Untitled",
+    displayTitle: book.displayTitle || book.title || "Untitled",
+    deletedAt: book.deletedAt || null,
+    archivedRelated: book.archivedRelated || null,
+    tileColorIndex: Number.isInteger(book.tileColorIndex) && book.tileColorIndex >= 0 ? book.tileColorIndex : null,
     coverImage: book.coverImage || "",
     coverUrl: book.coverUrl || "",
     isbn: book.isbn || "",
@@ -136,26 +153,59 @@ export class Library {
   }
 
   listBooks() {
-    return Object.values(this.data.books).map(normalize).sort((a, b) => new Date(b.lastReadAt) - new Date(a.lastReadAt));
+    this.ensureTileColors();
+    return Object.values(this.data.books).filter((book) => !book.deletedAt).map(normalize).sort((a, b) => new Date(b.lastReadAt) - new Date(a.lastReadAt));
+  }
+  listDeletedBooks() {
+    return Object.values(this.data.books).filter((book) => book.deletedAt).map(normalize).sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
   }
   getBook(id) {
     const raw = this.data.books[id];
     return raw ? normalize(raw) : null;
   }
+  ensureTileColors() {
+    const used = new Set();
+    const seen = new Set();
+    for (const raw of Object.values(this.data.books)) {
+      if (!Number.isInteger(raw.tileColorIndex) || raw.tileColorIndex < 0 || seen.has(raw.tileColorIndex)) {
+        raw.tileColorIndex = null;
+        continue;
+      }
+      seen.add(raw.tileColorIndex);
+      used.add(raw.tileColorIndex);
+    }
+    let next = 0;
+    let changed = false;
+    for (const raw of Object.values(this.data.books)) {
+      if (Number.isInteger(raw.tileColorIndex) && raw.tileColorIndex >= 0) continue;
+      while (used.has(next)) next += 1;
+      raw.tileColorIndex = next;
+      used.add(next);
+      next += 1;
+      changed = true;
+    }
+    if (changed) this._save();
+  }
   getOrCreateBook(title) {
     const clean = title.trim() || "Untitled";
-    const existing = Object.values(this.data.books).find((b) => b.title.toLowerCase() === clean.toLowerCase());
+    const existing = Object.values(this.data.books).find((b) => !b.deletedAt && b.title.toLowerCase() === clean.toLowerCase());
     if (existing) return normalize(existing);
-    const id = `${slugify(clean)}-${Date.now()}`;
-    const book = normalize({ id, title: clean });
+    this.ensureTileColors();
+    const used = new Set(Object.values(this.data.books).map((book) => book.tileColorIndex));
+    let tileColorIndex = 0;
+    while (used.has(tileColorIndex)) tileColorIndex += 1;
+    let id = `${slugify(clean)}-${Date.now()}`;
+    while (this.data.books[id]) id = `${slugify(clean)}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const book = normalize({ id, title: clean, tileColorIndex });
     this.data.books[id] = book;
     this._save();
     return book;
   }
-  updateBookMeta(id, { coverImage, coverUrl, isbn, authorName, authorBio, authorPortrait, authorPortraits } = {}) {
+  updateBookMeta(id, { displayTitle, coverImage, coverUrl, isbn, authorName, authorBio, authorPortrait, authorPortraits } = {}) {
     const raw = this.data.books[id];
     if (!raw) return;
     const book = normalize(raw);
+    if (typeof displayTitle === "string" && displayTitle.trim()) book.displayTitle = displayTitle.trim();
     if (typeof coverImage === "string") book.coverImage = coverImage;
     if (typeof coverUrl === "string") book.coverUrl = coverUrl;
     if (typeof isbn === "string") book.isbn = isbn.trim();
@@ -166,9 +216,28 @@ export class Library {
     this.data.books[id] = book;
     this._save();
   }
-  deleteBook(id) {
+  deleteBook(id, archivedRelated = {}) {
+    const book = this.data.books[id];
+    if (!book || book.deletedAt) return false;
+    book.deletedAt = new Date().toISOString();
+    book.archivedRelated = archivedRelated;
+    this._save();
+    return true;
+  }
+  restoreBook(id) {
+    const book = this.data.books[id];
+    if (!book?.deletedAt) return null;
+    const archivedRelated = book.archivedRelated || {};
+    delete book.deletedAt;
+    delete book.archivedRelated;
+    this._save();
+    return archivedRelated;
+  }
+  permanentlyDeleteBook(id) {
+    if (!this.data.books[id]?.deletedAt) return false;
     delete this.data.books[id];
     this._save();
+    return true;
   }
   deleteChapter(id, chapterNumber) {
     const raw = this.data.books[id];
@@ -224,6 +293,7 @@ export class Library {
     const chapter = book.chapters[chapterNumber];
     if (Number.isFinite(startPage)) chapter.startPage = startPage;
     if (Number.isFinite(endPage)) chapter.endPage = endPage;
+    inferChapterEndPages(book.chapters);
     chapter.lastActiveAt = new Date().toISOString();
     this.data.books[id] = book;
     this._save();
@@ -376,6 +446,7 @@ export class Library {
       if (Number.isFinite(e) && e > 0 && (!Number.isFinite(s) || e >= s)) ch.endPage = e;
       count += 1;
     }
+    inferChapterEndPages(book.chapters);
     this.data.books[id] = book;
     this._save();
     return count;

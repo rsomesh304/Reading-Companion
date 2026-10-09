@@ -403,6 +403,7 @@ export default function BookSearchFlow({ initialTitle = "", findExisting, onSave
     try {
       await onSave({
         title: book.title.trim(),
+        displayTitle: query.trim(),
         authorName: name,
         coverUrl: book.coverUrl,
         isbn: book.primaryIsbn || "",

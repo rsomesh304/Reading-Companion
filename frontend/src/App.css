@@ -113,6 +113,14 @@ h1, h2, .book-tile-title, .continue-title, .gem-quote, .chapter-detail-title { f
 
 /* ---------- Modals ---------- */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+.daily-limit-card { width: min(100%, 430px); padding: 30px 24px 22px; border: 1px solid var(--border); border-radius: 28px; background: radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--primary) 17%, transparent), transparent 48%), var(--surface); color: var(--text); text-align: center; box-shadow: 0 28px 90px rgba(0,0,0,.38); }
+.daily-limit-icon { width: 58px; height: 58px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 20px; color: #fff; background: linear-gradient(135deg, var(--primary), var(--primary-2)); box-shadow: 0 12px 28px color-mix(in srgb, var(--primary) 35%, transparent); }
+.daily-limit-card .eyebrow { margin: 0 0 8px; color: var(--primary); font-size: 11px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+.daily-limit-card h2 { margin: 0 auto 12px; max-width: 330px; font-size: clamp(22px, 6vw, 28px); line-height: 1.16; }
+.daily-limit-card p:not(.eyebrow) { margin: 0 auto 14px; max-width: 345px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.daily-limit-card .daily-limit-small { font-size: 12px; }
+.daily-limit-contact { width: 100%; margin-top: 6px; text-decoration: none; }
+.daily-limit-close { margin-top: 12px; padding: 10px 12px; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 .modal-card { border-radius: 22px; padding: 24px; width: 100%; max-width: 360px; }
 .modal-card h2 { font-size: 19px; margin-bottom: 14px; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
@@ -1779,7 +1787,8 @@ h1, h2, .book-tile-title, .continue-title, .gem-quote, .chapter-detail-title { f
 .hud-jr-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--session-text); white-space: nowrap; }
 .hud-time, .hud-live { display: inline-flex; align-items: center; gap: 5px; line-height: 1; }
 .hud-live { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--session-text-dim); }
-.hud-path { display: flex; align-items: center; min-width: 0; padding: 3px 1px 0; }
+.hud-path { display: flex; align-items: center; width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding: 3px 1px 4px; scrollbar-width: none; }
+.hud-path::-webkit-scrollbar { display: none; }
 .hud-node {
   display: grid; flex: 0 0 auto; place-items: center; width: 21px; height: 21px; border-radius: 50%;
   font-size: 9px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--session-text-dim);
@@ -1790,7 +1799,7 @@ h1, h2, .book-tile-title, .continue-title, .gem-quote, .chapter-detail-title { f
   width: 27px; height: 27px; font-size: 11px; color: var(--session-text); border: 2px solid var(--session-accent, #f2a65a);
   background: color-mix(in srgb, var(--session-accent, #f2a65a) 18%, transparent); animation: hudNodeGlow 2.2s ease-in-out infinite;
 }
-.hud-link { flex: 1 1 6px; min-width: 6px; height: 2px; margin: 0 3px; border-radius: 2px; background: var(--tick-bg); transition: background .4s; }
+.hud-link { flex: 0 0 12px; height: 2px; margin: 0 3px; border-radius: 2px; background: var(--tick-bg); transition: background .4s; }
 .hud-link.done { background: linear-gradient(90deg, #f2a65a, #d6607a); }
 .hud-more { flex: 0 0 auto; padding: 0 2px; font-style: normal; font-size: 12px; letter-spacing: 1px; color: var(--session-text-dim); }
 @keyframes hudNodeGlow {
