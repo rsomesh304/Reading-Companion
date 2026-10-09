@@ -1,8 +1,9 @@
 // Mic -> AudioWorklet -> base64 16-bit PCM @16kHz. Self-healing: restarts if the mic dies or goes silent.
 export class AudioCapture {
-  constructor(onChunk, onLevel = null) {
+  constructor(onChunk, onLevel = null, onRestart = null) {
     this.onChunk = onChunk;
     this.onLevel = onLevel;
+    this.onRestart = onRestart;
     this.audioContext = null;
     this.stream = null;
     this.sourceNode = null;
@@ -101,6 +102,7 @@ export class AudioCapture {
       console.info("[MIC] restarting");
       this._teardown();
       await this._open();
+      if (!this.stopped) this.onRestart?.();
     } catch (e) {
       console.warn("[MIC] restart failed", e);
     } finally {

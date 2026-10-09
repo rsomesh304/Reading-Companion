@@ -3,16 +3,9 @@ import { Play, Trash2, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import "./BookTile.css";
 
-const PALETTE = [
-  ["#7c3aed", "#4338ca"], ["#0891b2", "#1d4ed8"], ["#ea580c", "#be123c"], ["#059669", "#0f766e"],
-  ["#db2777", "#7e22ce"], ["#d97706", "#b91c1c"], ["#0284c7", "#4f46e5"], ["#65a30d", "#047857"],
-];
-
-// Stable colour identity per book, independent of its position on the shelf.
-function paletteFor(id) {
-  let hash = 0;
-  for (const ch of String(id)) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return PALETTE[hash % PALETTE.length];
+function paletteFor(index) {
+  const hue = (Number.isInteger(index) ? index : 0) * 137.508 % 360;
+  return [`hsl(${hue} 72% 44%)`, `hsl(${(hue + 36) % 360} 78% 30%)`];
 }
 
 const RING = { size: 46, stroke: 5 };
@@ -23,7 +16,7 @@ export default function BookTile({ book, index, completed, total, date, time, on
   const ref = useRef(null);
   const frame = useRef(0);
   const [ready, setReady] = useState(false);
-  const [c1, c2] = paletteFor(book.id);
+  const [c1, c2] = paletteFor(book.tileColorIndex);
   const pct = total > 0 ? Math.min(1, completed / total) : 0;
   const angle = pct * 2 * Math.PI - Math.PI / 2;
 
@@ -65,14 +58,20 @@ export default function BookTile({ book, index, completed, total, date, time, on
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: "spring", stiffness: 190, damping: 20, delay: Math.min(index * 0.06, 0.36) }}
     >
-      <div ref={ref} className="bk-tilt" onPointerMove={tilt} onPointerLeave={rest} onPointerCancel={rest} onPointerUp={(e) => { if (e.pointerType !== "mouse") rest(); }}>
-        <div className="bk-cover" role="button" tabIndex={0} onClick={onOpen}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}>
+      <div ref={ref} className="bk-tilt" role="button" tabIndex={0} onClick={(event) => {
+        if (!event.target.closest("button")) onOpen();
+      }} onKeyDown={(event) => {
+        if ((event.key === "Enter" || event.key === " ") && event.target === event.currentTarget) {
+          event.preventDefault();
+          onOpen();
+        }
+      }} onPointerMove={tilt} onPointerLeave={rest} onPointerCancel={rest} onPointerUp={(e) => { if (e.pointerType !== "mouse") rest(); }}>
+        <div className="bk-cover">
           <span className="bk-spine" aria-hidden="true" />
           <span className="bk-mark" aria-hidden="true">{(book.title || "?").trim()[0]?.toUpperCase()}</span>
           <span className="bk-lines" aria-hidden="true" />
           <span className="bk-shine" aria-hidden="true" />
-          <div className="bk-title">{book.title}</div>
+          <div className="bk-title">{book.displayTitle || book.title}</div>
         </div>
 
         <div className="bk-panel">

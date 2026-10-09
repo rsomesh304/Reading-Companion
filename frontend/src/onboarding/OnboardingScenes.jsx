@@ -4,25 +4,6 @@ import { useEffect, useState } from "react";
 
 const LOOP = { repeat: Infinity, ease: "easeInOut" };
 
-function ReadScene() {
-  const widths = [88, 100, 72, 96, 60, 92];
-  return (
-    <div className="sc-read">
-      <div className="sc-page">
-        {widths.map((w, i) => <span key={i} className={`sc-line ${i === 2 ? "hot" : ""}`} style={{ width: `${w}%` }} />)}
-        <Motion.i className="sc-scan" animate={{ top: ["6%", "90%", "6%"] }} transition={{ ...LOOP, duration: 3.4 }} />
-        <Motion.b className="sc-spot" animate={{ scale: [1, 1.15, 1], opacity: [0.75, 1, 0.75] }} transition={{ ...LOOP, duration: 1.6 }}>ephemeral</Motion.b>
-      </div>
-      <div className="sc-wave">
-        {Array.from({ length: 11 }, (_, i) => (
-          <Motion.span key={i} animate={{ scaleY: [0.25, 1, 0.35, 0.8, 0.25] }}
-            transition={{ ...LOOP, duration: 1.3 + (i % 4) * 0.15, delay: i * 0.08 }} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function VocabScene() {
   const T = { duration: 5.4, repeat: Infinity, ease: "easeInOut" };
   return (
@@ -606,7 +587,7 @@ const SCENES = [
   { title: "Reading Companion", sub: "Tumhara padhne wala saathi", C: BrandScene },
   { title: "Kis ke liye?", sub: "Hindi aur Odia readers", C: WhoScene },
   { title: "Kya milega?", sub: "Samajh, yaad aur aadat", C: BenefitScene },
-  { title: "Live reading", sub: "Page dikhao, baat karo", C: ReadScene },
+  { title: "Reading session", sub: "Ek snapshot bhejo, phir poochho", C: SnapshotScene },
   { title: "Vocabulary", sub: "Hindi · Odia · example", C: VocabScene },
   { title: "Gem posters", sub: "Ek quote, ek poster", C: GemScene },
   { title: "Mind Map", sub: "Book ke ideas ka visual map", C: MindScene },
@@ -622,7 +603,7 @@ const SCENES = [
   { title: "A habit that builds", sub: "Goal, streak aur session", C: WhyHabitScene },
   { title: "Your language", sub: "Hindi · Odia · just speak", C: WhyLanguageScene },
   { title: "Ideas you can use", sub: "Gems, steps aur Mind Map", C: WhyApplicationScene },
-  { title: "Camera ya snapshot", sub: "Page ek baar dikhao, phir bas poochho", C: SnapshotScene },
+  { title: "Next page", sub: "Naya panna, naya snapshot", C: SnapshotScene },
   { title: "Help & support", sub: "Profile mein poochho, jo chaaho", C: SupportScene },
 ];
 

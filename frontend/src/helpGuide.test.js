@@ -47,11 +47,12 @@ test("privacy question can be answered from the local help guide", () => {
 
 test("camera and dock answers explain the actual controls", () => {
   const camera = buildShortHelpAnswer(getRelevantHelp("Live camera or snapshot?"));
-  assert.match(camera, /\*\*Camera\*\*/);
-  assert.match(camera, /\*\*Page snapshot\*\*/);
+  assert.match(camera, /\*\*Snap page\*\*/);
+  assert.match(camera, /no live camera video/i);
   assert.match(camera, /\*\*Next page\*\*/);
   const buttons = buildShortHelpAnswer(getRelevantHelp("What do the reading buttons do?"));
   assert.match(buttons, /\*\*Mic\*\*/);
   assert.match(buttons, /\*\*Transcript\*\*/);
   assert.match(buttons, /\*\*End session\*\*/);
+  assert.match(buttons, /\*\*Tap to ask\*\*/);
 });

@@ -1,6 +1,21 @@
 {
   "releases": [
     {
+      "version": "2.3.0",
+      "pulse": true,
+      "date": "2026-10-06",
+      "title": "The Storykeeper’s Lantern",
+      "items": [
+        { "type": "feature", "text": "A 30-minute daily reading allowance now follows you across books, with a warm prototype-limit message and a one-tap email to request more time" },
+        { "type": "feature", "text": "Deleted books move to a recovery bin in Settings; restore the book with its chapters, saved gems and conversation recap, or permanently delete the archived data" },
+        { "type": "improve", "text": "Book tiles now use distinct colour palettes, show the title you entered, and open from anywhere on the tile except their dedicated Author, Play and Delete controls" },
+        { "type": "improve", "text": "Hands-free voice classification retries brief temporary service failures and gives a clear fallback notice instead of silently dropping the detected speech" },
+        { "type": "improve", "text": "Today's reading allowance is included in account snapshots when cloud sync is enabled" },
+        { "type": "improve", "text": "Help & Guide now explains voice wake-up, quiet reading, the daily allowance and restoring deleted books, with matching animated walkthroughs" },
+        { "type": "improve", "text": "Technical documentation now maps the reading session, voice-classification, storage and recovery flows, including the device and service limits" }
+      ]
+    },
+    {
       "version": "2.2.0",
       "catalog": true,
       "date": "2026-10-06",

@@ -145,3 +145,5 @@
   .bsf-sparkle, .bsf-finder-spark { display: none; }
   .bsf-finder-search { transform: translate(28px, -28px); }
 }
+.bsf-author { flex: 1; min-width: 0; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13px; }
+.bsf-author:focus { border-color: var(--primary); outline: 0; }
