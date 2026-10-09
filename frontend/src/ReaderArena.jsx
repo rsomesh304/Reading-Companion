@@ -154,9 +154,10 @@ function SelfArenaCard({ reader, rankings, onJoin, visible, reduceMotion }) {
       <span className="arena-self-copy"><span>YOUR PLACE IN THE ARENA</span><b>#{reader.rank} this week · {formatDuration(reader.totalSeconds)}</b><small>{above ? `${formatDuration(difference)} more to reach #${above.rank}` : "You’re leading the reading race."}</small></span>
       <Motion.span
         className="arena-self-progress"
-        initial={reduceMotion ? false : { "--arena-self-progress": "0%" }}
-        animate={{ "--arena-self-progress": `${progress}%` }}
-        transition={{ duration: visible && !reduceMotion ? 1 : 0, ease: "easeOut" }}
+        style={{ "--progress": `${progress}%` }}
+        initial={reduceMotion ? false : { scale: 0.72, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: visible && !reduceMotion ? 0.48 : 0, ease: "easeOut" }}
         aria-label={`${Math.round(progress)} percent progress toward the next rank`}
       ><span>{Math.round(progress)}%</span></Motion.span>
     </section>

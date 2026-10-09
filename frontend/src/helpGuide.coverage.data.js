@@ -45,6 +45,7 @@ export const HELP_RETRIEVAL_CASES = [
   { question: "What is on the About screen?", expectedId: "about" },
   { question: "What is Reader Arena?", expectedId: "reader-arena" },
   { question: "Which update introduced Google sign-in?", expectedId: "release-2-0-0" },
+  { question: "Which update introduced Reader Arena?", expectedId: "release-2-4-0" },
   { question: "Which version added push notifications?", expectedId: "release-2-1-0" },
   { question: "Which update added Search a book improvements and edition choices?", expectedId: "release-2-2-0" },
   { question: "Show me the release history", expectedId: "release-history" },
@@ -218,6 +219,12 @@ export const HELP_FEATURE_MANIFEST = [
     entryId: "updates",
     files: ["SettingsScreens.jsx"],
     includes: ["Check for updates", "Version & release notes", "See what’s new in Reading Companion"],
+  },
+  {
+    name: "Reader Arena release card",
+    entryId: "release-2-4-0",
+    files: ["SettingsScreens.jsx", "ReaderArenaReleaseCard.jsx", "ReaderArenaReleaseCard.css", "../public/release-notes.json"],
+    includes: ["release.arena ? <ReaderArenaReleaseCard release={release} />", "arena-release-crown", "prefers-reduced-motion: reduce", "Reader Arena & Honest Eyes"],
   },
   {
     name: "report issue workflow",

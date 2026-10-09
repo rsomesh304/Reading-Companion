@@ -29,7 +29,7 @@
   inset: 0;
   padding: 1px;
   border-radius: inherit;
-  background: conic-gradient(from var(--arena-angle,0deg), #f5c451, #ff8a3d, #ec4899, #8b5cf6, #22d3ee, #f5c451);
+  background: conic-gradient(from 0deg, #f5c451, #ff8a3d, #ec4899, #8b5cf6, #22d3ee, #f5c451);
   animation: arena-border-turn 9s linear infinite;
   -webkit-mask: linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
@@ -75,9 +75,9 @@
 :root[data-theme="light"] .arena-entry-kicker { color: #82530a; }
 :root[data-theme="light"] .arena-entry-copy small { color: #241a35; }
 :root[data-theme="light"] .arena-reset-line { color: #62566f; }
-.arena-entry[data-paused="true"] * { animation-play-state: paused !important; }
-@property --arena-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
-@keyframes arena-border-turn { to { --arena-angle: 360deg; } }
+.arena-entry[data-paused="true"] *,
+.arena-entry[data-paused="true"] .arena-entry-mark::after { animation-play-state: paused !important; }
+@keyframes arena-border-turn { to { transform: rotate(360deg); } }
 @keyframes arena-trophy-float { 50% { transform: translateY(-4px) rotate(-2deg); } }
 @keyframes arena-orbit { to { transform: rotate(360deg); } }
 @keyframes arena-spark-pop { 50% { transform: scale(.62) rotate(18deg); opacity: .4; } }

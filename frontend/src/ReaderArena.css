@@ -39,7 +39,11 @@
   background: radial-gradient(ellipse at 18% 12%,rgba(245,196,81,.23),transparent 36%),radial-gradient(ellipse at 83% 26%,rgba(167,139,250,.22),transparent 38%),radial-gradient(ellipse at 48% 100%,rgba(236,72,153,.11),transparent 42%);
 }
 :root[data-theme="light"] .arena-screen::after { opacity: .17; }
-.arena-screen[data-paused="true"] * { animation-play-state: paused !important; }
+.arena-screen[data-paused="true"] *,
+.arena-screen[data-paused="true"]::before,
+.arena-screen[data-paused="true"]::after,
+.arena-screen[data-paused="true"] .arena-pedestal::after,
+.arena-screen[data-paused="true"] .arena-row::after { animation-play-state: paused !important; }
 .arena-header { position: relative; z-index: 5; display: flex; flex: 0 0 auto; align-items: center; gap: 12px; padding: calc(11px + env(safe-area-inset-top,0px)) 16px 10px; border-bottom: 1px solid rgba(210,197,255,.13); background: rgba(9,10,23,.76); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
 :root[data-theme="light"] .arena-header { border-color: rgba(80,62,108,.13); background: rgba(249,247,242,.82); }
 .arena-back,.arena-refresh { display: grid; flex: 0 0 40px; place-items: center; width: 40px; height: 40px; padding: 0; border: 1px solid rgba(220,208,255,.2); border-radius: 14px; color: inherit; background: rgba(255,255,255,.07); cursor: pointer; }
@@ -150,7 +154,7 @@
 .arena-self-copy small { display: block; margin-top: 3px; color: #d6cce8; font-size: 9px; line-height: 1.35; }
 :root[data-theme="light"] .arena-self-copy > span { color: #665b78; }
 :root[data-theme="light"] .arena-self-copy small { color: #5d536d; }
-.arena-self-progress { position: relative; display: grid; place-items: center; width: 50px; height: 50px; border-radius: 50%; background: conic-gradient(#22d3ee var(--arena-self-progress),rgba(172,165,193,.24) 0); }
+.arena-self-progress { position: relative; display: grid; place-items: center; width: 50px; height: 50px; border-radius: 50%; background: conic-gradient(#22d3ee var(--progress),rgba(172,165,193,.24) 0); }
 .arena-self-progress::after { position: absolute; inset: 4px; border-radius: inherit; content: ""; background: #211735; }
 :root[data-theme="light"] .arena-self-progress::after { background: #f5effa; }
 .arena-self-progress span { position: relative; z-index: 1; color: #fff; font-size: 8px; font-weight: 950; }
@@ -177,7 +181,6 @@
   .arena-row-score { font-size: 9px; }
   .arena-self { margin-inline: 11px; }
 }
-@property --arena-self-progress { syntax: "<percentage>"; initial-value: 0%; inherits: false; }
 @keyframes arena-nebula-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes arena-nebula-drift { to { transform: translate3d(2.5%,1.8%,0) scale(1.04); } }
 @keyframes arena-star-drift { to { transform: translate3d(28px,18px,0); } }
