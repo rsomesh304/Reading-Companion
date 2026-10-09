@@ -40,7 +40,6 @@ import {
     Camera as CameraIcon,
     CameraOff,
     Check,
-    ChevronLeft,
     ChevronRight,
     Clock,
     Cloud,
@@ -147,7 +146,8 @@ import {
     UPDATE_MEMORY_DECLARATION,
 } from "./persona.js";
 import { Profile } from "./profile.js";
-import { fetchReaderRankings, fetchReadingQuota, recordReadingUsage, setReadingLimit } from "./readingQuota.js";
+import { fetchReadingQuota, recordReadingUsage, setReadingLimit } from "./readingQuota.js";
+import ReaderArenaEntry from "./ReaderArenaEntry.jsx";
 import { CONTACT } from "./developerContact.js";
 import "./ProfileUI.css";
 import "./ProfileCard.css";
@@ -160,6 +160,7 @@ import { AboutScreen, AccountScreen, ReportScreen, SettingsScreen } from "./Sett
 import { useDocsUnlocked } from "./docsUnlock.js";
 import DocsAccessCard from "./DocsAccessCard.jsx";
 const DocsScreen = lazy(() => import("./docs/DocsScreen.jsx"));
+const ReaderArena = lazy(() => import("./ReaderArena.jsx"));
 import { prepareSnapshot } from "./snapshotCapture.js";
 import { resolveStorySource } from "./story/resolveStorySource.js";
 import StoryTheatre from "./story/StoryTheatre.jsx";
@@ -805,7 +806,7 @@ function AppCore() {
             {/* {screen === "memory" && <MemoryScreen nav={nav} />} */}
             {screen === "memory" && <MemoryTab nav={nav} />}
             {screen === "profile" && <ProfileScreen nav={nav} />}
-            {screen === "reader-ranking" && <ReaderRankingScreen nav={nav} />}
+            {screen === "reader-ranking" && <Suspense fallback={<div role="status" className="pr-state">Opening Reader Arena…</div>}><ReaderArena onBack={nav.goBack} onLibrary={nav.goLibrary} /></Suspense>}
             {screen === "account" && <AccountScreen nav={nav} />}
                         {screen === "settings" && <SettingsScreen nav={nav} stores={{ profile: profileStore, library, memory: memoryStore, gems: gemsStore }} />}
             {screen === "about" && <AboutScreen nav={nav} />}
@@ -2828,11 +2829,7 @@ function ProfileScreen({ nav }) {
       </Motion.section>
 
       <Motion.section className="pf-bento" {...rise(4)}>
-        <button type="button" className="pf-tile ranking" onClick={() => nav.goReaderRanking()}>
-          <span className="pf-tile-ic"><TrendingUp size={21} /></span>
-          <span className="pf-tile-text"><b>Reader ranking</b><small>See who has spent the most time reading</small></span>
-          <ChevronRight size={18} className="pf-tile-go" />
-        </button>
+        <ReaderArenaEntry onOpen={nav.goReaderRanking} />
         <button type="button" className="pf-tile account" onClick={nav.goAccount}>
           <span className="pf-tile-ic"><Cloud size={21} /></span>
           <span className="pf-tile-text">
@@ -2864,77 +2861,6 @@ function ProfileScreen({ nav }) {
       </Motion.section>
 
       <p className="pf-foot">Reading Companion · v{APP_VERSION}</p>
-    </div>
-  );
-}
-
-function formatRankingDuration(seconds) {
-  const totalMinutes = Math.floor(seconds / 60);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours) return `${hours} hr${hours === 1 ? "" : "s"}${minutes ? ` ${minutes} min` : ""}`;
-  return totalMinutes ? `${totalMinutes} min` : `${seconds} sec`;
-}
-
-function ReaderRankingScreen({ nav }) {
-  const [rankings, setRankings] = useState([]);
-  const [status, setStatus] = useState("loading");
-  const [error, setError] = useState("");
-  const [requestId, setRequestId] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchReaderRankings().then((result) => {
-      if (cancelled) return;
-      setRankings(Array.isArray(result.rankings) ? result.rankings : []);
-      setStatus("ready");
-      setError("");
-    }).catch((loadError) => {
-      if (cancelled) return;
-      setStatus("error");
-      setError(loadError.message || "Reader rankings could not be loaded.");
-    });
-    return () => { cancelled = true; };
-  }, [requestId]);
-
-  function refresh() {
-    setStatus("loading");
-    setRequestId((current) => current + 1);
-  }
-
-  return (
-    <div className="screen pf-screen pr-screen">
-      <div className="aurora-bg" />
-      <header className="pf-head pr-head">
-        <button type="button" className="pf-head-back" onClick={nav.goBack} aria-label="Back to profile"><ChevronLeft size={20} /></button>
-        <div className="pr-heading"><h1>Reader ranking</h1><p>ALL-TIME READING</p></div>
-        <button type="button" className="pr-refresh" onClick={refresh} disabled={status === "loading"} aria-label="Refresh rankings" title="Refresh rankings">
-          <RefreshCw size={17} className={status === "loading" ? "spinning" : ""} />
-        </button>
-      </header>
-      <section className="pr-intro">
-        <span className="pr-intro-label"><TrendingUp size={14} /> TOTAL TIME READ</span>
-        <p>Ranked by reading time across every genre.</p>
-      </section>
-      {status === "loading" && <p className="pr-state" role="status">Loading rankings…</p>}
-      {status === "error" && (
-        <div className="pr-state pr-error" role="alert">
-          <p>{error}</p>
-          <button type="button" className="pr-retry" onClick={refresh}><RefreshCw size={15} /> Try again</button>
-        </div>
-      )}
-      {status === "ready" && rankings.length === 0 && <p className="pr-state">No reading time recorded yet.</p>}
-      {status === "ready" && rankings.length > 0 && (
-        <ol className="pr-list" aria-label="Reader rankings">
-          {rankings.map((reader) => (
-            <li key={reader.rank} className={`pr-row rank-${Math.min(reader.rank, 3)}${reader.isYou ? " is-you" : ""}`}>
-              <span className="pr-position">{reader.rank}</span>
-              <span className="pr-reader-name">{reader.name}{reader.isYou && <small>You</small>}</span>
-              <strong className="pr-reader-time">{formatRankingDuration(reader.totalSeconds)}</strong>
-            </li>
-          ))}
-        </ol>
-      )}
     </div>
   );
 }

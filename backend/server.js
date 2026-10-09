@@ -10,7 +10,7 @@ import { getAiProviderOrder, readTextCompletion, requestTextCompletion, streamTe
 import { normalizeGemEchoCatalog, validateGemEchoCandidates, validateGemEchoPairs } from "./gemEchoes.js";
 import { classifyGeminiFailure, KeyPool } from "./geminiKeyPool.js";
 import { verifyDocsOwner, loadDocsBundle } from "./docsAccess.js";
-import { isUserId, normalizeDailyLimitMinutes, normalizeReaderName, normalizeUsageSeconds, parseAdminUserIds, quotaResponse, readerRankingResponse } from "./readingQuota.js";
+import { isUserId, normalizeDailyLimitMinutes, normalizeRankingPeriod, normalizeReaderName, normalizeUsageSeconds, parseAdminUserIds, quotaResponse, readerRankingResponse } from "./readingQuota.js";
 import { parsePageVerification } from "./pageVerification.js";
 import { registerDocsNarration } from "./docsNarration.js";
 import { buildChunks, retrieve, buildMessages, pickCited } from "./docsHelper.js";
@@ -1343,10 +1343,12 @@ async function getAuthenticatedQuotaUser(req, res) {
   const readingLimitAdmins = parseAdminUserIds(process.env.SESSION_LIMIT_ADMIN_USER_IDS);
   app.get("/api/reading/rankings", async (req, res) => {
     res.set("Cache-Control", "no-store");
+    const period = normalizeRankingPeriod(req.query.period);
+    if (!period) return res.status(400).json({ error: "invalid_reader_ranking_period" });
     const userId = await getAuthenticatedQuotaUser(req, res);
     if (!userId) return;
     try {
-      const rows = await callReadingQuotaRpc("get_reading_companion_reader_rankings", {}, true);
+      const rows = await callReadingQuotaRpc("get_reading_companion_reader_rankings", { p_period: period }, true);
       return res.json({ rankings: readerRankingResponse(rows, userId) });
     } catch (error) {
       console.error("[READING_RANKINGS] fetch failed:", redactSecrets(error?.message || error, 160));
