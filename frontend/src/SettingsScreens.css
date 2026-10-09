@@ -27,6 +27,8 @@
 .st-seg button.on { color: #fff; background: linear-gradient(135deg, var(--primary), var(--primary-2)); }
 .st-btn { align-self: flex-start; cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--primary); font-weight: 700; font-size: 13px; padding: 10px 16px; border-radius: 14px; }
 .st-btn:disabled { opacity: .5; }
+.st-trash-permanent { display: grid; place-items: center; align-self: center; min-width: 38px; padding: 9px; color: var(--danger); }
+.set-card > a.st-btn { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; }
 .st-update-badge { display: grid; place-items: center; width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; color: #fff; background: #dc2626; box-shadow: 0 0 0 4px color-mix(in srgb, #dc2626 13%, transparent); font-size: 11px; font-weight: 900; }
 .st-update-cards { display: flex; flex-direction: column; gap: 10px; }
 .st-update-card { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 13px; border: 1px solid var(--border); border-radius: 15px; background: var(--surface); color: var(--text); box-shadow: var(--shadow); }

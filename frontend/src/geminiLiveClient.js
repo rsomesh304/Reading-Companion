@@ -19,14 +19,20 @@ export class GeminiLiveClient {
     this.session = null;
     this.activeModel = modelName;
     this.resumptionHandle = null;
+    this.resumptionAt = 0;
     this.connectionRetries = 0;
     this.stopped = false;
     this.goAwayTimer = null;
     this.setupTimer = null;
     this.setupDone = false;
     this.ready = false;
+    this.contextReady = false;
     this.hasOpenedOnce = false;
     this.audioBacklog = [];
+    this.audioSendChain = Promise.resolve();
+    this.pendingAudioStart = false;
+    this.pendingAudioEnd = false;
+    this.connectionId = 0;
     this.gen = 0;
     this.reconnecting = false;
     this.failCount = 0;
@@ -61,7 +67,10 @@ export class GeminiLiveClient {
   async connect(existingHandle = null) {
     this.setupDone = false;
     this.ready = false;
-    if (existingHandle) this.resumptionHandle = existingHandle;
+    if (this.resumptionAt && Date.now() - this.resumptionAt >= 2 * 60 * 60 * 1000) {
+      this.resumptionHandle = null;
+      this.resumptionAt = 0;
+    } else if (existingHandle) this.resumptionHandle = existingHandle;
     const gen = ++this.gen;
     this.lastServerAt = Date.now();
     this.loudMs = 0;
@@ -151,20 +160,52 @@ export class GeminiLiveClient {
     return this.session;
   }
 
-  _maybeReady() {
+  async _maybeReady() {
     if (!this.session || !this.setupDone || this.ready) return;
     this.ready = true;
+    this.contextReady = false;
+    this.connectionId += 1;
+    const connectionId = this.connectionId;
     this.connectionRetries = 0;
     this.lastReconnectAt = 0;
     this.reconnecting = false;
     this.handlers.onStatus?.("connected");
-    const backlog = this.audioBacklog;
-    this.audioBacklog = [];
-    for (const chunk of backlog) this.sendAudio(chunk);
+    try {
+      await this.handlers.onReady?.(connectionId);
+    } catch (error) {
+      console.warn("[LIVE] page context failed", error);
+      this._stopForFailure("transient");
+      return;
+    }
+    if (!this.ready || !this.session || connectionId !== this.connectionId) return;
+    this._flushAudio();
     if (!this.hasOpenedOnce) {
       this.hasOpenedOnce = true;
       this.handlers.onFirstReady?.();
     }
+  }
+
+  _flushAudio() {
+    this.contextReady = true;
+    const backlog = this.audioBacklog;
+    this.audioBacklog = [];
+    if (this.pendingAudioStart) this._sendAudioStart();
+    for (const chunk of backlog) this.sendAudio(chunk);
+    if (this.pendingAudioEnd) this.endAudio();
+  }
+
+  async updateContext(sendContext) {
+    if (!this.ready || !this.contextReady || !this.session) return false;
+    const session = this.session;
+    this.contextReady = false;
+    try {
+      await sendContext();
+    } catch (error) {
+      void this._handleTransportError(error);
+      throw error;
+    }
+    if (this.session === session && this.ready) this._flushAudio();
+    return true;
   }
 
   _wait(ms) {
@@ -206,13 +247,28 @@ export class GeminiLiveClient {
     if (message.serverContent?.inputTranscription?.text) this.stats.heard += 1;
     if (message.sessionResumptionUpdate) {
       const u = message.sessionResumptionUpdate;
-      if (u.resumable && u.newHandle) this.resumptionHandle = u.newHandle;
+      if (u.resumable && u.newHandle) {
+        this.resumptionHandle = u.newHandle;
+        this.resumptionAt = Date.now();
+      }
     }
     if (message.goAway) {
       const secondsLeft = Number((message.goAway.timeLeft || "5").replace("s", "")) || 5;
       clearTimeout(this.goAwayTimer);
       this.goAwayTimer = setTimeout(() => this._handleTransportError({ message: "goaway", soft: true }), Math.max(500, (secondsLeft * 1000) / 2));
       return;
+    }
+    if (message.usageMetadata) {
+      const usage = message.usageMetadata;
+      this.handlers.onUsage?.({
+        at: new Date().toISOString(),
+        model: this.activeModel,
+        input: usage.promptTokenCount || 0,
+        output: usage.responseTokenCount || 0,
+        total: usage.totalTokenCount || 0,
+        inputDetails: usage.promptTokensDetails || [],
+        outputDetails: usage.responseTokensDetails || [],
+      });
     }
     const sc = message.serverContent;
     if (sc?.inputTranscription?.text) this.quietUntil = 0;
@@ -286,7 +342,9 @@ export class GeminiLiveClient {
         this.nudgeSentAt = now;
         console.warn("[LIVE] reader was heard but no reply - nudging");
         this.handlers.onStatus?.("thinking…");
-        try { this.session?.sendRealtimeInput({ audioStreamEnd: true }); } catch { /* ignore */ }
+        if (!this.baseConfig.realtimeInputConfig?.automaticActivityDetection?.disabled) {
+          void this._queueAudio({ audioStreamEnd: true });
+        }
       }
       if (this.nudgeSentAt && now - this.nudgeSentAt > 15000 && userIdleFor > 15000 && serverSilentFor > WATCH_SILENT_MS) {
         this.nudgeSentAt = 0;
@@ -321,6 +379,7 @@ export class GeminiLiveClient {
     try {
       if (this.upSince && Date.now() - this.upSince > STABLE_MS) this.connectionRetries = 0;
       const message = String(e?.message || e).toLowerCase();
+      if (/resume|invalid handle|expired handle/.test(message)) this.resumptionHandle = null;
       const unsupportedModel = /not found|not supported for bidi|does not exist|unknown model/.test(message);
       if (this.activeModel === this.modelName && this.fallbackModelName && (unsupportedModel || isModelUnavailable(e))) {
         this.activeModel = this.fallbackModelName;
@@ -403,30 +462,84 @@ export class GeminiLiveClient {
 
   async sendAudio(base64Pcm) {
     if (this.stopped) return;
-    if (!this.ready || !this.session) {
+    if (!this.ready || !this.contextReady || !this.session) {
       this.audioBacklog.push(base64Pcm);
-      if (this.audioBacklog.length > 100) this.audioBacklog.shift();
+      if (this.audioBacklog.length > 3000) {
+        this.audioBacklog = [];
+        this.pendingAudioEnd = false;
+        this.handlers.onNotice?.({ kind: "error", title: "Question was too long to buffer", detail: "Please ask again when the voice connection is ready." });
+      }
       return;
     }
-    try {
-      await this.session.sendRealtimeInput({ audio: { data: base64Pcm, mimeType: "audio/pcm;rate=16000" } });
-      this.stats.sent += 1;
-      this.failCount = 0;
-    } catch (err) {
-      this.stats.err = String(err?.message || err).slice(0, 80);
-      this.failCount += 1;
-      if (this.failCount >= 5 && !this.stopped) { this.failCount = 0; this._handleTransportError(err); }
-    }
+    return this._queueAudio({ audio: { data: base64Pcm, mimeType: "audio/pcm;rate=16000" } });
+  }
+
+  _queueAudio(input) {
+    const session = this.session;
+    this.audioSendChain = this.audioSendChain.then(async () => {
+      if (!this.ready || this.session !== session) return;
+      try {
+        await session.sendRealtimeInput(input);
+        if (input.audio) this.stats.sent += 1;
+        this.failCount = 0;
+      } catch (err) {
+        this.stats.err = String(err?.message || err).slice(0, 80);
+        this.failCount += 1;
+        if (this.failCount >= 5 || !input.audio) {
+          this.failCount = 0;
+          void this._handleTransportError(err);
+        }
+      }
+    });
+    return this.audioSendChain;
+  }
+
+  startAudio() {
+    if (this.stopped || !this.baseConfig.realtimeInputConfig?.automaticActivityDetection?.disabled) return;
+    this.pendingAudioStart = true;
+    this.pendingAudioEnd = false;
+    if (this.contextReady) this._sendAudioStart();
+  }
+
+  _sendAudioStart() {
+    if (!this.pendingAudioStart) return;
+    this.pendingAudioStart = false;
+    void this._queueAudio({ activityStart: {} });
   }
 
   async sendVideoFrame(base64Jpeg) {
-    if (this.stopped || !this.ready || !this.session) return;
-    try { await this.session.sendRealtimeInput({ video: { data: base64Jpeg, mimeType: "image/jpeg" } }); } catch { /* reconnect gap */ }
+    if (this.stopped || !this.ready || !this.session) throw new Error("voice_session_not_ready");
+    await this.session.sendRealtimeInput({ video: { data: base64Jpeg, mimeType: "image/jpeg" } });
   }
 
   async sendText(text) {
     if (this.stopped || !this.ready || !this.session) return;
     try { await this.session.sendRealtimeInput({ text }); } catch { /* reconnect gap */ }
+  }
+
+  async sendUserText(text) {
+    if (this.stopped || !this.ready || !this.session) throw new Error("voice_session_not_ready");
+    await this.session.sendRealtimeInput({ text });
+  }
+
+  async sendSilentContext(text) {
+    if (!this.session || !this.ready) throw new Error("voice_session_not_ready");
+    await this.session.sendClientContent({
+      turns: [{ role: "user", parts: [{ text }] }],
+      turnComplete: false,
+    });
+  }
+
+  endAudio() {
+    if (this.stopped) return;
+    if (!this.contextReady || !this.session) {
+      this.pendingAudioEnd = true;
+      return;
+    }
+    this.pendingAudioEnd = false;
+    this.pendingAudioStart = false;
+    void this._queueAudio(this.baseConfig.realtimeInputConfig?.automaticActivityDetection?.disabled
+      ? { activityEnd: {} } : { audioStreamEnd: true });
   }
 
   // Context-only note: any spoken reply the model produces to it is dropped
@@ -462,8 +575,18 @@ export class GeminiLiveClient {
     }
     this.gen += 1;
     this.ready = false;
+    this.contextReady = false;
     this.setupDone = false;
+    this.audioBacklog = [];
+    this.pendingAudioStart = false;
+    this.pendingAudioEnd = false;
     try { this.session?.close(); } catch { /* already closed */ }
     this.session = null;
+  }
+
+  async park() {
+    await this.close({ keepHandle: true });
+    releaseLiveLease(this.leaseId);
+    this.leaseId = "";
   }
 }

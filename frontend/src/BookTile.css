@@ -1,5 +1,5 @@
 .bk { min-width: 0; perspective: 800px; }
-.bk-tilt { --rx: 0deg; --ry: 0deg; --mx: 50%; --my: 30%; --lit: 0; position: relative; display: flex; flex-direction: column; height: 100%; overflow: hidden; border-radius: 22px; color: #fff; text-align: left; border: 1px solid rgba(255, 255, 255, .22);
+.bk-tilt { --rx: 0deg; --ry: 0deg; --mx: 50%; --my: 30%; --lit: 0; position: relative; display: flex; flex-direction: column; height: 100%; overflow: hidden; border-radius: 22px; color: #fff; text-align: left; cursor: pointer; border: 1px solid rgba(255, 255, 255, .22);
   background: linear-gradient(160deg, var(--c1), var(--c2));
   box-shadow: 0 18px 32px -16px color-mix(in srgb, var(--c1) 75%, transparent), 0 2px 0 rgba(255, 255, 255, .25) inset;
   transform: rotateX(var(--rx)) rotateY(var(--ry)); transition: transform .2s ease-out, box-shadow .2s ease-out; -webkit-tap-highlight-color: transparent; }

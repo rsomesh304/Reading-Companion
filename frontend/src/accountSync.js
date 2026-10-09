@@ -6,6 +6,7 @@ export const READER_DATA_KEYS = [
   "reading_companion_gems",
   "reading_companion_memory",
   "reading_companion_mascot",
+  "reading_companion_daily_usage",
 ];
 const MAX_SNAPSHOT_BYTES = 12 * 1024 * 1024;
 

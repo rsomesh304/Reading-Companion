@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, Bell, Bot, BookOpen, Brain, Bug, Cat, Check, Clock, Cloud, Download, Flame, Gem, History, Languages, Library, Link2,
+  AlertTriangle, Bell, Bot, BookOpen, Brain, Bug, Camera, Cat, Check, ChevronRight, Clock, Cloud, Download, Flame, Gem, History, Languages, Library, Link2,
   Lock, LogOut, Maximize2, MessageSquareText, Moon, Palette, PenLine, Play, Plus, RefreshCw, Route, ScanText, Save, Search, Send, Shuffle,
   Sparkles, Sprout, Sun, Trash2, TrendingUp, User, Volume2, Eye, ThumbsUp, Wrench, FlaskConical, Zap,
 } from "lucide-react";
@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { getHelpAnimation } from "./helpAnimations.js";
 
 const ICONS = {
-  AlertTriangle, Bell, Bot, BookOpen, Brain, Bug, Cat, Check, Clock, Cloud, Download, Flame, Gem, History, Languages, Library, Link2,
+  AlertTriangle, Bell, Bot, BookOpen, Brain, Bug, Camera, Cat, Check, ChevronRight, Clock, Cloud, Download, Flame, Gem, History, Languages, Library, Link2,
   Lock, LogOut, Maximize2, MessageSquareText, Moon, Palette, PenLine, Play, Plus, RefreshCw, Route, ScanText, Save, Search, Send, Shuffle,
   Sparkles, Sprout, Sun, Trash2, TrendingUp, User, Volume2, Eye, ThumbsUp, Wrench, FlaskConical, Zap,
 };

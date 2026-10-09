@@ -47,6 +47,10 @@ export default function GemStoryCard({ gem, author, onClose }) {
   const quote = String(gem?.quote || "").trim();
   const img = gem?.sketch && typeof gem.sketch === "object" ? gem.sketch.dataUrl : null;
   const hasChapter = Number.isFinite(Number(gem?.chapterNumber));
+  const savedAt = new Date(gem?.createdAt || "");
+  const savedAtLabel = Number.isNaN(savedAt.getTime())
+    ? ""
+    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(savedAt);
   const fileName = `${(gem?.bookTitle || "gem").replace(/\s+/g, "-").toLowerCase()}-story.png`;
 
   // fit the 1080x1920 card into the phone screen
@@ -135,6 +139,7 @@ export default function GemStoryCard({ gem, author, onClose }) {
                   {hasChapter && <span>Chapter {gem.chapterNumber}</span>}
                   <span>Saved gem</span>
                 </div>
+                {savedAtLabel && <div className="gsc-date">{savedAtLabel}</div>}
               </footer>
             </div>
           </div>

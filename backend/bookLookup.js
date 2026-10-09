@@ -383,7 +383,13 @@ export function normalizeToc(raw) {
     .filter((entry) => entry.title && entry.title.length <= 160);
   const top = rows.filter((entry) => entry.level === 0);
   const chosen = top.length >= 2 ? top : rows;
-  return chosen.slice(0, MAX_CHAPTERS).map((entry, index) => ({ number: index + 1, title: cleanChapterTitle(entry.title), startPage: entry.page }));
+  const chapters = chosen.slice(0, MAX_CHAPTERS);
+  return chapters.map((entry, index) => {
+    const nextPage = chapters[index + 1]?.page;
+    const chapter = { number: index + 1, title: cleanChapterTitle(entry.title), startPage: entry.page };
+    if (Number.isFinite(entry.page) && Number.isFinite(nextPage) && nextPage > entry.page) chapter.endPage = nextPage - 1;
+    return chapter;
+  });
 }
 
 // A table of contents is only trusted if it has at least two real entries.
@@ -441,7 +447,12 @@ export function validateImages(images, { maxCount = 6, maxBytesEach = 1_800_000 
   return out;
 }
 
-// Short author blurb from Wikipedia, only when the page clearly describes a writer.
+function authorBioText(value) {
+  const text = clean(typeof value === "string" ? value : value?.value);
+  return text.slice(0, 420);
+}
+
+// Prefer a verified Wikipedia extract, then an exact-name Open Library author record.
 export async function fetchAuthorBio(name, { fetchImpl = fetch } = {}) {
   const who = clean(name).slice(0, 80);
   if (!who) return "";
@@ -449,9 +460,24 @@ export async function fetchAuthorBio(name, { fetchImpl = fetch } = {}) {
     const json = await getJson(fetchImpl, `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(who.replace(/ /g, "_"))}?redirect=true`, { timeoutMs: 6000 });
     const text = clean(json?.extract);
     const hint = `${json?.description || ""} ${text}`;
-    if (json?.type !== "standard" || !/author|writer|novelist|poet|essayist|journalist|philosopher|psychologist|engineer|speaker|entrepreneur|scientist|historian|economist/i.test(hint)) return "";
-    const sentences = text.match(/[^.!?]+[.!?]+(?:\s|$)/g) || [text];
-    return sentences.slice(0, 3).join("").trim().slice(0, 420);
+    if (json?.type === "standard" && /author|writer|novelist|poet|essayist|journalist|philosopher|psychologist|engineer|speaker|entrepreneur|scientist|historian|economist/i.test(hint)) {
+      const sentences = text.match(/[^.!?]+[.!?]+(?:\s|$)/g) || [text];
+      const bio = sentences.slice(0, 3).join("").trim().slice(0, 420);
+      if (bio) return bio;
+    }
+  } catch {
+    // Try another public source when Wikipedia is unavailable or has no usable summary.
+  }
+  try {
+    const search = await getJson(fetchImpl, `https://openlibrary.org/search/authors.json?q=${encodeURIComponent(who)}&limit=5`, { timeoutMs: 6000 });
+    const wanted = who.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    const author = (search?.docs || []).find((entry) =>
+      clean(entry?.name).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() === wanted &&
+      typeof entry?.key === "string" && /^\/authors\/OL\d+A$/.test(entry.key)
+    );
+    if (!author) return "";
+    const record = await getJson(fetchImpl, `https://openlibrary.org${author.key}.json`, { timeoutMs: 6000 });
+    return authorBioText(record?.bio);
   } catch {
     return "";
   }

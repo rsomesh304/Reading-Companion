@@ -77,7 +77,7 @@ const BASE_HELP_GUIDE = [
     title: "Start a reading session",
     keywords: ["start reading", "reading session", "resume reading", "continue reading", "play button", "reading screen", "recap"],
     screen: "library",
-    content: "To start reading from **Library**, tap the **Play** icon on a book tile. That opens the recap card with **Skip**, **Hear the story** and **Start Reading**. **Start Reading** opens the live voice session. On **Home**, the **Continue reading** cards also reopen the recap for your recent books.",
+    content: "To start reading from **Library**, tap the **Play** icon on a book tile. That opens the recap card with **Skip**, **Hear the story** and **Start Reading**. **Start Reading** opens the live voice session. On **Home**, the **Continue reading** cards also reopen the recap for your recent books. A 30-minute daily session allowance is shared across your books; when it is used, the app explains the prototype limit and offers a contact link.",
   },
   {
     id: "add-book",
@@ -94,12 +94,19 @@ const BASE_HELP_GUIDE = [
     content: "In **Library**, tap **Add book** → **Search a book**. Type the title, pick the right edition, then the app works through **Finding the book**, **Getting author details**, **Fetching chapters**, and **Adding to your library**. If chapters are found, you can review, rename, remove or add chapters before **Add to library**. If chapters are missing, upload clear photos of the contents page and tap **Read contents**. If the public catalogue cannot find the book, or the book is already in your library, the flow tells you plainly and lets you switch to **Add manually**.",
   },
   {
+    id: "delete-restore-books",
+    title: "Delete and restore a book",
+    keywords: ["delete book", "remove book", "deleted books", "trash", "bin", "restore book", "permanently delete book"],
+    screen: "library",
+    content: "Tap the bin on a book tile and confirm to move the book to **Profile → Settings → Deleted books**. Open the separate **Deleted books** bin card to see the list. Its chapters, saved gems and conversation recap are kept with it. Choose **Restore** to bring them back, or permanently delete the archived book and related data after confirmation.",
+  },
+  {
     id: "library",
     title: "Library and book tiles",
     keywords: ["library", "book tile", "shelf", "author button", "delete book", "remove book", "progress ring", "last read", "book cover"],
     screen: "library",
     demo: "library",
-    content: "Each **Library** tile shows a stylised cover, a chapter progress ring, and the last read time. The tile itself opens that book’s chapter view. **Author** opens the author sheet, the **Play** icon opens the recap card, and the bin asks for confirmation before deleting the book, its chapters and its vocabulary.",
+    content: "Each **Library** tile shows a unique colour palette, the title you entered, a chapter progress ring, and the last read time. Tap anywhere on the tile to open that book’s chapter view; **Author**, **Play** and the bin remain separate controls. The bin asks for confirmation and moves the book to **Profile → Settings → Deleted books**, where you can restore it with its chapters, gems and conversation recap or permanently delete it.",
   },
   {
     id: "author",
@@ -135,31 +142,31 @@ const BASE_HELP_GUIDE = [
     keywords: ["reading screen", "session screen", "voice screen", "orb", "reading layout", "session overview", "dock overview"],
     screen: "library",
     demo: "dock",
-    content: "The reading screen is a live voice session with your companion. At the top is the chapter progress card with the book title, chapter path, timer and connection status. The centre orb reacts while someone is talking. Session chips show saved words, saved gems, current page snapshot number and whether the mic is muted. At the bottom are the reading controls, and your mascot button opens **Done in this session**.",
+    content: "The reading screen keeps your book, chapter, recent conversation and saved preferences in context. **Snap page** shares one still photo; when you turn the page, send a new snapshot. The previous image is replaced, but saved summaries and established story context remain available. The microphone stays open during the session: the companion gives its opening, then listens without interrupting ordinary reading aloud. Say **I’m going to read**, **I’m reading**, **mein padhne ja raha hoon**, or **don’t interrupt** for quiet reading; it keeps listening and answers when you say its name, greet it, or ask a clear question such as **iska matlab kya hai?** Follow-ups remain available after a reply. At the top is the chapter progress card with the timer; the centre orb responds while you ask or the companion speaks. Your mascot button opens **Done in this session**. Listening needs microphone permission, an active network connection and an available voice service.",
   },
   {
     id: "session-buttons",
     title: "Reading screen buttons",
-    keywords: ["reading buttons", "dock buttons", "session buttons", "mic button", "camera button", "snapshot button", "transcript button", "ghost button", "end session"],
+    keywords: ["reading buttons", "dock buttons", "session buttons", "mic button", "camera button", "snapshot button", "transcript button", "ghost button", "end session", "tap to ask", "hands-free", "ask by typing"],
     screen: "library",
     demo: "dock",
-    content: "The bottom dock buttons are **Mic**, **Camera**, **Page snapshot**, **Transcript**, **Ghost**, and **End session**. **Mic** mutes or unmutes you. **Camera** opens or closes the live camera. **Page snapshot** sends one still page image. **Transcript** opens the conversation drawer. **Ghost** toggles Author’s Ghost Mode. The red phone ends the session.",
+    content: "The bottom dock has the mic button (**Ask a question** / **Stop asking**), **Page snapshot**, **Transcript**, **Ghost**, and **End session**. **Snap page** and **Next page** share or replace the current photo. **Transcript** shows the conversation and **Re-sync**. **Ghost** toggles Author’s Ghost Mode.",
   },
   {
     id: "session-mic",
     title: "Microphone and talking",
-    keywords: ["mic", "microphone", "mute", "unmute", "muted", "voice permission", "hear me"],
+    keywords: ["mic", "microphone", "mute", "unmute", "muted", "voice permission", "hear me", "automatic listening", "auto-listening", "wake word", "wake-up", "companion name"],
     screen: "library",
     demo: "dock",
-    content: "You can talk naturally during a reading session. Tap **Mic** to mute or unmute yourself. When muted, the screen shows a **Muted** chip and the companion stops listening. If the browser or phone blocks the mic, allow microphone permission in your device or browser settings and reopen the session.",
+    content: "The microphone stays open during the active reading session, rather than relying on a browser’s on-device wake-word feature or a separate clip-classification request. After the short welcome, the companion listens continuously but should not interrupt ordinary reading aloud. Say **I’m going to read**, **mein padhne ja raha hoon**, or **don’t interrupt** to enter quiet-reading mode. It keeps listening; say your companion’s name, **hello**, or ask a clear question (for example, **explain this** or **achha iska matlab kya hai**) to get a response. The mic button can still be used to mute or directly open a question. Voice depends on microphone permission, internet access, browser foreground/background behavior and Gemini availability; always-on streaming may use more battery and cannot guarantee lock-screen operation.",
   },
   {
     id: "camera-options",
-    title: "Live camera vs page snapshot",
-    keywords: ["camera", "live camera", "page snapshot", "snapshot", "adjust camera", "restore compact", "next page", "dark photo", "blurry photo"],
+    title: "Snap a page",
+    keywords: ["camera", "live camera", "page snapshot", "snapshot", "adjust camera", "restore compact", "next page", "page turn", "story context", "previous page context", "dark photo", "blurry photo"],
     screen: "library",
     demo: "camera",
-    content: "Use **Camera** for a live rear-camera view of the page. The compact preview can switch between **Adjust camera** and **Restore compact**. Use **Page snapshot** for one still image, then tap **Next page** when you move on. A snapshot closes the live camera, and reopening the live camera clears the snapshot. Dark photos are rejected and blurry photos trigger warnings.",
+    content: "Optionally enter the printed page number, then use **Snap page** or the **Page snapshot** button to photograph the current page. Only the latest photo is kept locally on this phone; when you turn the page, send a new snapshot to replace it. The companion receives the current photo as context for your question. Earlier photos are not retained, but saved chapter summaries, conversation context and established story facts remain available so the discussion can continue across pages. There is no live camera video. If you mention an ambiguous word, say the word or read the line aloud. Dark photos are rejected and blurry photos trigger warnings.",
   },
   {
     id: "session-transcript",
@@ -205,7 +212,7 @@ const BASE_HELP_GUIDE = [
     title: "What the companion can do",
     keywords: ["voice commands", "what can i say", "companion commands", "save this line", "remember this", "rename chapter", "set author", "delete by voice"],
     screen: "library",
-    content: "During reading, you can ask the companion to explain words or lines, save a word, **save this line**, remember a preference, move chapters, rename a chapter, set chapter pages or outlines, mark a chapter complete, set the book’s author, list saved items, or delete a gem, memory, word or chapter with confirmation. You can also ask it to open or close the camera.",
+    content: "During voice reading, you can ask the companion to explain words or lines, save a word, **save this line**, remember a preference, move chapters, rename a chapter, set chapter pages or outlines, mark a chapter complete, set the book’s author, list saved items, or delete a gem, memory, word or chapter with confirmation. Share a new snapshot if you turn the page.",
   },
   {
     id: "vocabulary",
@@ -292,17 +299,24 @@ const BASE_HELP_GUIDE = [
   {
     id: "settings",
     title: "Settings",
-    keywords: ["settings", "your name", "companion name", "daily reading goal", "appearance", "theme", "voice", "preview this voice", "notifications"],
+    keywords: ["settings", "your name", "companion name", "daily reading goal", "appearance", "theme", "voice", "preview this voice", "notifications", "reading limit", "30 minutes"],
     screen: "settings",
     demo: "settings",
-    content: "Open **Profile** → **Settings**. **You & your companion** lets you edit your name, your companion’s name, and the **Daily reading goal**. **Appearance** switches between **Light** and **Dark**. **Voice** lets you pick a companion voice and use **Preview this voice**. **Notifications** contains **App updates & announcements** and **Smart study reminders**.",
+    content: "Open **Profile** → **Settings**. **You & your companion** lets you edit your name, your companion’s name, and the **Daily reading goal**. **Appearance** switches between **Light** and **Dark**. **Voice** lets you pick a companion voice and use **Preview this voice**. **Notifications** contains **App updates & announcements** and **Smart study reminders**. **Reading limit** explains the prototype’s 30-minute daily allowance and includes a developer contact link.",
+  },
+  {
+    id: "daily-reading-limit",
+    title: "Daily reading allowance",
+    keywords: ["30 minutes", "30 minute limit", "daily reading limit", "session cap", "reading allowance", "prototype limit", "extend the limit"],
+    screen: "settings",
+    content: "Each signed-in account has a server-tracked daily reading allowance, set to **30 minutes by default** and shared across the account’s devices. The current limit and remaining time appear in **Profile → Settings → Reading limit**. When it runs out, the session ends and the app explains that the prototype limit helps manage shared AI capacity. Use **Contact developer** to request an adjustment; only a developer/admin can change an account’s allowance.",
   },
   {
     id: "settings-data",
     title: "Privacy, storage, backup and delete data",
-    keywords: ["privacy", "storage used", "clear conversation history", "clear saved preferences", "delete all gems", "export backup", "restore", "delete all my data"],
+    keywords: ["privacy", "storage used", "clear conversation history", "clear saved preferences", "delete all gems", "export backup", "restore", "delete all my data", "deleted books", "trash bin", "restore a book"],
     screen: "settings",
-    content: "In **Settings**, **Privacy & storage** shows a note about what stays on your device and what is sent to Google Gemini during live reading, plus a **Storage used** meter. You can use **Clear conversation history**, **Clear saved preferences**, and **Delete all gems**. **Backup** offers **Export backup** and **Restore**. In **Danger zone**, **Delete all my data** erases books, gems, memory and profile after confirmation.",
+    content: "In **Settings**, **Privacy & storage** shows what stays on your device and what is sent to Google Gemini during reading, plus a **Storage used** meter. You can use **Clear conversation history**, **Clear saved preferences**, and **Delete all gems**. Open the **Deleted books** card to visit the separate bin page; archived books keep their chapters, linked gems and conversation recaps until restored or permanently deleted. **Reading limit** shows your account’s configured daily allowance. **Backup** offers **Export backup** and **Restore**. In **Danger zone**, **Delete all my data** erases books, gems, memory and profile after confirmation.",
   },
   {
     id: "notifications",
@@ -345,7 +359,7 @@ const BASE_HELP_GUIDE = [
     title: "Troubleshooting reading, mic, camera and connection problems",
     keywords: ["offline", "reconnecting", "getting ready", "mic not working", "camera not working", "permission", "service notice", "retry connection"],
     screen: "report",
-    content: "Reading sessions need internet and working mic permissions. If the status stays on **Offline** or **Reconnecting**, end the session and reopen it. For microphone or camera trouble, allow permission in your device or browser settings. If a response went off-topic, use **Re-sync** in **Transcript**. If the problem keeps happening, send a report from **Profile** → **Report an issue**.",
+    content: "Voice reading needs internet and mic permission. If the connection fails, use **Ask by typing**; text replies cannot save or edit items. For mic or snapshot trouble, allow permission in device settings and try a new page photo. If a response went off-topic, use **Re-sync** in **Transcript**. If the problem keeps happening, report it from **Profile** → **Report an issue**.",
   },
   {
     id: "about",
@@ -457,8 +471,8 @@ export function getRelevantHelp(query) {
 const HELP_GUIDE_TAGLINE = "If you want, you can always ask **Help & guide** about the next step too.";
 
 const SHORT_ANSWERS = {
-  "camera-options": "1. **Camera** keeps a live rear-camera view of the page, and **Adjust camera** / **Restore compact** change the preview size.\n2. **Page snapshot** sends one still photo and gives you **Next page** when you move on.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
-  "session-buttons": "1. The reading dock has **Mic**, **Camera**, **Page snapshot**, **Transcript**, **Ghost**, and the red **End session** button.\n2. **Transcript** also gives you **Re-sync** if the reply went off-topic.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
+  "camera-options": "1. **Snap page** or **Page snapshot** sends one still photo. When you turn the page, send a new snapshot; it replaces the old image, not the saved story context.\n2. The companion uses the latest photo with your question. There is no live camera video; earlier page images are not retained.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
+  "session-buttons": "1. Use **Snap page**, **Tap to ask** / **Done speaking**, optional **Hands-free**, or **Ask by typing** above the reading dock.\n2. The dock has **Mic**, **Page snapshot**, **Transcript**, **Ghost** and **End session**; Transcript includes **Re-sync**.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
   "ghost-mode": "1. Turn on **Ghost** in the reading dock to hear ideas through the author’s themes and perspective.\n2. It works best after you have set the author for that book in **Library**.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
   "story-recap": "1. Tap the **Play** icon on a **Library** book tile to open the recap card, then use **Hear the story** beside **Start Reading**.\n2. Story theatre gives you **Pause**, **Captions**, **Mute**, **Replay**, and a final **Padhna shuru karo** button.\n\nIf you want, you can always ask **Help & guide** about the next step too.",
 };
